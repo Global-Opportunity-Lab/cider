@@ -1,6 +1,3 @@
-# TODO
-# Tests for: Filter dates, deduplicate, remove spammers, diagnostic statistics, filter outlier days
-
 from utils import *
 from plot_utils import *
 from cbio import *
@@ -207,12 +204,14 @@ class Featurizer:
         self.cdr = self.cdr.where(~col('caller_id').isin(self.spammers))
         self.cdr = self.cdr.where(~col('recipient_id').isin(self.spammers))
         if self.topups is not None:
-            self.topups = self.topups.where(~col('subscriber_id').isin(self.spammers))
+            self.topups = self.topups.where(~col('caller_id').isin(self.spammers))
         if self.mobiledata is not None:
-            self.mobiledata = self.mobiledata.where(~col('subscriber_id').isin(self.spammers))
+            self.mobiledata = self.mobiledata.where(~col('caller_id').isin(self.spammers))
         if self.mobilemoney is not None:
-            self.mobilemoney = self.mobilemoney.where(~col('sender').isin(self.spammers))
-            self.mobilemoney = self.mobilemoney.where(~col('recipient').isin(self.spammers))
+            self.mobilemoney = self.mobilemoney.where(~col('caller_id').isin(self.spammers))
+            self.mobilemoney = self.mobilemoney.where(~col('recipient_id').isin(self.spammers))
+        
+        return self.spammers
         
     def filter_outlier_days(self, num_sds=2):
 
@@ -247,6 +246,40 @@ class Featurizer:
                 if self.get_attr(df_name) is not None:
                     self.set_attr(df_name, self.get_attr(df_name)\
                         .where((col('timestamp') < outlier) | (col('timestamp') >= outlier + pd.Timedelta(days=1))))
+        
+        return outliers
+
+    def cdr_features(self):
+
+        # Write parquet file in bandicoot format
+        cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'duration', 'caller_antenna', 'recipient_antenna']
+
+        outgoing = self.cdr.select(cols)\
+            .withColumnRenamed('txn_type', 'interaction')\
+            .withColumnRenamed('caller_id', 'name')\
+            .withColumnRenamed('recipient_id', 'correspondent_id')\
+            .withColumnRenamed('timestamp', 'datetime')\
+            .withColumnRenamed('duration', 'call_duration')\
+            .withColumnRenamed('caller_antenna', 'antenna_id')\
+            .withColumn('direction', lit('out'))\
+            .drop('recipient_antenna')
+
+        incoming = df.select(cols)\
+            .withColumnRenamed('txn_type', 'interaction')\
+            .withColumnRenamed('recipient_id', 'name')\
+            .withColumnRenamed('caller_id', 'correspondent_id')\
+            .withColumnRenamed('timestamp', 'datetime')\
+            .withColumnRenamed('duration', 'call_duration')\
+            .withColumnRenamed('recipient_antenna', 'antenna_id')\
+            .withColumn('direction', lit('in'))\
+            .drop('caller_antenna')
+
+        records = outgoing.select(incoming.columns).union(incoming)\
+            .withColumn('call_duration', col('call_duration').cast(IntegerType()))\
+            .na.fill({'call_duration':'', 'correspondent_id':'', 'antenna_id':''} )
+    
+        save_parquet(records, wd + '/datasets/bandicoot_parquet')
+
 
         
 
