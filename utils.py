@@ -4,6 +4,7 @@ import datetime
 import json
 import pandas as pd
 import shutil
+from multiprocessing import Pool
 import pyspark
 from pyspark.sql.types import *
 from pyspark.sql.functions import *
@@ -17,8 +18,10 @@ def get_spark_session():
     spark = SparkSession \
         .builder \
         .appName("mm") \
+        .config("spark.sql.files.maxPartitionBytes", 64 * 1024 * 1024) \
+        .config("spark.driver.memory", '50g') \
+        .config("spark.driver.maxResultSize", "2g")\
         .getOrCreate()
-    # Change logging to just error messages
     spark.sparkContext.setLogLevel("ERROR")
     return spark
 
@@ -50,3 +53,66 @@ def make_dir(fname):
     if os.path.isdir(fname):
         shutil.rmtree(fname)
     os.mkdir(fname)
+
+def flatten_lst(lst):
+    return  [item for sublist in lst for item in sublist]
+
+def flatten_folder(args):
+    ids, recs_folder = args
+    unmatched = []
+    for p in ids:
+        try:
+            fname = 'name=' + p
+            os.system('mv ' + recs_folder + '/' + fname + '/*.csv ' + recs_folder + '/' + p + '.csv')
+        except:
+            unmatched = unmatched + [p]
+    return unmatched
+
+def cdr_bandicoot_format(cdr, antennas):
+
+    cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'duration', 'caller_antenna', 'recipient_antenna']
+
+    outgoing = cdr.select(cols)\
+        .withColumnRenamed('txn_type', 'interaction')\
+        .withColumnRenamed('caller_id', 'name')\
+        .withColumnRenamed('recipient_id', 'correspondent_id')\
+        .withColumnRenamed('timestamp', 'datetime')\
+        .withColumnRenamed('duration', 'call_duration')\
+        .withColumnRenamed('caller_antenna', 'antenna_id')\
+        .withColumn('direction', lit('out'))\
+        .drop('recipient_antenna')
+
+    incoming = cdr.select(cols)\
+        .withColumnRenamed('txn_type', 'interaction')\
+        .withColumnRenamed('recipient_id', 'name')\
+        .withColumnRenamed('caller_id', 'correspondent_id')\
+        .withColumnRenamed('timestamp', 'datetime')\
+        .withColumnRenamed('duration', 'call_duration')\
+        .withColumnRenamed('recipient_antenna', 'antenna_id')\
+        .withColumn('direction', lit('in'))\
+        .drop('caller_antenna')
+
+    cdr_bandicoot = outgoing.select(incoming.columns).union(incoming)\
+        .withColumn('call_duration', col('call_duration').cast(IntegerType()).cast(StringType()))\
+        .withColumn('datetime', date_format(col('datetime'), 'yyyy-MM-dd HH:mm:ss'))
+    
+    if antennas is not None:
+        cdr_bandicoot = cdr_bandicoot.join(antennas.select(['antenna_id', 'latitude', 'longitude']), on='antenna_id', how='left')
+    
+    cdr_bandicoot = cdr_bandicoot.na.fill('')
+    
+    return cdr_bandicoot
+
+def long_join_pandas(dfs, on, how):
+    
+    df = dfs[0]
+    for i in range(1, len(dfs)):
+        df = df.merge(dfs[i], on=on, how=how)
+    return df
+
+def long_join_pyspark(dfs, on, how):
+    
+    df = dfs[0]
+    for i in range(1, len(dfs)):
+        df = df.join(dfs[i], on=on, how=how)
+    return df

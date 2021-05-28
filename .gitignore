@@ -5,6 +5,18 @@ __pycache__/
 
 # C extensions
 *.so
+*.crc
+*.parquet
+*.csv
+*/*.crc
+*/*.parquet
+*/*.csv
+*/*/*.crc
+*/*/*.parquet
+*/*/*.csv
+*/*/*/*.crc
+*/*/*/*.parquet
+*/*/*/*.csv
 
 # Distribution / packaging
 .Python

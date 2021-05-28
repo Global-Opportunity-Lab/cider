@@ -1,4 +1,5 @@
 from utils import *
+import geopandas as gpd
 
 def load_generic(fname=None, df=None):
 	spark = get_spark_session()
@@ -46,8 +47,8 @@ def load_cdr(fname=None, df=None, verify=True):
 		check_cols(cdr, required_cols, error_msg)
 
 		# Check txn_type column
-		error_msg = 'CDR format incorrect. Column txn_type can only include voice and sms.'
-		check_colvalues(cdr, 'txn_type', ['voice', 'sms'], error_msg)
+		error_msg = 'CDR format incorrect. Column txn_type can only include call and text.'
+		check_colvalues(cdr, 'txn_type', ['call', 'text'], error_msg)
 		
 		# Clean international column
 		error_msg = 'CDR format incorrect. Column international can only include domestic, international, and other.'
@@ -62,19 +63,36 @@ def load_cdr(fname=None, df=None, verify=True):
 	
 	return cdr
 
-def load_topups(fname=None, df=None, verify=True):
+def load_antennas(fname=None, df=None, verify=True):
 	spark = get_spark_session()
 
-	topups = load_generic(fname=fname, df=df)
+	antennas = load_generic(fname=fname, df=df)
+
+	if verify:
+
+		required_cols = ['antenna_id', 'latitude', 'longitude']
+		error_msg = 'Antenna format incorrect. Antenna dataset must include the following columns: ' + ', '.join(required_cols)
+		check_cols(antennas, required_cols, error_msg)
+
+		antennas = antennas.withColumn('latitude', col('latitude').cast('float')).withColumn('longitude', col('longitude').cast('float'))
+		print('Warning: %i antennas missing location' % (antennas.count() - antennas.select(['latitude', 'longitude']).na.drop().count()))
+	
+	return antennas
+
+
+def load_recharges(fname=None, df=None, verify=True):
+	spark = get_spark_session()
+
+	recharges = load_generic(fname=fname, df=df)
 		
 	# Clean timestamp column
-	topups = topups.withColumn('timestamp', to_timestamp(topups['timestamp'], 'yyyy-MM-dd HH:mm:ss'))\
+	recharges = recharges.withColumn('timestamp', to_timestamp(recharges['timestamp'], 'yyyy-MM-dd HH:mm:ss'))\
 		.withColumn('day', date_trunc('day', col('timestamp')))
 		
 	# Clean duration column
-	topups = topups.withColumn('amount', col('amount').cast('float'))
+	recharges = recharges.withColumn('amount', col('amount').cast('float'))
 		
-	return topups
+	return recharges
 
 def load_mobiledata(fname=None, df=None, verify=True):
 	spark = get_spark_session()
@@ -121,3 +139,14 @@ def load_mobilemoney(fname=None, df=None, verify=True):
 			mobilemoney = mobilemoney.withColumn(c, col(c).cast('float'))
 	
 	return mobilemoney
+
+def load_shapefile(fname):
+
+	shapefile = gpd.read_file(fname) 
+
+	# Verify that columns are correct
+	required_cols = ['region', 'geometry']
+	error_msg = 'Shapefile format incorrect. Shapefile must include the following columns: ' +  ', '.join(required_cols)
+	check_cols(shapefile, required_cols, error_msg)
+
+	return shapefile
