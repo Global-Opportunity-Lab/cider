@@ -3,6 +3,8 @@ from utils import *
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import seaborn as sns
+import geopandas as gpd
+import geovoronoi
 
 sns.set(font_scale=2, style='white')
 
@@ -40,3 +42,32 @@ def dates_xaxis(ax, frequency):
 
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(format)
+
+def distributions_plot(df, features, names, color='indianred'):
+    
+    fig, ax = plt.subplots(1, len(features), figsize=(20, 5))
+    for a in range(len(features)):
+        sns.kdeplot(df.select(features[a]).rdd.map(lambda r: r[0]).collect(), ax=ax[a], shade=True, color=color)
+        if a == 0:
+            ax[a].set_ylabel('Density')
+        ax[a].set_title(names[a])
+        clean_plot(ax[a])
+    plt.tight_layout()
+
+def voronoi_tessellation(points, shapefile, key='tower_id'):
+    
+    points = points[[key, 'latitude', 'longitude']].drop_duplicates().dropna()
+    if not len(points[['latitude', 'longitude']].drop_duplicates()) == len(points[key]):
+        raise ValueError('Latitude/longitude coordinates must be unique')
+    
+    coords = points[['longitude', 'latitude']].values
+    labels = points[key].values
+
+    shapefile['nation'] = 1
+    shapefile = shapefile.dissolve(by='nation')['geometry'].values[0]
+
+    voronoi = geovoronoi.voronoi_regions_from_coords(coords, shapefile)
+    voronoi = gpd.GeoDataFrame([voronoi[0], [labels[i] for i in flatten_lst(voronoi[2])]]).T
+    voronoi.columns = ['geometry', key]
+    voronoi['geometry'] = voronoi['geometry'].convex_hull
+    return voronoi

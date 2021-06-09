@@ -1,10 +1,6 @@
 # TODO: 
-# Improve efficiency of mobile money aggregations
-# Plots
 # Tests
-# Combine features together, fix up column naming
 
-from typing import cast
 from utils import *
 from plot_utils import *
 from cbio import *
@@ -13,16 +9,19 @@ import bandicoot as bc
 class Featurizer:
 
     def __init__(self, wd, cdr_fname=None, antennas_fname=None, recharges_fname=None, mobiledata_fname=None, mobilemoney_fname=None, 
-    shapefiles=[], interim_write=True):
+    shapefiles={}):
 
         # Prepare working directory
         self.wd = wd
-        self.interim_write = interim_write
-        self.features = {}
+        self.features = {'cdr':None, 'international':None, 'recharges':None, 'location':None, 'mobiledata':None, 'mobilemoney':None}
         make_dir(wd)
         make_dir(wd + '/tables')
         make_dir(wd + '/datasets')
         make_dir(wd + '/plots')
+
+        # Spark setup
+        spark = get_spark_session()
+        self.spark = spark
 
         # Load CDR data 
         self.cdr_fname = cdr_fname
@@ -40,7 +39,7 @@ class Featurizer:
             print('Loading antennas...')
             self.antennas = load_antennas(antennas_fname)
         else:
-            self.cdr = None
+            self.antennas = None
 
         # Load recharges data
         self.recharges_fname=recharges_fname
@@ -284,8 +283,6 @@ class Featurizer:
 
     def cdr_features(self, bc_chunksize=500000, bc_processes=55):
 
-        spark = get_spark_session()
-
         # Check that CDR is present to calculate international features
         if self.cdr is None:
             raise ValueError('CDR file must be loaded to calculate CDR features.')
@@ -323,7 +320,7 @@ class Featurizer:
             make_dir(bc_folder)
 
             # Get records for this chunk and write out to csv files per person
-            nums_spark = spark.createDataFrame(chunk, StringType()).withColumnRenamed('value', 'name')
+            nums_spark = self.spark.createDataFrame(chunk, StringType()).withColumnRenamed('value', 'name')
             matched_chunk = self.cdr_bandicoot.join(nums_spark, on='name', how='inner')
             matched_chunk.repartition('name').write.partitionBy('name').mode('append').format('csv').save(recs_folder, header=True)
 
@@ -348,8 +345,8 @@ class Featurizer:
                 return ['index: ' + str(index)]
 
             # Run calculations and writing of bandicoot features in parallel
-            feature_df = spark.sparkContext.emptyRDD()
-            subscriber_rdd = spark.sparkContext.parallelize(chunk)
+            feature_df = self.spark.sparkContext.emptyRDD()
+            subscriber_rdd = self.spark.sparkContext.parallelize(chunk)
             features = subscriber_rdd.mapPartitions(lambda s: [get_bc(sub) for sub in s if os.path.isfile(recs_folder + '/' + sub + '.csv')])
             feature_df = feature_df.union(features)
             out = feature_df.coalesce(bc_processes).mapPartitionsWithIndex(write_bc)
@@ -357,17 +354,13 @@ class Featurizer:
             start = start + bc_chunksize
         
         # Combine all bandicoot features into a single file, fix column names, and write to disk
-        cdr_features = spark.read.csv(self.wd + '/datasets/bandicoot_features/*/*', header=True)
+        cdr_features = self.spark.read.csv(self.wd + '/datasets/bandicoot_features/*/*', header=True)
         cdr_features = cdr_features.select([col for col in cdr_features.columns if ('reporting' not in col) or (col == 'reporting__number_of_records')])
         cdr_features = cdr_features.toDF(*[c if c == 'name' else 'cdr_' + c for c in cdr_features.columns])
         save_df(cdr_features, self.wd + '/datasets/bandicoot_features/all.csv')
-        self.features['cdr'] = cdr_features
-        
-
+        self.features['cdr'] = self.spark.read.csv(self.wd + '/datasets/bandicoot_features/all.csv', header=True)
 
     def international_features(self):
-
-        spark = get_spark_session()
 
         # Check that CDR is present to calculate international features
         if self.cdr is None:
@@ -401,13 +394,10 @@ class Featurizer:
         feats['name'] = feats.index
         feats.columns = [c if c == 'name' else 'international_' + c for c in feats.columns]
         feats.to_csv(self.wd + '/datasets/international_feats.csv', index=False)
-        feats = spark.createDataFrame(feats)
-        self.features['international'] = feats
+        self.features['international'] = self.spark.read.csv(self.wd + '/datasets/international_feats.csv', header=True)
 
     
     def location_features(self):
-
-        spark = get_spark_session()
 
         # Check that antennas and CDR are present to calculate spatial features
         if self.cdr is None:
@@ -427,7 +417,7 @@ class Featurizer:
             shapefile = self.shapefiles[shapefile_name].rename({'region':shapefile_name}, axis=1)
             antennas = gpd.sjoin(antennas, shapefile, op='within', how='left').drop('index_right', axis=1)
             antennas[shapefile_name] = antennas[shapefile_name].fillna('Unknown')
-        antennas = spark.createDataFrame(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''))
+        antennas = self.spark.createDataFrame(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''))
         
         # Merge CDR to antennas
         cdr = self.cdr_bandicoot.join(antennas, on='antenna_id', how='left')\
@@ -467,7 +457,7 @@ class Featurizer:
         feats = count_by_region.merge(unique_regions, on='name', how='outer')
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
         feats.to_csv(self.wd + '/datasets/location_features.csv', index=False)
-        self.features['location'] = spark.createDataFrame(feats)
+        self.features['location'] = self.spark.read.csv(self.wd + '/datasets/location_features.csv', header=True)
         
 
     def mobiledata_features(self):
@@ -487,14 +477,12 @@ class Featurizer:
                                                         count('volume').alias('num_transactions'))
 
         # Save to file
-        feats = feats.withColumnRenamed('caller_id', 'name')\
-            .toDF(*[c if c == 'name' else 'mobiledata_' + c for c in feats.columns])
+        feats = feats.withColumnRenamed('caller_id', 'name')
+        feats = feats.toDF(*[c if c == 'name' else 'mobiledata_' + c for c in feats.columns])
         self.features['mobiledata'] = feats
         save_df(feats, self.wd + '/datasets/mobiledata_feats.csv')
 
     def mobilemoney_features(self):
-
-        spark = get_spark_session()
 
         # Check that mobile money is loaded
         if self.mobilemoney is None:
@@ -523,38 +511,39 @@ class Featurizer:
         cols = ['txn_type', 'name', 'correspondent_id', 'balance_before', 'balance_after', 'day', 'amount', 'direction']
         mm = outgoing.select(incoming.columns).union(incoming)
         save_parquet(mm, self.wd + '/datasets/mobilemoney')
-        mm = spark.read.parquet(self.wd + '/datasets/mobilemoney')
+        mm = self.spark.read.parquet(self.wd + '/datasets/mobilemoney')
         outgoing = mm.where(col('direction') == 'out')
         incoming = mm.where(col('direction') == 'in')
 
         # Get mobile money features
         features = []
         for dfname, df in [('all', mm), ('incoming', incoming), ('outgoing', outgoing)]:
-            for txn_type in mm.select('txn_type').distinct().rdd.map(lambda r: r[0]).collect():
+            for txn_type in ['all'] + mm.select('txn_type').distinct().rdd.map(lambda r: r[0]).collect():
 
                 # Filter if restricting to certain transaction type
+                df_filtered = df
                 if txn_type != 'all':
                     df_filtered = df.where(col('txn_type') == txn_type)
 
-                # Aggregate columns relating to amount (amount, balance before, balance after) with min, median, and max
-                for c in ['amount', 'balance_before', 'balance_after']:
-                    colname_tag = dfname + '_' + txn_type + '_' + c + '_'
-                    amount_aggs = df_filtered.groupby('name').agg(mean(c).alias(colname_tag + 'mean'), 
-                                                                min(c).alias(colname_tag + 'min'), 
-                                                                max(c).alias(colname_tag + 'max'))
-                    features.append(amount_aggs)
-
-                # Aggregate columns relating to count (number of transactions and number of distinct contacts)
-                colname_tag = dfname + '_' + txn_type + '_'
-                count_aggs = df_filtered.groupby('name').agg(count('correspondent_id').alias(colname_tag + 'txns'), 
-                                                    countDistinct('correspondent_id').alias(colname_tag + 'contacts'))
-                features.append(count_aggs)
+                aggs = df_filtered.groupby('name').agg(mean('amount').alias(dfname + '_' + txn_type + '_' + 'amount_mean'),
+                                                        min('amount').alias(dfname + '_' + txn_type + '_' + 'amount_min'),
+                                                        max('amount').alias(dfname + '_' + txn_type + '_' + 'amount_max'),
+                                                        mean('balance_before').alias(dfname + '_' + txn_type + '_balance_before_mean'),
+                                                        min('balance_before').alias(dfname + '_' + txn_type + '_balance_before_min'),
+                                                        max('balance_before').alias(dfname + '_' + txn_type + '_balance_before_max'),
+                                                        mean('balance_after').alias(dfname + '_' + txn_type + '_balance_after_mean'),
+                                                        min('balance_after').alias(dfname + '_' + txn_type + '_balance_after_min'),
+                                                        max('balance_after').alias(dfname + '_' + txn_type + '_balance_after_max'),
+                                                        count('correspondent_id').alias(dfname + '_' + txn_type + '_txns'),
+                                                        countDistinct('correspondent_id').alias(dfname + '_' + txn_type + '_contacts'))
+                
+                features.append(aggs)
 
         # Combine all mobile money features together and save them
         feats = long_join_pyspark(features, on='name', how='outer')
         feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
-        self.features['mobilemoney'] = feats
         save_df(feats, self.wd + '/datasets/mobilemoney_feats.csv')
+        self.features['mobilemoney'] = self.spark.read.csv(self.wd + '/datasets/mobilemoney_feats.csv', header=True)
 
     
     def recharges_features(self):
@@ -563,27 +552,155 @@ class Featurizer:
             raise ValueError('Recharges file must be loaded to calculate recharges features.')
         print('Calculating recharges features...')
 
-        feats = self.recharges.groupby('caller_id').agg(sum('amount').alias('recharges_sum'),
-                                                        mean('amount').alias('recharges_mean'),
-                                                        min('amount').alias('recharges_min'),
-                                                        max('amount').alias('recharges_max'),
-                                                        count('amount').alias('recharges_count'),
-                                                        countDistinct('day').alias('recharges_days'))
+        feats = self.recharges.groupby('caller_id').agg(sum('amount').alias('sum'),
+                                                        mean('amount').alias('mean'),
+                                                        min('amount').alias('min'),
+                                                        max('amount').alias('max'),
+                                                        count('amount').alias('count'),
+                                                        countDistinct('day').alias('days'))
 
-        feats = feats.withColumnRenamed('caller_id', 'name')\
-            .toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
-        self.features['recharges'] = feats
+        feats = feats.withColumnRenamed('caller_id', 'name')
+        feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
         save_df(feats, self.wd + '/datasets/recharges_feats.csv')
+        self.features['recharges'] = self.spark.read.csv(self.wd + '/datasets/recharges_feats.csv', header=True)
 
 
     def all_features(self):
 
         all_features = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         all_features = long_join_pyspark(all_features, how='left', on='name')
-        save_df(all_features, self.wd + '/dataset/features.csv')
+        save_df(all_features, self.wd + '/datasets/features.csv')
+        self.features['all'] = self.spark.read.csv(self.wd + '/datasets/features.csv', header=True)
+
+    
+    def feature_plots(self):
+
+        # Plot of distributions of CDR features
+        if self.features['cdr'] is not None:
+            features = ['cdr_active_days__allweek__day__callandtext',  'cdr_call_duration__allweek__allday__call__mean', 'cdr_number_of_antennas__allweek__allday']
+            names = ['Active Days', 'Mean Call Duration', 'Number of Antennas']
+            distributions_plot(self.features['cdr'], features, names, color='indianred')
+            plt.savefig(self.wd + '/plots/cdr.png', dpi=300)
+            plt.show()
+
+        # Plot of distributions of international features
+        if self.features['international'] is not None:
+            features = ['international_all__recipient_id__count', 'international_all__recipient_id__nunique', 'international_call__duration__sum']
+            names = ['International Transactions', 'International Contaacts', 'Total International Call Time']
+            distributions_plot(self.features['international'], features, names, color='darkorange')
+            plt.savefig(self.wd + '/plots/international.png', dpi=300)
+            plt.show()
+
+        # Plot of distributions of recharges features
+        if self.features['recharges'] is not None:
+            features = ['recharges_mean', 'recharges_count', 'recharges_days']
+            names = ['Mean Recharge Amount', 'Number of Recharges', 'Number of Days with Recharges']
+            distributions_plot(self.features['recharges'], features, names, color='mediumseagreen')
+            plt.savefig(self.wd + '/plots/recharges.png', dpi=300)
+            plt.show()
+        
+        # Plot of distributions of mobile data features
+        if self.features['mobiledata'] is not None:
+            features = ['mobiledata_total_volume', 'mobiledata_mean_volume', 'mobiledata_num_days']
+            names = ['Total Volume (MB)', 'Mean Transaction Volume (MB)', 'Number of Days with Data Usage']
+            distributions_plot(self.features['mobiledata'], features, names, color='dodgerblue')
+            plt.savefig(self.wd + '/plots/mobiledata.png', dpi=300)
+            plt.show()
+
+        # Plot of distributions of mobile money features
+        if self.features['mobilemoney'] is not None:
+            features = ['mobilemoney_all_all_amount_mean', 'mobilemoney_all_all_balance_before_mean', 'mobilemoney_all_all_txns', 'mobilemoney_all_cashout_txns']
+            names = ['Mean Amount', 'Mean Balance', 'Transactions', 'Cashout Transactions']
+            distributions_plot(self.features['mobilemoney'], features, names, color='orchid')
+            plt.savefig(self.wd + '/plots/mobilemoney.png', dpi=300)
+            plt.show()
+
+        # Spatial plots
+        if self.features['location'] is not None:
+            for shapefile_name in self.shapefiles.keys():
+                fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+                columns = [c for c in self.features['location'].columns if shapefile_name in c and 'percent' not in c and 'Unknown' not in c]
+                counts = self.features['location'].select([sum(c) for c in columns]).toPandas()
+                counts.columns = ['_'.join(c.split('_')[2:])[:-1] for c in counts.columns]
+                counts = counts.T
+                counts.columns = ['txn_count']
+                counts['region'] = counts.index
+                counts = self.shapefiles[shapefile_name].merge(counts, on='region', how='left')
+                counts['txn_count'] = counts['txn_count'].fillna(0)/counts['txn_count'].sum()
+                counts.plot(ax=ax, column='txn_count', cmap='magma', legend=True, legend_kwds={'shrink':0.5})
+                ax.axis('off')
+                ax.set_title('Proportion of Transactions by ' + shapefile_name, fontsize='large')
+                plt.tight_layout()
+                plt.savefig(self.wd + '/plots/spatial_' + shapefile_name + '.png')
+                plt.show()
+
+        # Cuts by feature usage (mobile money, mobile data, international calls)
+        if self.features['cdr'] is not None:
+
+            all_subscribers  = self.features['cdr'].select('name')
+
+            if self.features['international'] is not None:
+                international_subscribers = self.features['international'].where(col('international_all__recipient_id__count') > 0).select('name')
+            else:
+                international_subscribers = None
+            
+            if self.features['mobiledata'] is not None:
+                mobiledata_subscribers = self.features['mobiledata'].where(col('mobiledata_num_transactions') > 0).select('name')
+            else:
+                mobiledata_subscribers = None
+
+            if self.features['mobilemoney'] is not None:
+                mobilemoney_subscribers = self.features['mobilemoney'].where(col('mobilemoney_all_all_txns') > 0).select('name')
+            else:
+                mobilemoney_subscribers = None
+
+            features = ['cdr_active_days__allweek__day__callandtext',  'cdr_call_duration__allweek__allday__call__mean', 'cdr_number_of_antennas__allweek__allday']
+            names = ['Active Days', 'Mean Call Duration', 'Number of Antennas']
+
+            fig, ax = plt.subplots(1, len(features), figsize=(20, 5))
+            for a in range(len(features)):
+                boxplot = []
+                for subscribers, slice_name in [(all_subscribers, 'All'),
+                                                (international_subscribers, 'I Callers'), 
+                                                (mobiledata_subscribers, 'MD Users'), 
+                                                (mobilemoney_subscribers, 'MM Users')]:
+                    if subscribers is not None:
+                        users = self.features['cdr'].join(subscribers, how='inner', on='name')
+                        slice = users.select(['name', features[a]]).toPandas()
+                        slice['slice_name'] = slice_name
+                        boxplot.append(slice)
+                boxplot = pd.concat(boxplot)
+                boxplot[features[a]] = boxplot[features[a]].astype('float')
+                sns.boxplot(data=boxplot, x=features[a], y='slice_name', ax=ax[a], palette="Set2", orient='h')
+                ax[a].set_xlabel('Feature')
+                ax[a].set_ylabel(names[a])
+                ax[a].set_title(names[a], fontsize='large')
+                clean_plot(ax[a])
+            plt.savefig(self.wd + '/plots/boxplots.png', dpi=300)
+            plt.show()
+
+    
 
 
         
+            
+
+            
+    
+
+
+
+
+
+        
+            
+            
+
+        
+
+
+
+
 
 
 
