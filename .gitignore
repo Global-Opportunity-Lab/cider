@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 # C extensions
+.DS_Store
 synthetic_outputs/*
 *.so
 *.crc
