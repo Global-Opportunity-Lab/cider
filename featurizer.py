@@ -1,10 +1,11 @@
-# TODO: 
-# Tests
-
-from utils import *
-from plot_utils import *
-from cbio import *
 import bandicoot as bc
+import sys
+
+from helpers.utils import *
+from helpers.io_utils import *
+from helpers.plot_utils import *
+
+
 
 class Featurizer:
 

@@ -1,6 +1,6 @@
-from utils import *
-from plot_utils import *
-from ml_utils import *
+from helpers.utils import *
+from helpers.plot_utils import *
+from helpers.ml_utils import *
 
 
 class Learner:
@@ -150,7 +150,8 @@ class Learner:
         self.merged = pd.read_csv(self.wd + '/merged.csv')
         self.x = self.merged.drop(['name', 'label', 'weight'], axis=1)
         self.y = self.merged['label']
-        self.weights = self.merged['weight']
+        # Make the smallest weight 1
+        self.weights = self.merged['weight']/self.merged['weight'].min()
 
     def untuned_model(self, model_name):
 
