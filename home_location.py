@@ -169,7 +169,7 @@ class HomeLocator:
         if kind == 'poverty' and self.poverty_scores is None:
             raise ValueError('Poverty scores must be loaded to construct poverty map.')
 
-        if kind in ['precision', 'recall'] and self.accuracy_table is None:
+        if kind in ['precision', 'recall'] and self.accuracy_tables == {}:
             raise ValueError('Accuracy must be calculated to construct accuracy map.')
 
         # Get population assigned to each antenna/tower/polygon
@@ -183,7 +183,7 @@ class HomeLocator:
         
         # If accuracy map, merge accuracy data with population data
         elif kind in ['precision', 'recall']:
-            population = population.merge(self.accuracy_table, on=self.geo, how='left')
+            population = population.merge(self.accuracy_tables[algo], on=self.geo, how='left')
 
         if self.geo in ['antenna_id', 'tower_id']:
 
@@ -242,9 +242,9 @@ class HomeLocator:
 
         # Clean and save plot
         ax.axis('off')
-        title = 'Population Distribution' if kind == 'population' else 'Poverty Map' if kind == 'poverty' else 'Precision Map' if kind == 'precision' \
+        title = 'Population Map' if kind == 'population' else 'Poverty Map' if kind == 'poverty' else 'Precision Map' if kind == 'precision' \
              else 'Recall Map'
-        ax.set_title(title, fontsize='large')
+        ax.set_title(title)
         plt.tight_layout()
         plt.savefig(self.wd + '/maps/' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.png', dpi=300)
         plt.show()
