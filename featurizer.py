@@ -139,6 +139,8 @@ class Featurizer:
                 # Number of recipients
                 if 'recipient_id' in df.columns:
                     statistics[name]['Recipients'] = df.select('recipient_id').distinct().count()
+
+        return st
         
         if write:
             with open(self.wd + '/tables/statistics.json', 'w') as f:
@@ -200,11 +202,13 @@ class Featurizer:
                     plt.savefig(self.wd + '/plots/' + name.replace(' ', '') + '_subscribersbyday.png', dpi=300)
 
 
+
     def filter_dates(self, start_date, end_date):
 
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
             if self.get_attr(df_name) is not None:
                 self.set_attr(df_name, filter_dates_dataframe(self.get_attr(df_name), start_date, end_date))
+
     
 
     def deduplicate(self):
@@ -231,6 +235,7 @@ class Featurizer:
 
         # Get list of spammers
         self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(lambda r: r[0]).collect()
+        pd.DataFrame(self.spammers).to_csv('datasets/spammers.csv', index=False)
         print('Number of spammers identified: %i' % len(self.spammers))
 
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
@@ -481,7 +486,7 @@ class Featurizer:
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'mobiledata_' + c for c in feats.columns])
         self.features['mobiledata'] = feats
-        save_df(feats, self.wd + '/datasets/mobiledata_feats.csv')
+        save_df(feats, self.wd + '/datasets/mobiledata_features.csv')
 
     def mobilemoney_features(self):
 
@@ -563,7 +568,7 @@ class Featurizer:
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
         save_df(feats, self.wd + '/datasets/recharges_feats.csv')
-        self.features['recharges'] = self.spark.read.csv(self.wd + '/datasets/recharges_feats.csv', header=True)
+        self.features['recharges'] = self.spark.read.csv(self.wd + '/datasets/recharges_features.csv', header=True)
 
 
     def all_features(self):
