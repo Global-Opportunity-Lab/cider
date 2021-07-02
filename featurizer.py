@@ -417,6 +417,7 @@ class Featurizer:
         # Get dataframe of antennas located within regions
         antennas = pd.read_csv(self.antennas_fname)
         antennas = gpd.GeoDataFrame(antennas, geometry=gpd.points_from_xy(antennas['longitude'], antennas['latitude']))
+        antennas.crs = {"init":"epsg:4326"}
         for shapefile_name in self.shapefiles.keys():
             shapefile = self.shapefiles[shapefile_name].rename({'region':shapefile_name}, axis=1)
             antennas = gpd.sjoin(antennas, shapefile, op='within', how='left').drop('index_right', axis=1)
