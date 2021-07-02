@@ -566,7 +566,7 @@ class Featurizer:
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
         save_df(feats, self.wd + '/datasets/recharges_feats.csv')
-        self.features['recharges'] = self.spark.read.csv(self.wd + '/datasets/recharges_features.csv', header=True)
+        self.features['recharges'] = self.spark.read.csv(self.wd + '/datasets/recharges_feats.csv', header=True)
 
 
     def all_features(self):
