@@ -224,18 +224,16 @@ class Featurizer:
         if self.cdr is None:
             raise ValueError('CDR must be loaded to identify and remove spammers.')
 
-        # Get the number of days in the dataset
-        lastday = pd.to_datetime(self.cdr.agg({'timestamp':'max'}).collect()[0][0])
-        firstday = pd.to_datetime(self.cdr.agg({'timestamp':'min'}).collect()[0][0])
-        ndays = (lastday - firstday).days + 1
-        
-        # Get count of calls and SMS per subscriber
-        grouped = self.cdr.groupby(['caller_id', 'txn_type']).count()
-        grouped = grouped.withColumn('count', col('count')/(ndays))
+        # Get average number of calls and SMS per day
+        grouped = (self.cdr
+                   .groupby('caller_id', 'txn_type')
+                   .agg(count(lit(0)).alias('n_transactions'),
+                        countDistinct(col('day')).alias('active_days'))
+                   .withColumn('count', col('n_transactions')/col('active_days')))
 
         # Get list of spammers
         self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(lambda r: r[0]).collect()
-        pd.DataFrame(self.spammers).to_csv('datasets/spammers.csv', index=False)
+        pd.DataFrame(self.spammers).to_csv(self.wd + '/datasets/spammers.csv', index=False)
         print('Number of spammers identified: %i' % len(self.spammers))
 
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
