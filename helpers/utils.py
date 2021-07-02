@@ -10,6 +10,7 @@ from pyspark.sql.types import *
 from pyspark.sql.functions import *
 from pyspark.sql import SparkSession, Window
 
+
 def get_spark_session():
     '''
     Gets or creates spark session, with context and logging preferences set
@@ -25,6 +26,7 @@ def get_spark_session():
     spark.sparkContext.setLogLevel("ERROR")
     return spark
 
+
 def save_df(df, outfname, sep=','):
     ''' 
     Saves spark dataframe to csv file, using work-around to deal with spark's automatic partitioning and naming
@@ -36,11 +38,13 @@ def save_df(df, outfname, sep=','):
     os.rename(outfolder + '/' + old_fname, outfname)
     shutil.rmtree(outfolder)
 
+
 def save_parquet(df, outfname):
     '''
     Save spark dataframe to parquet file
     '''
     df.write.mode('overwrite').parquet(outfname)
+
 
 def filter_dates_dataframe(df, start_date, end_date, colname='timestamp'):
     if colname not in df.columns:
@@ -49,13 +53,16 @@ def filter_dates_dataframe(df, start_date, end_date, colname='timestamp'):
     df = df.where(col(colname) < pd.to_datetime(end_date) + pd.Timedelta(days=1))
     return df
 
+
 def make_dir(fname):
     if os.path.isdir(fname):
         shutil.rmtree(fname)
-    os.mkdir(fname)
+    os.makedirs(fname)
+
 
 def flatten_lst(lst):
-    return  [item for sublist in lst for item in sublist]
+    return [item for sublist in lst for item in sublist]
+
 
 def flatten_folder(args):
     ids, recs_folder = args
@@ -67,6 +74,7 @@ def flatten_folder(args):
         except:
             unmatched = unmatched + [p]
     return unmatched
+
 
 def cdr_bandicoot_format(cdr, antennas):
 
@@ -103,12 +111,14 @@ def cdr_bandicoot_format(cdr, antennas):
     
     return cdr_bandicoot
 
+
 def long_join_pandas(dfs, on, how):
     
     df = dfs[0]
     for i in range(1, len(dfs)):
         df = df.merge(dfs[i], on=on, how=how)
     return df
+
 
 def long_join_pyspark(dfs, on, how):
     
@@ -117,5 +127,6 @@ def long_join_pyspark(dfs, on, how):
         df = df.join(dfs[i], on=on, how=how)
     return df
 
+
 def strictly_increasing(L):
-    return all(x<y for x, y in zip(L, L[1:]))
+    return all(x < y for x, y in zip(L, L[1:]))
