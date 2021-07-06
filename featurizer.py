@@ -661,8 +661,21 @@ class Featurizer:
         save_df(all_features, self.wd + '/datasets/features.csv')
         self.features['all'] = self.spark.read.csv(self.wd + '/datasets/features.csv', header=True)
 
-    
-    def feature_plots(self):
+
+    def feature_plots(self, try_disk=False, data_path=None):
+        if not data_path:
+            data_path = self.wd + '/datasets/'
+
+        features = ['cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
+        datasets = ['all', 'international_feats', 'location_features', 'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
+        # Read data from disk if requested
+        if try_disk:
+            for feature, dataset in zip(features, datasets):
+                if not self.features[feature]:
+                    try:
+                        self.features[feature] = self.spark.read.csv(data_path + dataset + '.csv', header=True)
+                    except:
+                        print(f"Could not locate or read data for '{dataset}'")
 
         # Plot of distributions of CDR features
         if self.features['cdr'] is not None:
@@ -768,24 +781,15 @@ class Featurizer:
             plt.savefig(self.wd + '/plots/boxplots.png', dpi=300)
             plt.show()
 
-    
 
 
-        
-            
 
-            
-    
 
 
 
 
 
-        
-            
-            
 
-        
 
 
 
@@ -793,19 +797,14 @@ class Featurizer:
 
 
 
-                
 
-        
 
-        
-        
 
 
 
 
 
 
-        
 
 
 
@@ -821,7 +820,6 @@ class Featurizer:
 
 
 
-            
 
 
 
@@ -830,31 +828,45 @@ class Featurizer:
 
 
 
-        
 
 
-        
 
 
-        
 
 
 
 
 
-        
 
 
-        
 
-        
 
 
-        
-        
 
-        
 
-        
 
-        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
