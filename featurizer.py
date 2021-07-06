@@ -522,8 +522,9 @@ class Featurizer:
 
         # Get mobile money features
         features = []
+        txn_types = mm.select('txn_type').distinct().rdd.map(lambda r: r[0]).collect()
         for dfname, df in [('all', mm), ('incoming', incoming), ('outgoing', outgoing)]:
-            for txn_type in ['all'] + mm.select('txn_type').distinct().rdd.map(lambda r: r[0]).collect():
+            for txn_type in ['all'] + txn_types:
 
                 # Filter if restricting to certain transaction type
                 df_filtered = df
