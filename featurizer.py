@@ -551,6 +551,89 @@ class Featurizer:
         save_df(feats, self.wd + '/datasets/mobilemoney_feats.csv')
         self.features['mobilemoney'] = self.spark.read.csv(self.wd + '/datasets/mobilemoney_feats.csv', header=True)
 
+
+    def mobilemoney_features_v2(self):
+
+        # Check that mobile money is loaded
+        if self.mobilemoney is None:
+            raise ValueError('Mobile money file must be loaded to calculate mobile money features.')
+        print('Calculating mobile money features...')
+
+        # Get outgoing transactions
+        sender_cols = ['txn_type', 'caller_id', 'recipient_id', 'day', 'amount', 'sender_balance_before',
+                       'sender_balance_after']
+        outgoing = (self.mobilemoney
+                    .select(sender_cols)
+                    .withColumnRenamed('caller_id', 'name')
+                    .withColumnRenamed('recipient_id', 'correspondent_id')
+                    .withColumnRenamed('sender_balance_before', 'balance_before')
+                    .withColumnRenamed('sender_balance_after', 'balance_after')
+                    .withColumn('direction', lit('out')))
+
+        # Get incoming transactions
+        recipient_cols = ['txn_type', 'caller_id', 'recipient_id', 'day', 'amount', 'recipient_balance_before',
+                          'recipient_balance_after']
+        incoming = (self.mobilemoney.select(recipient_cols)
+                    .withColumnRenamed('recipient_id', 'name')
+                    .withColumnRenamed('caller_id', 'correspondent_id')
+                    .withColumnRenamed('recipient_balance_before', 'balance_before')
+                    .withColumnRenamed('recipient_balance_after', 'balance_after')
+                    .withColumn('direction', lit('in')))
+
+        # Combine incoming and outgoing with unified schema
+        mm = outgoing.select(incoming.columns).union(incoming)
+        save_parquet(mm, self.wd + '/datasets/mobilemoney')
+        mm = self.spark.read.parquet(self.wd + '/datasets/mobilemoney')
+        outgoing = mm.where(col('direction') == 'out')
+        incoming = mm.where(col('direction') == 'in')
+
+        # Get mobile money features
+        features = []
+        txn_types = mm.select('txn_type').distinct().rdd.map(lambda r: r[0]).collect()
+        for dfname, df in [('all', mm), ('incoming', incoming), ('outgoing', outgoing)]:
+            # add 'all' txn type
+            df = (df
+                  .withColumn('txn_types', array(lit('all'), col('txn_type')))
+                  .withColumn('txn_type', explode('txn_types')))
+
+            aggs = (df
+                    .groupby('name', 'txn_type')
+                    .agg(mean('amount').alias('amount_mean'),
+                         min('amount').alias('amount_min'),
+                         max('amount').alias('amount_max'),
+                         mean('balance_before').alias('balance_before_mean'),
+                         min('balance_before').alias('balance_before_min'),
+                         max('balance_before').alias('balance_before_max'),
+                         mean('balance_after').alias('balance_after_mean'),
+                         min('balance_after').alias('balance_after_min'),
+                         max('balance_after').alias('balance_after_max'),
+                         count('correspondent_id').alias('txns'),
+                         countDistinct('correspondent_id').alias('contacts'))
+                    .groupby('name')
+                    .pivot('txn_type')
+                    .agg(first('amount_mean').alias('amount_mean'),
+                         first('amount_min').alias('amount_min'),
+                         first('amount_max').alias('amount_max'),
+                         first('balance_before_mean').alias('balance_before_mean'),
+                         first('balance_before_min').alias('balance_before_min'),
+                         first('balance_before_max').alias('balance_before_max'),
+                         first('balance_after_mean').alias('balance_after_mean'),
+                         first('balance_after_min').alias('balance_after_min'),
+                         first('balance_after_max').alias('balance_after_max'),
+                         first('txns').alias('txns'),
+                         first('contacts').alias('contacts')))
+            # add df name to columns
+            for col_name in aggs.columns[1:]: # exclude 'name'
+                aggs = aggs.withColumnRenamed(col_name, dfname + '_' + col_name)
+
+            features.append(aggs)
+
+        # Combine all mobile money features together and save them
+        feats = long_join_pyspark(features, on='name', how='outer')
+        feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
+        save_df(feats, self.wd + '/datasets/mobilemoney_feats.csv')
+        self.features['mobilemoney'] = self.spark.read.csv(self.wd + '/datasets/mobilemoney_feats.csv', header=True)
+
     
     def recharges_features(self):
 
