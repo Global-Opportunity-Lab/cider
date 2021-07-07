@@ -1,8 +1,8 @@
 from helpers.utils import *
 import geopandas as gpd
 
-def load_generic(fname=None, df=None):
-	spark = get_spark_session()
+def load_generic(cfg, fname=None, df=None):
+	spark = get_spark_session(cfg)
 
 	# Load from file
 	if fname is not None:
@@ -34,10 +34,10 @@ def check_colvalues(df, colname, colvalues, error_msg):
 		raise ValueError(error_msg)
 	
 
-def load_cdr(fname=None, df=None, verify=True):
-	spark = get_spark_session()
+def load_cdr(cfg, fname=None, df=None, verify=True):
+	spark = get_spark_session(cfg)
 
-	cdr = load_generic(fname=fname, df=df)
+	cdr = load_generic(cfg, fname=fname, df=df)
 
 	if verify:
 	
@@ -63,10 +63,10 @@ def load_cdr(fname=None, df=None, verify=True):
 	
 	return cdr
 
-def load_antennas(fname=None, df=None, verify=True):
-	spark = get_spark_session()
+def load_antennas(cfg, fname=None, df=None, verify=True):
+	spark = get_spark_session(cfg)
 
-	antennas = load_generic(fname=fname, df=df)
+	antennas = load_generic(cfg, fname=fname, df=df)
 
 	if verify:
 
@@ -80,10 +80,10 @@ def load_antennas(fname=None, df=None, verify=True):
 	return antennas
 
 
-def load_recharges(fname=None, df=None, verify=True):
-	spark = get_spark_session()
+def load_recharges(cfg, fname=None, df=None, verify=True):
+	spark = get_spark_session(cfg)
 
-	recharges = load_generic(fname=fname, df=df)
+	recharges = load_generic(cfg, fname=fname, df=df)
 		
 	# Clean timestamp column
 	recharges = recharges.withColumn('timestamp', to_timestamp(recharges['timestamp'], 'yyyy-MM-dd HH:mm:ss'))\
@@ -94,10 +94,10 @@ def load_recharges(fname=None, df=None, verify=True):
 		
 	return recharges
 
-def load_mobiledata(fname=None, df=None, verify=True):
-	spark = get_spark_session()
+def load_mobiledata(cfg, fname=None, df=None, verify=True):
+	spark = get_spark_session(cfg)
 
-	mobiledata = load_generic(fname=fname, df=df)
+	mobiledata = load_generic(cfg, fname=fname, df=df)
 		
 	# Clean timestamp column
 	mobiledata = mobiledata.withColumn('timestamp', to_timestamp(mobiledata['timestamp'], 'yyyy-MM-dd HH:mm:ss'))\
@@ -108,10 +108,10 @@ def load_mobiledata(fname=None, df=None, verify=True):
 	
 	return mobiledata
 
-def load_mobilemoney(fname=None, df=None, verify=True):
-	spark = get_spark_session()
+def load_mobilemoney(cfg, fname=None, df=None, verify=True):
+	spark = get_spark_session(cfg)
 
-	mobilemoney = load_generic(fname=fname, df=df)
+	mobilemoney = load_generic(cfg, fname=fname, df=df)
 
 	if verify:
 	

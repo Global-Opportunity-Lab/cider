@@ -11,19 +11,19 @@ from pyspark.sql.functions import *
 from pyspark.sql import SparkSession, Window
 
 
-def get_spark_session():
+def get_spark_session(cfg):
     '''
     Gets or creates spark session, with context and logging preferences set
     '''
     # Build spark session
     spark = SparkSession \
         .builder \
-        .appName("mm") \
-        .config("spark.sql.files.maxPartitionBytes", 64 * 1024 * 1024) \
-        .config("spark.driver.memory", '50g') \
-        .config("spark.driver.maxResultSize", "2g")\
+        .appName(cfg.spark.app_name) \
+        .config("spark.sql.files.maxPartitionBytes", cfg.spark.files.max_partition_bytes) \
+        .config("spark.driver.memory", cfg.spark.driver.memory) \
+        .config("spark.driver.maxResultSize", cfg.spark.driver.max_result_size)\
         .getOrCreate()
-    spark.sparkContext.setLogLevel("ERROR")
+    spark.sparkContext.setLogLevel(cfg.spark.loglevel)
     return spark
 
 

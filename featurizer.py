@@ -1,4 +1,6 @@
 import bandicoot as bc
+from box import Box
+import yaml
 import sys
 
 from helpers.utils import *
@@ -9,26 +11,33 @@ from helpers.plot_utils import *
 
 class Featurizer:
 
-    def __init__(self, wd, cdr_fname=None, antennas_fname=None, recharges_fname=None, mobiledata_fname=None, mobilemoney_fname=None, 
-    shapefiles={}):
+    def __init__(self, wd, cfg_dir,
+                 cdr_fname=None, antennas_fname=None, recharges_fname=None,
+                 mobiledata_fname=None, mobilemoney_fname=None, shapefiles={}):
 
         # Prepare working directory
         self.wd = wd
-        self.features = {'cdr':None, 'international':None, 'recharges':None, 'location':None, 'mobiledata':None, 'mobilemoney':None}
+        self.features = {'cdr': None, 'international': None, 'recharges': None,
+                         'location': None, 'mobiledata': None, 'mobilemoney': None}
         make_dir(wd)
         make_dir(wd + '/tables')
         make_dir(wd + '/datasets')
         make_dir(wd + '/plots')
 
+        # Read config file
+        with open(cfg_dir, "r") as ymlfile:
+            cfg = Box(yaml.safe_load(ymlfile))
+        self.cfg = cfg
+
         # Spark setup
-        spark = get_spark_session()
+        spark = get_spark_session(self.cfg)
         self.spark = spark
 
         # Load CDR data 
         self.cdr_fname = cdr_fname
         if cdr_fname is not None:
             print('Loading CDR...')
-            self.cdr = load_cdr(cdr_fname)
+            self.cdr = load_cdr(self.cfg, cdr_fname)
             self.cdr_bandicoot = None
 
         else:
@@ -38,7 +47,7 @@ class Featurizer:
         self.antennas_fname = antennas_fname
         if antennas_fname is not None:
             print('Loading antennas...')
-            self.antennas = load_antennas(antennas_fname)
+            self.antennas = load_antennas(self.cfg, antennas_fname)
         else:
             self.antennas = None
 
@@ -46,7 +55,7 @@ class Featurizer:
         self.recharges_fname=recharges_fname
         if recharges_fname is not None:
             print('Loading recharges...')
-            self.recharges = load_recharges(recharges_fname)
+            self.recharges = load_recharges(self.cfg, recharges_fname)
         else:
             self.recharges=None
 
@@ -54,7 +63,7 @@ class Featurizer:
         self.mobiledata_fname=mobiledata_fname
         if mobiledata_fname is not None:
             print('Loading mobile data...')
-            self.mobiledata = load_mobiledata(mobiledata_fname)
+            self.mobiledata = load_mobiledata(self.cfg, mobiledata_fname)
         else:
             self.mobiledata = None
 
@@ -62,7 +71,7 @@ class Featurizer:
         self.mobilemoney_fname=mobilemoney_fname
         if mobilemoney_fname is not None:
             print('Loading mobile money...')
-            self.mobilemoney = load_mobilemoney(mobilemoney_fname)
+            self.mobilemoney = load_mobilemoney(self.cfg, mobilemoney_fname)
         else:
             self.mobilemoney = None
 
