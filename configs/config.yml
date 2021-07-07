@@ -6,3 +6,14 @@ spark:
     memory: "50g"
     max_result_size: "2g"
   loglevel: "ERROR"
+
+cdr:
+  col_names:
+    txn_type: "txn_type"
+    caller_id: "caller_id"
+    recipient_id: "recipient_id"
+    timestamp: "timestamp"
+    duration: "duration"
+    caller_antenna: "caller_antenna"
+    recipient_antenna: "recipient_antenna"
+    international: "international"

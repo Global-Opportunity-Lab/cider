@@ -207,14 +207,12 @@ class Featurizer:
                     plt.savefig(self.wd + '/plots/' + name.replace(' ', '') + '_subscribersbyday.png', dpi=300)
 
 
-
     def filter_dates(self, start_date, end_date):
 
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
             if self.get_attr(df_name) is not None:
                 self.set_attr(df_name, filter_dates_dataframe(self.get_attr(df_name), start_date, end_date))
 
-    
 
     def deduplicate(self):
 
@@ -298,7 +296,7 @@ class Featurizer:
         print('Calculating CDR features...')
 
         # Convert CDR into bandicoot format
-        self.cdr_bandicoot = cdr_bandicoot_format(self.cdr, self.antennas)
+        self.cdr_bandicoot = cdr_bandicoot_format(self.cdr, self.antennas, self.cfg.cdr.col_names)
 
         # Get list of unique subscribers, write to file
         save_df(self.cdr_bandicoot.select('name').distinct(), self.wd + '/datasets/subscribers.csv')
