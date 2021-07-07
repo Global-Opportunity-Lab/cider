@@ -52,7 +52,7 @@ class Featurizer:
             self.antennas = None
 
         # Load recharges data
-        self.recharges_fname=recharges_fname
+        self.recharges_fname = recharges_fname
         if recharges_fname is not None:
             print('Loading recharges...')
             self.recharges = load_recharges(self.cfg, recharges_fname)
@@ -60,7 +60,7 @@ class Featurizer:
             self.recharges=None
 
         # Load mobile internet data
-        self.mobiledata_fname=mobiledata_fname
+        self.mobiledata_fname = mobiledata_fname
         if mobiledata_fname is not None:
             print('Loading mobile data...')
             self.mobiledata = load_mobiledata(self.cfg, mobiledata_fname)
@@ -68,7 +68,7 @@ class Featurizer:
             self.mobiledata = None
 
         # Load mobile money data 
-        self.mobilemoney_fname=mobilemoney_fname
+        self.mobilemoney_fname = mobilemoney_fname
         if mobilemoney_fname is not None:
             print('Loading mobile money...')
             self.mobilemoney = load_mobilemoney(self.cfg, mobilemoney_fname)
@@ -79,8 +79,7 @@ class Featurizer:
         self.shapefiles = {}
         for shapefile_fname in shapefiles.keys():
             self.shapefiles[shapefile_fname] = load_shapefile(shapefiles[shapefile_fname])
-    
-    
+
     def get_attr(self, attr):
 
         if attr == 'cdr':
@@ -121,7 +120,6 @@ class Featurizer:
         else:
             raise ValueError(attr + ' is not a valid attribute.')
 
-
     def diagnostic_statistics(self, write=True):
 
         statistics = {}
@@ -148,8 +146,6 @@ class Featurizer:
                 # Number of recipients
                 if 'recipient_id' in df.columns:
                     statistics[name]['Recipients'] = df.select('recipient_id').distinct().count()
-
-        return st
         
         if write:
             with open(self.wd + '/tables/statistics.json', 'w') as f:
