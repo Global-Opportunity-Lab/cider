@@ -8,7 +8,6 @@ from helpers.io_utils import *
 from helpers.plot_utils import *
 
 
-
 class Featurizer:
 
     def __init__(self, cfg_dir, clean_folders=False):
@@ -158,7 +157,6 @@ class Featurizer:
 
         return statistics
 
-
     def diagnostic_plots(self, plot=True):
 
         for name, df in [('CDR', self.cdr), 
@@ -210,20 +208,17 @@ class Featurizer:
                     clean_plot(ax)
                     plt.savefig(self.outputs + '/plots/' + name.replace(' ', '') + '_subscribersbyday.png', dpi=300)
 
-
     def filter_dates(self, start_date, end_date):
 
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
             if self.get_attr(df_name) is not None:
                 self.set_attr(df_name, filter_dates_dataframe(self.get_attr(df_name), start_date, end_date))
 
-
     def deduplicate(self):
 
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
             if self.get_attr(df_name) is not None:
                 self.set_attr(df_name, self.get_attr(df_name).distinct())
-
 
     def remove_spammers(self, spammer_threshold=100):
 
@@ -407,7 +402,6 @@ class Featurizer:
         feats.to_csv(self.outputs + '/datasets/international_feats.csv', index=False)
         self.features['international'] = self.spark.read.csv(self.outputs + '/datasets/international_feats.csv', header=True)
 
-    
     def location_features(self):
 
         # Check that antennas and CDR are present to calculate spatial features
@@ -470,7 +464,6 @@ class Featurizer:
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
         feats.to_csv(self.outputs + '/datasets/location_features.csv', index=False)
         self.features['location'] = self.spark.read.csv(self.outputs + '/datasets/location_features.csv', header=True)
-        
 
     def mobiledata_features(self):
 
@@ -576,7 +569,6 @@ class Featurizer:
         save_df(feats, self.outputs + '/datasets/mobilemoney_feats.csv')
         self.features['mobilemoney'] = self.spark.read.csv(self.outputs + '/datasets/mobilemoney_feats.csv', header=True)
 
-    
     def recharges_features(self):
 
         if self.recharges is None:
@@ -595,29 +587,31 @@ class Featurizer:
         save_df(feats, self.outputs + '/datasets/recharges_feats.csv')
         self.features['recharges'] = self.spark.read.csv(self.outputs+ '/datasets/recharges_feats.csv', header=True)
 
+    def load_features(self):
+        data_path = self.outputs + '/datasets/'
 
-    def all_features(self):
+        features = ['cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
+        datasets = ['all', 'international_feats', 'location_features', 'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
+        # Read data from disk if requested
+        for feature, dataset in zip(features, datasets):
+            if not self.features[feature]:
+                try:
+                    self.features[feature] = self.spark.read.csv(data_path + dataset + '.csv', header=True)
+                except:
+                    print(f"Could not locate or read data for '{dataset}'")
+
+    def all_features(self, read_from_disk=False):
+        if read_from_disk:
+            self.load_features()
 
         all_features = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         all_features = long_join_pyspark(all_features, how='left', on='name')
         save_df(all_features, self.outputs + '/datasets/features.csv')
         self.features['all'] = self.spark.read.csv(self.outputs + '/datasets/features.csv', header=True)
 
-
-    def feature_plots(self, try_disk=False, data_path=None):
-        if not data_path:
-            data_path = self.outputs + '/datasets/'
-
-        features = ['cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
-        datasets = ['all', 'international_feats', 'location_features', 'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
-        # Read data from disk if requested
-        if try_disk:
-            for feature, dataset in zip(features, datasets):
-                if not self.features[feature]:
-                    try:
-                        self.features[feature] = self.spark.read.csv(data_path + dataset + '.csv', header=True)
-                    except:
-                        print(f"Could not locate or read data for '{dataset}'")
+    def feature_plots(self, read_from_disk=False):
+        if read_from_disk:
+            self.load_features()
 
         # Plot of distributions of CDR features
         if self.features['cdr'] is not None:
@@ -722,93 +716,3 @@ class Featurizer:
                 clean_plot(ax[a])
             plt.savefig(self.outputs + '/plots/boxplots.png', dpi=300)
             plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
