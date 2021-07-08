@@ -11,7 +11,7 @@ from helpers.plot_utils import *
 
 class Featurizer:
 
-    def __init__(self, wd, cfg_dir,
+    def __init__(self, wd, cfg_dir, clean_folders=False,
                  cdr_fname=None, antennas_fname=None, recharges_fname=None,
                  mobiledata_fname=None, mobilemoney_fname=None, shapefiles={}):
 
@@ -19,7 +19,7 @@ class Featurizer:
         self.wd = wd
         self.features = {'cdr': None, 'international': None, 'recharges': None,
                          'location': None, 'mobiledata': None, 'mobilemoney': None}
-        make_dir(wd)
+        make_dir(wd, clean_folders)
         make_dir(wd + '/tables')
         make_dir(wd + '/datasets')
         make_dir(wd + '/plots')

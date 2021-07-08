@@ -6,8 +6,9 @@ from helpers.io_utils import *
 
 class HomeLocator:
 
-    def __init__(self, wd, cdr_fname=None, antennas_fname=None, shapefiles={}, geo='antenna_id', filter_hours=None, groundtruth_fname=None,
-        poverty_scores_fname=None):
+    def __init__(self, wd, cfg_dir, clean_folders=False,
+                 cdr_fname=None, antennas_fname=None, shapefiles={}, geo='antenna_id',
+                 filter_hours=None, groundtruth_fname=None, poverty_scores_fname=None):
 
         # Initialize values
         self.geo = geo
@@ -19,7 +20,7 @@ class HomeLocator:
 
         # Prepare working directory
         self.wd = wd
-        make_dir(wd)
+        make_dir(wd, clean_folders)
         make_dir(wd + '/outputs/')
         make_dir(wd + '/maps/')
         make_dir(wd + '/tables/')

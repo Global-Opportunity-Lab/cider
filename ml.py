@@ -5,13 +5,15 @@ from helpers.ml_utils import *
 
 class Learner:
 
-    def __init__(self, wd, features_fname, labels_fname, kfold=5):
+    def __init__(self, wd, cfg_dir,
+                 features_fname, labels_fname,
+                 clean_folders=False, kfold=5):
 
         # Prepare working directory
         self.features_fname = features_fname
         self.labels_fname = labels_fname
         self.wd = wd
-        make_dir(wd)
+        make_dir(wd, clean_folders)
         make_dir(wd + '/untuned_models')
         make_dir(wd + '/tuned_models')
 

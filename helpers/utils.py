@@ -54,10 +54,10 @@ def filter_dates_dataframe(df, start_date, end_date, colname='timestamp'):
     return df
 
 
-def make_dir(fname):
-    if os.path.isdir(fname):
+def make_dir(fname, remove=False):
+    if os.path.isdir(fname) and remove:
         shutil.rmtree(fname)
-    os.makedirs(fname)
+    os.makedirs(fname, exist_ok=True)
 
 
 def flatten_lst(lst):
