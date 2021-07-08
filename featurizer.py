@@ -19,7 +19,7 @@ class Featurizer:
         data = cfg.path.featurizer.data
         outputs = cfg.path.featurizer.outputs
         self.outputs = outputs
-        filenames = cfg.path.featurizer.filenames
+        file_names = cfg.path.featurizer.file_names
 
         # Prepare working directory
         self.features = {'cdr': None, 'international': None, 'recharges': None,
@@ -34,54 +34,54 @@ class Featurizer:
         self.spark = spark
 
         # Load CDR data 
-        if filenames.cdr is not None:
+        if file_names.cdr is not None:
             print('Loading CDR...')
             # Get fpath and load data
-            fpath = data + filenames.cdr
+            fpath = data + file_names.cdr
             self.cdr = load_cdr(self.cfg, fpath)
             self.cdr_bandicoot = None
         else:
             self.cdr = None
 
         # Load antennas data 
-        if filenames.antennas is not None:
+        if file_names.antennas is not None:
             # Get fpath and load data
-            fpath = data + filenames.antennas
+            fpath = data + file_names.antennas
             print('Loading antennas...')
             self.antennas = load_antennas(self.cfg, fpath)
         else:
             self.antennas = None
 
         # Load recharges data
-        if filenames.recharges is not None:
+        if file_names.recharges is not None:
             print('Loading recharges...')
             # Get fpath and load data
-            fpath = data + filenames.recharges
+            fpath = data + file_names.recharges
             self.recharges = load_recharges(self.cfg, fpath)
         else:
             self.recharges=None
 
         # Load mobile internet data
-        if filenames.mobiledata is not None:
+        if file_names.mobiledata is not None:
             print('Loading mobile data...')
             # Get fpath and load data
-            fpath = data + filenames.mobiledata
+            fpath = data + file_names.mobiledata
             self.mobiledata = load_mobiledata(self.cfg, fpath)
         else:
             self.mobiledata = None
 
         # Load mobile money data 
-        if filenames.mobilemoney is not None:
+        if file_names.mobilemoney is not None:
             print('Loading mobile money...')
             # Get fpath and load data
-            fpath = data + filenames.mobilemoney
+            fpath = data + file_names.mobilemoney
             self.mobilemoney = load_mobilemoney(self.cfg, fpath)
         else:
             self.mobilemoney = None
 
         # Load shapefiles
         self.shapefiles = {}
-        shapefiles = filenames.shapefiles
+        shapefiles = file_names.shapefiles
         for shapefile_fname in shapefiles.keys():
             self.shapefiles[shapefile_fname] = load_shapefile(data + shapefiles[shapefile_fname])
 
@@ -178,7 +178,6 @@ class Featurizer:
                     self.outputs + '/datasets/' + name.replace(' ', '') + '_subscribersbyday.csv')
 
                 if plot:
-
                     # Plot timeseries of transactions by day
                     timeseries = pd.read_csv(self.outputs + '/datasets/' + name.replace(' ', '') + '_transactionsbyday.csv')
                     timeseries['day'] = pd.to_datetime(timeseries['day'])
@@ -574,7 +573,7 @@ class Featurizer:
         # Combine all mobile money features together and save them
         feats = long_join_pyspark(features, on='name', how='outer')
         feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
-        save_df(feats, self.outputs '/datasets/mobilemoney_feats.csv')
+        save_df(feats, self.outputs + '/datasets/mobilemoney_feats.csv')
         self.features['mobilemoney'] = self.spark.read.csv(self.outputs + '/datasets/mobilemoney_feats.csv', header=True)
 
     
@@ -594,7 +593,7 @@ class Featurizer:
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
         save_df(feats, self.outputs + '/datasets/recharges_feats.csv')
-        self.features['recharges'] = self.spark.read.csv(self.outputs '/datasets/recharges_feats.csv', header=True)
+        self.features['recharges'] = self.spark.read.csv(self.outputs+ '/datasets/recharges_feats.csv', header=True)
 
 
     def all_features(self):

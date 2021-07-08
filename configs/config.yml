@@ -12,7 +12,7 @@ path:
   featurizer:
     data: "/Users/luciomelito/Documents/GD/cider/synthetic_data"
     outputs: "/Users/luciomelito/Documents/GD/cider/outputs/featurizer"
-    filenames:
+    file_names:
       cdr: '/cdr.csv'
       antennas: '/antennas.csv'
       recharges: '/recharges.csv'
@@ -24,8 +24,8 @@ path:
   ml:
   home_location:
 
-cdr:
-  col_names:
+col_names:
+  cdr:
     txn_type: "txn_type"
     caller_id: "caller_id"
     recipient_id: "recipient_id"
@@ -34,3 +34,26 @@ cdr:
     caller_antenna: "caller_antenna"
     recipient_antenna: "recipient_antenna"
     international: "international"
+  antennas:
+    antenna_id: "antenna_id"
+    tower_id: "tower_id"
+    latitude: "latitude"
+    longitude: "longitude"
+  recharges:
+    caller_id: "caller_id"
+    amount: "amount"
+    timestamp: "timestamp"
+  mobiledata:
+    caller_id: "caller_id"
+    volume: "volume"
+    timestamp: "timestamp"
+  mobilemoney:
+    txn_type: "txn_type"
+    caller_id: "caller_id"
+    recipient_id: "recipient_id"
+    timestamp: "timestamp"
+    amount: "amount"
+    sender_balance_before: "sender_balance_before"
+    sender_balance_after: "sender_balance_after"
+    recipient_balance_before: "recipient_balance_before"
+    recipient_balance_after: "recipient_balance_after"
