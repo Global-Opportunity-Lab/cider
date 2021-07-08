@@ -11,74 +11,79 @@ from helpers.plot_utils import *
 
 class Featurizer:
 
-    def __init__(self, wd, cfg_dir, clean_folders=False,
-                 cdr_fname=None, antennas_fname=None, recharges_fname=None,
-                 mobiledata_fname=None, mobilemoney_fname=None, shapefiles={}):
-
-        # Prepare working directory
-        self.wd = wd
-        self.features = {'cdr': None, 'international': None, 'recharges': None,
-                         'location': None, 'mobiledata': None, 'mobilemoney': None}
-        make_dir(wd, clean_folders)
-        make_dir(wd + '/tables')
-        make_dir(wd + '/datasets')
-        make_dir(wd + '/plots')
-
+    def __init__(self, cfg_dir, clean_folders=False):
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
             cfg = Box(yaml.safe_load(ymlfile))
         self.cfg = cfg
+        data = cfg.path.featurizer.data
+        outputs = cfg.path.featurizer.outputs
+        self.outputs = outputs
+        filenames = cfg.path.featurizer.filenames
+
+        # Prepare working directory
+        self.features = {'cdr': None, 'international': None, 'recharges': None,
+                         'location': None, 'mobiledata': None, 'mobilemoney': None}
+        make_dir(outputs, clean_folders)
+        make_dir(outputs + '/tables')
+        make_dir(outputs + '/datasets')
+        make_dir(outputs + '/plots')
 
         # Spark setup
         spark = get_spark_session(self.cfg)
         self.spark = spark
 
         # Load CDR data 
-        self.cdr_fname = cdr_fname
-        if cdr_fname is not None:
+        if filenames.cdr is not None:
             print('Loading CDR...')
-            self.cdr = load_cdr(self.cfg, cdr_fname)
+            # Get fpath and load data
+            fpath = data + filenames.cdr
+            self.cdr = load_cdr(self.cfg, fpath)
             self.cdr_bandicoot = None
-
         else:
             self.cdr = None
 
         # Load antennas data 
-        self.antennas_fname = antennas_fname
-        if antennas_fname is not None:
+        if filenames.antennas is not None:
+            # Get fpath and load data
+            fpath = data + filenames.antennas
             print('Loading antennas...')
-            self.antennas = load_antennas(self.cfg, antennas_fname)
+            self.antennas = load_antennas(self.cfg, fpath)
         else:
             self.antennas = None
 
         # Load recharges data
-        self.recharges_fname = recharges_fname
-        if recharges_fname is not None:
+        if filenames.recharges is not None:
             print('Loading recharges...')
-            self.recharges = load_recharges(self.cfg, recharges_fname)
+            # Get fpath and load data
+            fpath = data + filenames.recharges
+            self.recharges = load_recharges(self.cfg, fpath)
         else:
             self.recharges=None
 
         # Load mobile internet data
-        self.mobiledata_fname = mobiledata_fname
-        if mobiledata_fname is not None:
+        if filenames.mobiledata is not None:
             print('Loading mobile data...')
-            self.mobiledata = load_mobiledata(self.cfg, mobiledata_fname)
+            # Get fpath and load data
+            fpath = data + filenames.mobiledata
+            self.mobiledata = load_mobiledata(self.cfg, fpath)
         else:
             self.mobiledata = None
 
         # Load mobile money data 
-        self.mobilemoney_fname = mobilemoney_fname
-        if mobilemoney_fname is not None:
+        if filenames.mobilemoney is not None:
             print('Loading mobile money...')
-            self.mobilemoney = load_mobilemoney(self.cfg, mobilemoney_fname)
+            # Get fpath and load data
+            fpath = data + filenames.mobilemoney
+            self.mobilemoney = load_mobilemoney(self.cfg, fpath)
         else:
             self.mobilemoney = None
 
         # Load shapefiles
         self.shapefiles = {}
+        shapefiles = filenames.shapefiles
         for shapefile_fname in shapefiles.keys():
-            self.shapefiles[shapefile_fname] = load_shapefile(shapefiles[shapefile_fname])
+            self.shapefiles[shapefile_fname] = load_shapefile(data + shapefiles[shapefile_fname])
 
     def get_attr(self, attr):
 
@@ -148,7 +153,7 @@ class Featurizer:
                     statistics[name]['Recipients'] = df.select('recipient_id').distinct().count()
         
         if write:
-            with open(self.wd + '/tables/statistics.json', 'w') as f:
+            with open(self.outputs + '/tables/statistics.json', 'w') as f:
                 json.dump(statistics, f)
 
         return statistics
@@ -166,16 +171,16 @@ class Featurizer:
                     df = df.withColumn('txn_type', lit('txn'))
 
                 # Save timeseries of transactions by day
-                save_df(df.groupby(['txn_type', 'day']).count(), self.wd + '/datasets/' + name.replace(' ', '') + '_transactionsbyday.csv')
+                save_df(df.groupby(['txn_type', 'day']).count(), self.outputs + '/datasets/' + name.replace(' ', '') + '_transactionsbyday.csv')
 
                 # Save timeseries of subscribers by day
                 save_df(df.groupby(['txn_type', 'day']).agg(countDistinct('caller_id')).withColumnRenamed('count(caller_id)', 'count'), \
-                    self.wd + '/datasets/' + name.replace(' ', '') + '_subscribersbyday.csv')
+                    self.outputs + '/datasets/' + name.replace(' ', '') + '_subscribersbyday.csv')
 
                 if plot:
 
                     # Plot timeseries of transactions by day
-                    timeseries = pd.read_csv(self.wd + '/datasets/' + name.replace(' ', '') + '_transactionsbyday.csv')
+                    timeseries = pd.read_csv(self.outputs + '/datasets/' + name.replace(' ', '') + '_transactionsbyday.csv')
                     timeseries['day'] = pd.to_datetime(timeseries['day'])
                     timeseries = timeseries.sort_values('day', ascending=True)
                     fig, ax = plt.subplots(1, figsize=(20, 6))
@@ -188,10 +193,10 @@ class Featurizer:
                     ax.set_title(name + ' Transactions by Day', fontsize='large')
                     dates_xaxis(ax, frequency='week')
                     clean_plot(ax)
-                    plt.savefig(self.wd + '/plots/' + name.replace(' ', '') + '_transactionsbyday.png', dpi=300)
+                    plt.savefig(self.outputs + '/plots/' + name.replace(' ', '') + '_transactionsbyday.png', dpi=300)
 
                     # Plot timeseries of subscribers by day
-                    timeseries = pd.read_csv(self.wd + '/datasets/' + name.replace(' ', '') + '_subscribersbyday.csv')
+                    timeseries = pd.read_csv(self.outputs + '/datasets/' + name.replace(' ', '') + '_subscribersbyday.csv')
                     timeseries['day'] = pd.to_datetime(timeseries['day'])
                     timeseries = timeseries.sort_values('day', ascending=True)
                     fig, ax = plt.subplots(1, figsize=(20, 6))
@@ -204,7 +209,7 @@ class Featurizer:
                     ax.set_title(name + ' Subscribers by Day', fontsize='large')
                     dates_xaxis(ax, frequency='week')
                     clean_plot(ax)
-                    plt.savefig(self.wd + '/plots/' + name.replace(' ', '') + '_subscribersbyday.png', dpi=300)
+                    plt.savefig(self.outputs + '/plots/' + name.replace(' ', '') + '_subscribersbyday.png', dpi=300)
 
 
     def filter_dates(self, start_date, end_date):
@@ -236,7 +241,7 @@ class Featurizer:
 
         # Get list of spammers
         self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(lambda r: r[0]).collect()
-        pd.DataFrame(self.spammers).to_csv(self.wd + '/datasets/spammers.csv', index=False)
+        pd.DataFrame(self.spammers).to_csv(self.outputs + '/datasets/spammers.csv', index=False)
         print('Number of spammers identified: %i' % len(self.spammers))
 
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
@@ -259,11 +264,11 @@ class Featurizer:
             raise ValueError('CDR must be loaded to identify and remove outlier days.')
 
         # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
-        if not os.path.isfile(self.wd + '/datasets/CDR_transactionsbyday.csv'):
-            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.wd + '/datasets/CDR_transactionsbyday.csv')
+        if not os.path.isfile(self.outputs + '/datasets/CDR_transactionsbyday.csv'):
+            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.outputs + '/datasets/CDR_transactionsbyday.csv')
 
         # Read in timeseries of subscribers by day
-        timeseries = pd.read_csv(self.wd + '/datasets/CDR_transactionsbyday.csv')
+        timeseries = pd.read_csv(self.outputs + '/datasets/CDR_transactionsbyday.csv')
 
         # Calculate timeseries of all transaction (voice + SMS together)
         timeseries = timeseries.groupby('day', as_index=False).agg('sum')
@@ -274,7 +279,7 @@ class Featurizer:
 
         # Obtain list of outlier days
         outliers = timeseries[(timeseries['count'] < bottomrange) | (timeseries['count'] > toprange)]
-        outliers.to_csv(self.wd + '/datasets/outlier_days.csv', index=False)
+        outliers.to_csv(self.outputs + '/datasets/outlier_days.csv', index=False)
         outliers = list(outliers['day'])
         print('Outliers removed: ' + ', '.join([outlier.split('T')[0] for outlier in outliers]))
 
@@ -299,7 +304,7 @@ class Featurizer:
         self.cdr_bandicoot = cdr_bandicoot_format(self.cdr, self.antennas, self.cfg.cdr.col_names)
 
         # Get list of unique subscribers, write to file
-        save_df(self.cdr_bandicoot.select('name').distinct(), self.wd + '/datasets/subscribers.csv')
+        save_df(self.cdr_bandicoot.select('name').distinct(), self.outputs + '/datasets/subscribers.csv')
         subscribers = self.cdr_bandicoot.select('name').distinct().rdd.map(lambda r: r[0]).collect()
 
         # Make adjustments to chunk size and parallelization if necessary
@@ -309,8 +314,8 @@ class Featurizer:
             bc_processes = int(len(subscribers)/bc_chunksize)
 
         # Make output folders
-        make_dir(self.wd + '/datasets/bandicoot_records')
-        make_dir(self.wd + '/datasets/bandicoot_features')
+        make_dir(self.outputs + '/datasets/bandicoot_records')
+        make_dir(self.outputs + '/datasets/bandicoot_features')
 
         # Get bandicoot features in chunks
         start = 0
@@ -322,8 +327,8 @@ class Featurizer:
             chunk = subscribers[start:end]
 
             # Name outfolders
-            recs_folder = self.wd + '/datasets/bandicoot_records/' + str(start) + 'to' + str(end)
-            bc_folder = self.wd + '/datasets/bandicoot_features/' + str(start) + 'to' + str(end)
+            recs_folder = self.outputs + '/datasets/bandicoot_records/' + str(start) + 'to' + str(end)
+            bc_folder = self.outputs + '/datasets/bandicoot_features/' + str(start) + 'to' + str(end)
             make_dir(bc_folder)
 
             # Get records for this chunk and write out to csv files per person
@@ -361,11 +366,11 @@ class Featurizer:
             start = start + bc_chunksize
         
         # Combine all bandicoot features into a single file, fix column names, and write to disk
-        cdr_features = self.spark.read.csv(self.wd + '/datasets/bandicoot_features/*/*', header=True)
+        cdr_features = self.spark.read.csv(self.outputs + '/datasets/bandicoot_features/*/*', header=True)
         cdr_features = cdr_features.select([col for col in cdr_features.columns if ('reporting' not in col) or (col == 'reporting__number_of_records')])
         cdr_features = cdr_features.toDF(*[c if c == 'name' else 'cdr_' + c for c in cdr_features.columns])
-        save_df(cdr_features, self.wd + '/datasets/bandicoot_features/all.csv')
-        self.features['cdr'] = self.spark.read.csv(self.wd + '/datasets/bandicoot_features/all.csv', header=True)
+        save_df(cdr_features, self.outputs + '/datasets/bandicoot_features/all.csv')
+        self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/bandicoot_features/all.csv', header=True)
 
     def international_features(self):
 
@@ -376,10 +381,10 @@ class Featurizer:
 
         # Write international transactions to file
         international_trans = self.cdr.filter(col('international') == 'international')
-        save_df(international_trans, self.wd + '/datasets/internatonal_transactions.csv')
+        save_df(international_trans, self.outputs + '/datasets/internatonal_transactions.csv')
     
         # Read international calls
-        inter = pd.read_csv(self.wd + '/datasets/internatonal_transactions.csv')
+        inter = pd.read_csv(self.outputs + '/datasets/internatonal_transactions.csv')
 
         # Calculate list of aggregations by subscriber
         inter_voice = inter[inter['txn_type'] == 'call']
@@ -400,8 +405,8 @@ class Featurizer:
         feats = long_join_pandas(feats, on='caller_id', how='outer').rename({'caller_id':'name'}, axis=1)
         feats['name'] = feats.index
         feats.columns = [c if c == 'name' else 'international_' + c for c in feats.columns]
-        feats.to_csv(self.wd + '/datasets/international_feats.csv', index=False)
-        self.features['international'] = self.spark.read.csv(self.wd + '/datasets/international_feats.csv', header=True)
+        feats.to_csv(self.outputs + '/datasets/international_feats.csv', index=False)
+        self.features['international'] = self.spark.read.csv(self.outputs + '/datasets/international_feats.csv', header=True)
 
     
     def location_features(self):
@@ -434,7 +439,7 @@ class Featurizer:
         # Get counts by region and unique regions
         for shapefile_name in self.shapefiles.keys():
             countbyregion = cdr.groupby(['name', shapefile_name]).count()
-            save_df(countbyregion, self.wd + '/datasets/countby' + shapefile_name + '.csv')
+            save_df(countbyregion, self.outputs + '/datasets/countby' + shapefile_name + '.csv')
 
         # Get unique regions (and unique towers)
         unique_regions = cdr.select('name').distinct()
@@ -442,12 +447,12 @@ class Featurizer:
             unique_regions = unique_regions.join(cdr.groupby('name').agg(countDistinct(shapefile_name)), on='name', how='left')
         if 'tower_id' in cdr.columns:
             unique_regions = unique_regions.join(cdr.groupby('name').agg(countDistinct('tower_id')), on='name', how='left')
-        save_df(unique_regions, self.wd + '/datasets/uniqueregions.csv')
+        save_df(unique_regions, self.outputs + '/datasets/uniqueregions.csv')
 
         # Pivot counts by region
         count_by_region_compiled = []
         for shapefile_name in self.shapefiles.keys():
-            count_by_region = pd.read_csv(self.wd + '/datasets/countby' + shapefile_name + '.csv')\
+            count_by_region = pd.read_csv(self.outputs + '/datasets/countby' + shapefile_name + '.csv')\
                 .pivot(index='name', columns=shapefile_name, values='count').fillna(0)
             count_by_region['total'] = count_by_region.sum(axis=1)
             for c in set(count_by_region.columns) - set(['total', 'name']):
@@ -459,13 +464,13 @@ class Featurizer:
         count_by_region = count_by_region.drop([c for c in count_by_region.columns if 'total' in c], axis=1)
         
         # Read in the unique regions
-        unique_regions = pd.read_csv(self.wd + '/datasets/uniqueregions.csv')
+        unique_regions = pd.read_csv(self.outputs + '/datasets/uniqueregions.csv')
 
         # Merge counts and unique counts together, write to file
         feats = count_by_region.merge(unique_regions, on='name', how='outer')
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
-        feats.to_csv(self.wd + '/datasets/location_features.csv', index=False)
-        self.features['location'] = self.spark.read.csv(self.wd + '/datasets/location_features.csv', header=True)
+        feats.to_csv(self.outputs + '/datasets/location_features.csv', index=False)
+        self.features['location'] = self.spark.read.csv(self.outputs + '/datasets/location_features.csv', header=True)
         
 
     def mobiledata_features(self):
@@ -488,7 +493,7 @@ class Featurizer:
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'mobiledata_' + c for c in feats.columns])
         self.features['mobiledata'] = feats
-        save_df(feats, self.wd + '/datasets/mobiledata_features.csv')
+        save_df(feats, self.outputs + '/datasets/mobiledata_features.csv')
 
     def mobilemoney_features(self):
 
@@ -518,8 +523,8 @@ class Featurizer:
         # Combine incoming and outgoing with unified schema
         cols = ['txn_type', 'name', 'correspondent_id', 'balance_before', 'balance_after', 'day', 'amount', 'direction']
         mm = outgoing.select(incoming.columns).union(incoming)
-        save_parquet(mm, self.wd + '/datasets/mobilemoney')
-        mm = self.spark.read.parquet(self.wd + '/datasets/mobilemoney')
+        save_parquet(mm, self.outputs + '/datasets/mobilemoney')
+        mm = self.spark.read.parquet(self.outputs + '/datasets/mobilemoney')
         outgoing = mm.where(col('direction') == 'out')
         incoming = mm.where(col('direction') == 'in')
 
@@ -551,8 +556,8 @@ class Featurizer:
         # Combine all mobile money features together and save them
         feats = long_join_pyspark(features, on='name', how='outer')
         feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
-        save_df(feats, self.wd + '/datasets/mobilemoney_feats.csv')
-        self.features['mobilemoney'] = self.spark.read.csv(self.wd + '/datasets/mobilemoney_feats.csv', header=True)
+        save_df(feats, self.outputs + '/datasets/mobilemoney_feats.csv')
+        self.features['mobilemoney'] = self.spark.read.csv(self.outputs + '/datasets/mobilemoney_feats.csv', header=True)
 
 
     def mobilemoney_features_v2(self):
@@ -585,8 +590,8 @@ class Featurizer:
 
         # Combine incoming and outgoing with unified schema
         mm = outgoing.select(incoming.columns).union(incoming)
-        save_parquet(mm, self.wd + '/datasets/mobilemoney')
-        mm = self.spark.read.parquet(self.wd + '/datasets/mobilemoney')
+        save_parquet(mm, self.outputs + '/datasets/mobilemoney')
+        mm = self.spark.read.parquet(self.outputs + '/datasets/mobilemoney')
         outgoing = mm.where(col('direction') == 'out')
         incoming = mm.where(col('direction') == 'in')
 
@@ -634,8 +639,8 @@ class Featurizer:
         # Combine all mobile money features together and save them
         feats = long_join_pyspark(features, on='name', how='outer')
         feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
-        save_df(feats, self.wd + '/datasets/mobilemoney_feats.csv')
-        self.features['mobilemoney'] = self.spark.read.csv(self.wd + '/datasets/mobilemoney_feats.csv', header=True)
+        save_df(feats, self.outputs '/datasets/mobilemoney_feats.csv')
+        self.features['mobilemoney'] = self.spark.read.csv(self.outputs + '/datasets/mobilemoney_feats.csv', header=True)
 
     
     def recharges_features(self):
@@ -653,21 +658,21 @@ class Featurizer:
 
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
-        save_df(feats, self.wd + '/datasets/recharges_feats.csv')
-        self.features['recharges'] = self.spark.read.csv(self.wd + '/datasets/recharges_feats.csv', header=True)
+        save_df(feats, self.outputs + '/datasets/recharges_feats.csv')
+        self.features['recharges'] = self.spark.read.csv(self.outputs '/datasets/recharges_feats.csv', header=True)
 
 
     def all_features(self):
 
         all_features = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         all_features = long_join_pyspark(all_features, how='left', on='name')
-        save_df(all_features, self.wd + '/datasets/features.csv')
-        self.features['all'] = self.spark.read.csv(self.wd + '/datasets/features.csv', header=True)
+        save_df(all_features, self.outputs + '/datasets/features.csv')
+        self.features['all'] = self.spark.read.csv(self.outputs + '/datasets/features.csv', header=True)
 
 
     def feature_plots(self, try_disk=False, data_path=None):
         if not data_path:
-            data_path = self.wd + '/datasets/'
+            data_path = self.outputs + '/datasets/'
 
         features = ['cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
         datasets = ['all', 'international_feats', 'location_features', 'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
@@ -685,7 +690,7 @@ class Featurizer:
             features = ['cdr_active_days__allweek__day__callandtext',  'cdr_call_duration__allweek__allday__call__mean', 'cdr_number_of_antennas__allweek__allday']
             names = ['Active Days', 'Mean Call Duration', 'Number of Antennas']
             distributions_plot(self.features['cdr'], features, names, color='indianred')
-            plt.savefig(self.wd + '/plots/cdr.png', dpi=300)
+            plt.savefig(self.outputs + '/plots/cdr.png', dpi=300)
             plt.show()
 
         # Plot of distributions of international features
@@ -693,7 +698,7 @@ class Featurizer:
             features = ['international_all__recipient_id__count', 'international_all__recipient_id__nunique', 'international_call__duration__sum']
             names = ['International Transactions', 'International Contaacts', 'Total International Call Time']
             distributions_plot(self.features['international'], features, names, color='darkorange')
-            plt.savefig(self.wd + '/plots/international.png', dpi=300)
+            plt.savefig(self.outputs + '/plots/international.png', dpi=300)
             plt.show()
 
         # Plot of distributions of recharges features
@@ -701,7 +706,7 @@ class Featurizer:
             features = ['recharges_mean', 'recharges_count', 'recharges_days']
             names = ['Mean Recharge Amount', 'Number of Recharges', 'Number of Days with Recharges']
             distributions_plot(self.features['recharges'], features, names, color='mediumseagreen')
-            plt.savefig(self.wd + '/plots/recharges.png', dpi=300)
+            plt.savefig(self.outputs + '/plots/recharges.png', dpi=300)
             plt.show()
         
         # Plot of distributions of mobile data features
@@ -709,7 +714,7 @@ class Featurizer:
             features = ['mobiledata_total_volume', 'mobiledata_mean_volume', 'mobiledata_num_days']
             names = ['Total Volume (MB)', 'Mean Transaction Volume (MB)', 'Number of Days with Data Usage']
             distributions_plot(self.features['mobiledata'], features, names, color='dodgerblue')
-            plt.savefig(self.wd + '/plots/mobiledata.png', dpi=300)
+            plt.savefig(self.outputs + '/plots/mobiledata.png', dpi=300)
             plt.show()
 
         # Plot of distributions of mobile money features
@@ -717,7 +722,7 @@ class Featurizer:
             features = ['mobilemoney_all_all_amount_mean', 'mobilemoney_all_all_balance_before_mean', 'mobilemoney_all_all_txns', 'mobilemoney_all_cashout_txns']
             names = ['Mean Amount', 'Mean Balance', 'Transactions', 'Cashout Transactions']
             distributions_plot(self.features['mobilemoney'], features, names, color='orchid')
-            plt.savefig(self.wd + '/plots/mobilemoney.png', dpi=300)
+            plt.savefig(self.outputs + '/plots/mobilemoney.png', dpi=300)
             plt.show()
 
         # Spatial plots
@@ -736,7 +741,7 @@ class Featurizer:
                 ax.axis('off')
                 ax.set_title('Proportion of Transactions by ' + shapefile_name, fontsize='large')
                 plt.tight_layout()
-                plt.savefig(self.wd + '/plots/spatial_' + shapefile_name + '.png')
+                plt.savefig(self.outputs + '/plots/spatial_' + shapefile_name + '.png')
                 plt.show()
 
         # Cuts by feature usage (mobile money, mobile data, international calls)
@@ -781,7 +786,7 @@ class Featurizer:
                 ax[a].set_ylabel(names[a])
                 ax[a].set_title(names[a], fontsize='large')
                 clean_plot(ax[a])
-            plt.savefig(self.wd + '/plots/boxplots.png', dpi=300)
+            plt.savefig(self.outputs + '/plots/boxplots.png', dpi=300)
             plt.show()
 
 
