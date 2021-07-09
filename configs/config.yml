@@ -7,6 +7,7 @@ spark:
     max_result_size: "2g"
   loglevel: "ERROR"
 
+
 path:
   wd: "/Users/luciomelito/Documents/GD/cider/"
   featurizer:
@@ -21,8 +22,18 @@ path:
       shapefiles:
         'regions': '/regions.geojson'
         'prefectures': '/prefectures.geojson'
-  ml:
+  ml: null
   home_location:
+    data: "/Users/luciomelito/Documents/GD/cider/synthetic_data"
+    outputs: "/Users/luciomelito/Documents/GD/cider/outputs/homelocation"
+    file_names:
+      cdr: '/cdr.csv'
+      antennas: '/antennas.csv'
+      shapefiles:
+        'prefectures': '/prefectures.geojson'
+      poverty_scores: null
+      groundtruth: '/home_locations.csv'
+
 
 col_names:
   cdr:
@@ -57,3 +68,9 @@ col_names:
     sender_balance_after: "sender_balance_after"
     recipient_balance_before: "recipient_balance_before"
     recipient_balance_after: "recipient_balance_after"
+
+  geo: 'tower_id'
+
+params:
+  home_location:
+    filter_hours: null

@@ -1,60 +1,75 @@
 # TODO: Implement weights for ground truth
 
+from box import Box
+import yaml
 from helpers.utils import *
 from helpers.plot_utils import *
 from helpers.io_utils import *
 
+
 class HomeLocator:
 
-    def __init__(self, wd, cfg_dir, clean_folders=False,
-                 cdr_fname=None, antennas_fname=None, shapefiles={}, geo='antenna_id',
-                 filter_hours=None, groundtruth_fname=None, poverty_scores_fname=None):
+    def __init__(self, cfg_dir, clean_folders=False):
+        # Read config file
+        with open(cfg_dir, "r") as ymlfile:
+            cfg = Box(yaml.safe_load(ymlfile))
+        self.cfg = cfg
+        data = cfg.path.home_location.data
+        outputs = cfg.path.home_location.outputs
+        self.outputs = outputs
+        file_names = cfg.path.home_location.file_names
 
         # Initialize values
-        self.geo = geo
-        self.filter_hours = filter_hours
-        self.groundtruth = pd.read_csv(groundtruth_fname)
-        self.poverty_scores = pd.read_csv(poverty_scores_fname)
+        self.geo = cfg.col_names.geo
+        self.filter_hours = cfg.params.home_location.filter_hours
+        self.groundtruth = pd.read_csv(data + file_names.groundtruth)
+        #self.poverty_scores = pd.read_csv(data + file_names.poverty_scores)
         self.home_locations = {}
         self.accuracy_tables = {}
 
         # Prepare working directory
-        self.wd = wd
-        make_dir(wd, clean_folders)
-        make_dir(wd + '/outputs/')
-        make_dir(wd + '/maps/')
-        make_dir(wd + '/tables/')
+        make_dir(outputs, clean_folders)
+        make_dir(outputs + '/outputs/')
+        make_dir(outputs + '/maps/')
+        make_dir(outputs + '/tables/')
         
         # Spark setup
-        spark = get_spark_session()
+        spark = get_spark_session(cfg)
         self.spark = spark
 
         # Load antennas data 
-        self.antennas_fname = antennas_fname
-        if antennas_fname is not None:
-            self.antennas = load_antennas(antennas_fname)
+        if file_names.antennas is not None:
+            # Get fpath and load data
+            fpath = data + file_names.antennas
+            print('Loading antennas...')
+            self.antennas = load_antennas(self.cfg, fpath)
         else:
             self.antennas = None
 
         # Load shapefiles
         self.shapefiles = {}
+        shapefiles = file_names.shapefiles
         for shapefile_fname in shapefiles.keys():
-            self.shapefiles[shapefile_fname] = load_shapefile(shapefiles[shapefile_fname])
+            self.shapefiles[shapefile_fname] = load_shapefile(data + shapefiles[shapefile_fname])
 
         # Load CDR data 
-        self.cdr_fname = cdr_fname
-        self.cdr = load_cdr(cdr_fname)
+        fpath = data + file_names.cdr
+        self.cdr = load_cdr(self.cfg, fpath)
 
         # Clean and merge CDR data
-        outgoing = self.cdr.select(['caller_id', 'caller_antenna', 'timestamp', 'day'])\
-            .withColumnRenamed('caller_id', 'subscriber_id')\
-            .withColumnRenamed('caller_antenna', 'antenna_id')
-        incoming = self.cdr.select(['recipient_id', 'recipient_antenna', 'timestamp', 'day'])\
-            .withColumnRenamed('recipient_id', 'subscriber_id')\
-            .withColumnRenamed('recipient_antenna', 'antenna_id')
-        self.cdr = outgoing.select(incoming.columns).union(incoming)\
-            .na.drop()\
-            .withColumn('hour', hour('timestamp'))
+        outgoing = (self.cdr
+                    .select(['caller_id', 'caller_antenna', 'timestamp', 'day'])
+                    .withColumnRenamed('caller_id', 'subscriber_id')
+                    .withColumnRenamed('caller_antenna', 'antenna_id'))
+        incoming = (self.cdr
+                    .select(['recipient_id', 'recipient_antenna', 'timestamp', 'day'])
+                    .withColumnRenamed('recipient_id', 'subscriber_id')
+                    .withColumnRenamed('recipient_antenna', 'antenna_id'))
+        self.cdr = (outgoing
+                    .select(incoming.columns)
+                    .union(incoming)
+                    .na.drop()
+                    .withColumn('hour', hour('timestamp')))
 
         # Filter CDR to only desired hours
         if self.filter_hours is not None:
@@ -62,7 +77,9 @@ class HomeLocator:
         
         # Get tower ID for each transaction
         if self.geo == 'tower_id':
-            self.cdr = self.cdr.join(self.antennas.select(['antenna_id', 'tower_id']).na.drop(), on='antenna_id', how='inner')
+            self.cdr = (self.cdr
+                        .join(self.antennas
+                              .select(['antenna_id', 'tower_id']).na.drop(), on='antenna_id', how='inner'))
         
         # Get polygon for each transaction based on antenna latitude and longitudes
         elif self.geo in self.shapefiles.keys():
@@ -80,11 +97,9 @@ class HomeLocator:
         elif self.geo != 'antenna_id':
             raise ValueError('Invalid geography, must be antenna_id, tower_id, or shapefile name')
 
-
     def filter_dates(self, start_date, end_date):
 
         self.cdr = filter_dates_dataframe(self.cdr, start_date, end_date)
-    
 
     def deduplicate(self):
 
@@ -123,7 +138,7 @@ class HomeLocator:
             raise ValueError('Home location algorithm not recognized. Must be one of count_transactions, count_days, or count_modal_days')
 
         grouped = grouped.toPandas()
-        grouped.to_csv(self.wd + '/outputs/' + algo + '.csv', index=False)
+        grouped.to_csv(self.outputs + '/outputs/' + algo + '.csv', index=False)
         self.home_locations[algo] = grouped
         return grouped
 
@@ -133,8 +148,8 @@ class HomeLocator:
             raise ValueError('Ground truth dataset must be loaded to calculate accuracy statistics.')
         
         # Inner join ground truth data and inferred home locations
-        merged = self.home_locations[algo].rename({self.geo:self.geo + '_inferred'}, axis=1)\
-            .merge(self.groundtruth.rename({self.geo:self.geo + '_groundtruth'}, axis=1), on='subscriber_id', how='inner')
+        merged = self.home_locations[algo].rename({self.geo: self.geo + '_inferred'}, axis=1)\
+            .merge(self.groundtruth.rename({self.geo: self.geo + '_groundtruth'}, axis=1), on='subscriber_id', how='inner')
         print('Observations with inferred home location: %i (%i unique)' % (len(self.home_locations[algo]), \
             len(self.home_locations[algo]['subscriber_id'].unique())))
         print('Observations with ground truth home location: %i (%i unique)' % (len(self.groundtruth), len(self.groundtruth['subscriber_id'].unique())))
@@ -148,21 +163,21 @@ class HomeLocator:
         print('Overall accuracy: %.2f' % overall_accuracy)
 
         # Calculate precision and recall for each antenna/tower/polygon
-        recall = merged.rename({self.geo + '_groundtruth':self.geo, 'correct':'recall'}, axis=1)[[self.geo, 'recall']]\
+        recall = merged.rename({self.geo + '_groundtruth': self.geo, 'correct':'recall'}, axis=1)[[self.geo, 'recall']]\
             .groupby(self.geo, as_index=False).agg('mean')
-        precision = merged.rename({self.geo + '_inferred':self.geo, 'correct':'precision'}, axis=1)[[self.geo, 'precision']]\
+        precision = merged.rename({self.geo + '_inferred': self.geo, 'correct':'precision'}, axis=1)[[self.geo, 'precision']]\
             .groupby(self.geo, as_index=False).agg('mean')
         table = recall.merge(precision, on=self.geo, how='outer').fillna(0).sort_values('precision', ascending=False)
         table['overall_accuracy'] = overall_accuracy
 
         # Save table
-        table.to_csv(self.wd + '/tables/' + algo + '.csv', index=False)
+        table.to_csv(self.outputs + '/tables/' + algo + '.csv', index=False)
         self.accuracy_tables[algo] = table
         return table
 
     def map(self, algo='count_transactions', kind='population', voronoi=False):
 
-        if self.antennas_fname is None:
+        if self.antennas is None:
             raise ValueError('Antennas must be loaded to construct maps.')
         
         if kind not in ['population', 'poverty', 'precision', 'recall']:
@@ -218,7 +233,7 @@ class HomeLocator:
         population['population'] = population['population'].fillna(0)
 
         # Save shapefile
-        population.to_file(self.wd + '/maps/' +  algo + '_' + kind + '_voronoi' + str(voronoi) + '.geojson', driver='GeoJSON')
+        population.to_file(self.outputs + '/maps/' +  algo + '_' + kind + '_voronoi' + str(voronoi) + '.geojson', driver='GeoJSON')
 
         # Normalize population data for map
         population['population'] = population['population']/population['population'].sum()
@@ -248,5 +263,5 @@ class HomeLocator:
              else 'Recall Map'
         ax.set_title(title)
         plt.tight_layout()
-        plt.savefig(self.wd + '/maps/' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.png', dpi=300)
+        plt.savefig(self.outputs + '/maps/' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.png', dpi=300)
         plt.show()
