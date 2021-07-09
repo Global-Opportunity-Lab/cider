@@ -10,20 +10,22 @@ from pyspark.sql.types import *
 from pyspark.sql.functions import *
 from pyspark.sql import SparkSession, Window
 
-def get_spark_session():
+
+def get_spark_session(cfg):
     '''
     Gets or creates spark session, with context and logging preferences set
     '''
     # Build spark session
     spark = SparkSession \
         .builder \
-        .appName("mm") \
-        .config("spark.sql.files.maxPartitionBytes", 64 * 1024 * 1024) \
-        .config("spark.driver.memory", '50g') \
-        .config("spark.driver.maxResultSize", "2g")\
+        .appName(cfg.spark.app_name) \
+        .config("spark.sql.files.maxPartitionBytes", cfg.spark.files.max_partition_bytes) \
+        .config("spark.driver.memory", cfg.spark.driver.memory) \
+        .config("spark.driver.maxResultSize", cfg.spark.driver.max_result_size)\
         .getOrCreate()
-    spark.sparkContext.setLogLevel("ERROR")
+    spark.sparkContext.setLogLevel(cfg.spark.loglevel)
     return spark
+
 
 def save_df(df, outfname, sep=','):
     ''' 
@@ -36,11 +38,13 @@ def save_df(df, outfname, sep=','):
     os.rename(outfolder + '/' + old_fname, outfname)
     shutil.rmtree(outfolder)
 
+
 def save_parquet(df, outfname):
     '''
     Save spark dataframe to parquet file
     '''
     df.write.mode('overwrite').parquet(outfname)
+
 
 def filter_dates_dataframe(df, start_date, end_date, colname='timestamp'):
     if colname not in df.columns:
@@ -49,13 +53,16 @@ def filter_dates_dataframe(df, start_date, end_date, colname='timestamp'):
     df = df.where(col(colname) < pd.to_datetime(end_date) + pd.Timedelta(days=1))
     return df
 
-def make_dir(fname):
-    if os.path.isdir(fname):
+
+def make_dir(fname, remove=False):
+    if os.path.isdir(fname) and remove:
         shutil.rmtree(fname)
-    os.mkdir(fname)
+    os.makedirs(fname, exist_ok=True)
+
 
 def flatten_lst(lst):
-    return  [item for sublist in lst for item in sublist]
+    return [item for sublist in lst for item in sublist]
+
 
 def flatten_folder(args):
     ids, recs_folder = args
@@ -68,9 +75,10 @@ def flatten_folder(args):
             unmatched = unmatched + [p]
     return unmatched
 
-def cdr_bandicoot_format(cdr, antennas):
 
-    cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'duration', 'caller_antenna', 'recipient_antenna']
+def cdr_bandicoot_format(cdr, antennas, cfg):
+
+    cols = list(cfg.keys())
 
     outgoing = cdr.select(cols)\
         .withColumnRenamed('txn_type', 'interaction')\
@@ -103,12 +111,14 @@ def cdr_bandicoot_format(cdr, antennas):
     
     return cdr_bandicoot
 
+
 def long_join_pandas(dfs, on, how):
     
     df = dfs[0]
     for i in range(1, len(dfs)):
         df = df.merge(dfs[i], on=on, how=how)
     return df
+
 
 def long_join_pyspark(dfs, on, how):
     
@@ -117,5 +127,6 @@ def long_join_pyspark(dfs, on, how):
         df = df.join(dfs[i], on=on, how=how)
     return df
 
+
 def strictly_increasing(L):
-    return all(x<y for x, y in zip(L, L[1:]))
+    return all(x < y for x, y in zip(L, L[1:]))
