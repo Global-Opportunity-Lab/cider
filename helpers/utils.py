@@ -78,27 +78,27 @@ def flatten_folder(args):
 
 def cdr_bandicoot_format(cdr, antennas, cfg):
 
-    cols = list(cfg.values())
+    cols = list(cfg.keys())
 
     outgoing = cdr.select(cols)\
-        .withColumnRenamed(cfg.txn_type, 'interaction')\
-        .withColumnRenamed(cfg.caller_id, 'name')\
-        .withColumnRenamed(cfg.recipient_id, 'correspondent_id')\
-        .withColumnRenamed(cfg.timestamp, 'datetime')\
-        .withColumnRenamed(cfg.duration, 'call_duration')\
-        .withColumnRenamed(cfg.caller_antenna, 'antenna_id')\
+        .withColumnRenamed('txn_type', 'interaction')\
+        .withColumnRenamed('caller_id', 'name')\
+        .withColumnRenamed('recipient_id', 'correspondent_id')\
+        .withColumnRenamed('timestamp', 'datetime')\
+        .withColumnRenamed('duration', 'call_duration')\
+        .withColumnRenamed('caller_antenna', 'antenna_id')\
         .withColumn('direction', lit('out'))\
-        .drop(cfg.recipient_antenna)
+        .drop('recipient_antenna')
 
     incoming = cdr.select(cols)\
-        .withColumnRenamed(cfg.txn_type, 'interaction')\
-        .withColumnRenamed(cfg.recipient_id, 'name')\
-        .withColumnRenamed(cfg.caller_id, 'correspondent_id')\
-        .withColumnRenamed(cfg.timestamp, 'datetime')\
-        .withColumnRenamed(cfg.duration, 'call_duration')\
-        .withColumnRenamed(cfg.recipient_antenna, 'antenna_id')\
+        .withColumnRenamed('txn_type', 'interaction')\
+        .withColumnRenamed('recipient_id', 'name')\
+        .withColumnRenamed('caller_id', 'correspondent_id')\
+        .withColumnRenamed('timestamp', 'datetime')\
+        .withColumnRenamed('duration', 'call_duration')\
+        .withColumnRenamed('recipient_antenna', 'antenna_id')\
         .withColumn('direction', lit('in'))\
-        .drop(cfg.caller_antenna)
+        .drop('caller_antenna')
 
     cdr_bandicoot = outgoing.select(incoming.columns).union(incoming)\
         .withColumn('call_duration', col('call_duration').cast(IntegerType()).cast(StringType()))\
