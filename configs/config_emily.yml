@@ -12,7 +12,7 @@ path:
   wd: "/home/em/cider/"
   featurizer:
     data: "../synthetic_data"
-    outputs: "../outputs/featurizer"
+    outputs: "../tests/outputs/featurizer"
     file_names:
       cdr: '/cdr.csv'
       antennas: '/antennas.csv'
@@ -25,7 +25,7 @@ path:
   ml: null
   home_location:
     data: "../synthetic_data"
-    outputs: "../outputs/homelocation"
+    outputs: "../tests/outputs/homelocation"
     file_names:
       cdr: '/cdr.csv'
       antennas: '/antennas.csv'
