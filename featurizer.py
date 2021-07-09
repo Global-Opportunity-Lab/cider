@@ -6,7 +6,7 @@ import sys
 from helpers.utils import *
 from helpers.io_utils import *
 from helpers.plot_utils import *
-
+from pyspark.sql.utils import AnalysisException
 
 class Featurizer:
 
@@ -598,7 +598,7 @@ class Featurizer:
             if not self.features[feature]:
                 try:
                     self.features[feature] = self.spark.read.csv(data_path + dataset + '.csv', header=True)
-                except:
+                except AnalysisException:
                     print(f"Could not locate or read data for '{dataset}'")
 
     def all_features(self, read_from_disk=False):
