@@ -16,9 +16,11 @@ class Featurizer:
             cfg = Box(yaml.safe_load(ymlfile))
         self.cfg = cfg
         data = cfg.path.featurizer.data
+        self.data = data
         outputs = cfg.path.featurizer.outputs
         self.outputs = outputs
         file_names = cfg.path.featurizer.file_names
+        self.file_names = file_names
 
         # Prepare working directory
         self.features = {'cdr': None, 'international': None, 'recharges': None,
@@ -413,10 +415,10 @@ class Featurizer:
 
         # If CDR is not available in bandicoot format, calculate it
         if self.cdr_bandicoot is None:
-            self.cdr_bandicoot = cdr_bandicoot_format(self.cdr, self.antennas)
+            self.cdr_bandicoot = cdr_bandicoot_format(self.cdr, self.antennas, self.cfg.col_names.cdr)
 
         # Get dataframe of antennas located within regions
-        antennas = pd.read_csv(self.antennas_fname)
+        antennas = pd.read_csv(self.data + self.file_names.antennas)
         antennas = gpd.GeoDataFrame(antennas, geometry=gpd.points_from_xy(antennas['longitude'], antennas['latitude']))
         antennas.crs = {"init":"epsg:4326"}
         for shapefile_name in self.shapefiles.keys():
