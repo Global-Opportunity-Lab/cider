@@ -295,7 +295,7 @@ class Featurizer:
         print('Calculating CDR features...')
 
         # Convert CDR into bandicoot format
-        self.cdr_bandicoot = cdr_bandicoot_format(self.cdr, self.antennas, self.cfg.cdr.col_names)
+        self.cdr_bandicoot = cdr_bandicoot_format(self.cdr, self.antennas, self.cfg.col_names.cdr)
 
         # Get list of unique subscribers, write to file
         save_df(self.cdr_bandicoot.select('name').distinct(), self.outputs + '/datasets/subscribers.csv')
@@ -591,7 +591,8 @@ class Featurizer:
         data_path = self.outputs + '/datasets/'
 
         features = ['cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
-        datasets = ['all', 'international_feats', 'location_features', 'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
+        datasets = ['/bandicoot_features/all', 'international_feats', 'location_features',
+                    'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
         # Read data from disk if requested
         for feature, dataset in zip(features, datasets):
             if not self.features[feature]:
