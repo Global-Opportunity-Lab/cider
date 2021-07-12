@@ -10,7 +10,7 @@ from pyspark.sql.utils import AnalysisException
 
 class Featurizer:
 
-    def __init__(self, cfg_dir, clean_folders=False):
+    def __init__(self, cfg_dir, dataframes=None, clean_folders=False):
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
@@ -35,49 +35,50 @@ class Featurizer:
         spark = get_spark_session(self.cfg)
         self.spark = spark
 
+
         # Load CDR data 
-        if file_names.cdr is not None:
+        dataframe = dataframes['cdr'] if dataframes is not None and 'cdr' in dataframes.keys() else None
+        fpath = data + file_names.cdr if file_names.cdr is not None else None
+        if file_names.cdr is not None or dataframe is not None:
             print('Loading CDR...')
-            # Get fpath and load data
-            fpath = data + file_names.cdr
-            self.cdr = load_cdr(self.cfg, fpath)
+            self.cdr = load_cdr(self.cfg, fpath, df=dataframe)
             self.cdr_bandicoot = None
         else:
             self.cdr = None
 
-        # Load antennas data 
-        if file_names.antennas is not None:
-            # Get fpath and load data
-            fpath = data + file_names.antennas
+        # Load antennas data
+        dataframe = dataframes['antennas'] if dataframes is not None and 'antennas' in dataframes.keys() else None
+        fpath = data + file_names.antennas if file_names.antennas is not None else None
+        if file_names.antennas is not None or dataframe is not None:
             print('Loading antennas...')
-            self.antennas = load_antennas(self.cfg, fpath)
+            self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
         else:
             self.antennas = None
 
         # Load recharges data
-        if file_names.recharges is not None:
+        dataframe = dataframes['recharges'] if dataframes is not None and 'recharges' in dataframes.keys() else None
+        fpath = data + file_names.recharges if file_names.recharges is not None else None
+        if file_names.recharges is not None or dataframe is not None:
             print('Loading recharges...')
-            # Get fpath and load data
-            fpath = data + file_names.recharges
-            self.recharges = load_recharges(self.cfg, fpath)
+            self.recharges = load_recharges(self.cfg, fpath, df=dataframe)
         else:
             self.recharges=None
 
         # Load mobile internet data
-        if file_names.mobiledata is not None:
+        dataframe = dataframes['mobiledata'] if dataframes is not None and 'mobiledata' in dataframes.keys() else None
+        fpath = data + file_names.mobiledata if file_names.mobiledata is not None else None
+        if file_names.mobiledata is not None or dataframe is not None:
             print('Loading mobile data...')
-            # Get fpath and load data
-            fpath = data + file_names.mobiledata
-            self.mobiledata = load_mobiledata(self.cfg, fpath)
+            self.mobiledata = load_mobiledata(self.cfg, fpath, df=dataframe)
         else:
             self.mobiledata = None
 
         # Load mobile money data 
-        if file_names.mobilemoney is not None:
+        dataframe = dataframes['mobilemoney'] if dataframes is not None and 'mobilemoney' in dataframes.keys() else None
+        fpath = data + file_names.mobilemoney if file_names.mobilemoney is not None else None
+        if file_names.mobilemoney is not None or dataframe is not None:
             print('Loading mobile money...')
-            # Get fpath and load data
-            fpath = data + file_names.mobilemoney
-            self.mobilemoney = load_mobilemoney(self.cfg, fpath)
+            self.mobilemoney = load_mobilemoney(self.cfg, fpath, df=dataframe)
         else:
             self.mobilemoney = None
 
