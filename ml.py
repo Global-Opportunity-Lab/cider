@@ -12,7 +12,7 @@ class Learner:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.safe_load(ymlfile))
+            cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
         self.cfg = cfg
 
         # Prepare working directory
@@ -114,36 +114,7 @@ class Learner:
                                             ('model', LGBMRegressor(random_state=1, n_jobs=-1, verbose=-10))])
         }
 
-        self.grids = {
-            'linear': {'dropmissing__threshold':[0.9, 1],
-                        'droplowvariance__threshold':[0, 0.01],
-                        'winsorizer__limits':[(0., 1.), (0.005, .995)]},
-            
-            'lasso': {'dropmissing__threshold':[0.9, 1],
-                        'droplowvariance__threshold':[0, 0.01],
-                        'winsorizer__limits':[(0., 1.), (0.005, .995)],
-                        'model__alpha':[.001, .01, .05, .03, .1]},
-
-            'ridge': {'dropmissing__threshold':[0.9, 1],
-                        'droplowvariance__threshold':[0, 0.01],
-                        'winsorizer__limits':[(0., 1.), (0.005, .995)],
-                        'model__alpha':[.001, .01, .05, .03, .1]},
-
-            'randomforest': {'dropmissing__threshold':[0.9, 1],
-                            'droplowvariance__threshold':[0, 0.01],
-                            'winsorizer__limits':[(0., 1.), (0.005, .995)],
-                            'model__max_depth':[2, 4, 6, 8, 10],
-                            'model__n_estimators':[50, 100, 200]},
-
-            'gradientboosting': {'dropmissing__threshold':[0.99],
-                                'droplowvariance__threshold':[0.01],
-                                'winsorizer__limits':[(0., 1.), (0.005, .995)],
-                                'model__min_data_in_leaf':[10, 20, 50], 
-                                'model__num_leaves':[5, 10, 20],
-                                'model__learning_rate':[0.05, 0.075, 0.1],
-                                'model__n_estimators':[50, 100, 200]}
-        }
-
+        self.grids = cfg.hyperparams
 
     def merge(self):
 
