@@ -1,0 +1,76 @@
+spark:
+  app_name: "mm"
+  files:
+    max_partition_bytes: 67108864
+  driver:
+    memory: "50g"
+    max_result_size: "2g"
+  loglevel: "ERROR"
+
+
+path:
+  wd: "/home/em/cider/"
+  featurizer:
+    data: "../synthetic_data"
+    outputs: "../tests/outputs/featurizer"
+    file_names:
+      cdr: '/cdr.csv'
+      antennas: '/antennas.csv'
+      recharges: '/recharges.csv'
+      mobiledata: '/mobiledata.csv'
+      mobilemoney: '/mobilemoney.csv'
+      shapefiles:
+        'regions': '/regions.geojson'
+        'prefectures': '/prefectures.geojson'
+  ml: null
+  home_location:
+    data: "../synthetic_data"
+    outputs: "../tests/outputs/homelocation"
+    file_names:
+      cdr: '/cdr.csv'
+      antennas: '/antennas.csv'
+      shapefiles:
+        'prefectures': '/prefectures.geojson'
+      poverty_scores: null
+      groundtruth: '/home_locations.csv'
+
+
+col_names:
+  cdr:
+    txn_type: "txn_type"
+    caller_id: "caller_id"
+    recipient_id: "recipient_id"
+    timestamp: "timestamp"
+    duration: "duration"
+    caller_antenna: "caller_antenna"
+    recipient_antenna: "recipient_antenna"
+    international: "international"
+  antennas:
+    antenna_id: "antenna_id"
+    tower_id: "tower_id"
+    latitude: "latitude"
+    longitude: "longitude"
+  recharges:
+    caller_id: "caller_id"
+    amount: "amount"
+    timestamp: "timestamp"
+  mobiledata:
+    caller_id: "caller_id"
+    volume: "volume"
+    timestamp: "timestamp"
+  mobilemoney:
+    txn_type: "txn_type"
+    caller_id: "caller_id"
+    recipient_id: "recipient_id"
+    timestamp: "timestamp"
+    amount: "amount"
+    sender_balance_before: "sender_balance_before"
+    sender_balance_after: "sender_balance_after"
+    recipient_balance_before: "recipient_balance_before"
+    recipient_balance_after: "recipient_balance_after"
+
+  geo: 'tower_id'
+
+params:
+  home_location:
+    filter_hours: null

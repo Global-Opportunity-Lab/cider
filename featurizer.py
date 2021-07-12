@@ -432,7 +432,7 @@ class Featurizer:
         cdr = self.cdr_bandicoot.join(antennas, on='antenna_id', how='left')\
             .na.fill({shapefile_name:'Unknown' for shapefile_name in self.shapefiles.keys()})
 
-        # Get counts by region and unique regions
+        # Get counts by region
         for shapefile_name in self.shapefiles.keys():
             countbyregion = cdr.groupby(['name', shapefile_name]).count()
             save_df(countbyregion, self.outputs + '/datasets/countby' + shapefile_name + '.csv')
