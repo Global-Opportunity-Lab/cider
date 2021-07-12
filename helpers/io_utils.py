@@ -1,5 +1,6 @@
 from helpers.utils import *
 import geopandas as gpd
+from joblib import load
 
 
 def load_generic(cfg, fname=None, df=None):
@@ -165,3 +166,21 @@ def load_shapefile(fname):
 	check_cols(shapefile, required_cols, error_msg)
 
 	return shapefile
+
+
+def load_model(model, out_path, tuned=True):
+	subdir = '/tuned_models/' if tuned else '/untuned_models/'
+	if os.path.isfile(out_path + subdir + model + '/model'):
+		model_name = model
+		model = load(out_path + subdir + model + '/model')
+	elif os.path.isfile(model):
+		model_name = model.split('/')[-1]
+		model = load(model)
+		make_dir(out_path + subdir + model_name)
+	else:
+		raise ValueError("The 'model' argument should be a path or a recognized model name")
+
+	if tuned:
+		model = model.best_estimator_
+
+	return model_name, model

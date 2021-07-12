@@ -1,4 +1,5 @@
 from box import Box
+from helpers.io_utils import load_model
 from helpers.utils import *
 from helpers.plot_utils import *
 from helpers.ml_utils import *
@@ -154,7 +155,7 @@ class Learner:
         dump(model, self.outputs + '/untuned_models/' + model_name + '/model')
 
         # Feature importances
-        self.feature_importances(model_name, tuned=False)
+        self.feature_importances(model_name=model_name, tuned=False)
 
         return scores
 
@@ -192,21 +193,19 @@ class Learner:
         dump(model, self.outputs + '/tuned_models/' + model_name + '/model')
 
         # Feature importances
-        self.feature_importances(model_name, tuned=True)
+        self.feature_importances(model_name=model_name, tuned=True)
 
         return scores
 
-    def feature_importances(self, model_name, tuned=True):
-
+    def feature_importances(self, model, tuned=True):
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        model = load(self.outputs + subdir + model_name + '/model')
-        if tuned:
-            model = model.best_estimator_
+        # Load model
+        model_name, model = load_model(model, out_path=self.outputs, tuned=tuned)
 
-        if model_name in ['linear', 'lasso', 'ridge']:
-            imports = model.named_steps['model'].coef_
-        else:
+        if 'feature_importances_' in dir(model.named_steps['model']):
             imports = model.named_steps['model'].feature_importances_
+        else:
+            imports = model.named_steps['model'].coef_
 
         imports = pd.DataFrame([self.x.columns, imports]).T
         imports.columns = ['Feature', 'Importance']
@@ -214,12 +213,10 @@ class Learner:
         imports.to_csv(self.outputs + subdir + model_name + '/feature_importances.csv', index=False)
         return imports
     
-    def oos_predictions(self, model_name, tuned=True):
+    def oos_predictions(self, model, tuned=True):
 
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        model = load(self.outputs + subdir + model_name + '/model')
-        if tuned:
-            model = model.best_estimator_
+        model_name, model = load_model(model, out_path=self.outputs, tuned=tuned)
 
         oos = cross_val_predict(model, self.x, self.y, cv=self.kfold)
         oos = pd.DataFrame([list(self.merged['name']), list(self.y), oos]).T
@@ -228,10 +225,10 @@ class Learner:
         oos.to_csv(self.outputs + subdir + model_name + '/oos_predictions.csv', index=False)
         return oos
 
-    def population_predictions(self, model_name, tuned=True, n_chunks=100):
+    def population_predictions(self, model, tuned=True, n_chunks=100):
 
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        model = load(self.outputs + subdir + model_name + '/model')
+        model_name, model = load_model(model, out_path=self.outputs, tuned=tuned)
         
         columns = pd.read_csv(self.features_fname, nrows=1).columns
 
