@@ -1,33 +1,39 @@
+from box import Box
 from helpers.utils import *
 from helpers.plot_utils import *
 from helpers.ml_utils import *
+import yaml
 
 
 class Learner:
 
-    def __init__(self, wd, cfg_dir,
-                 features_fname, labels_fname,
+    def __init__(self, cfg_dir,
                  clean_folders=False, kfold=5):
 
+        # Read config file
+        with open(cfg_dir, "r") as ymlfile:
+            cfg = Box(yaml.safe_load(ymlfile))
+        self.cfg = cfg
+
         # Prepare working directory
-        self.features_fname = features_fname
-        self.labels_fname = labels_fname
-        self.wd = wd
-        make_dir(wd, clean_folders)
-        make_dir(wd + '/untuned_models')
-        make_dir(wd + '/tuned_models')
+        self.features_fname = cfg.path.ml.features
+        self.labels_fname = cfg.path.ml.labels
+        self.outputs = cfg.path.ml.outputs
+        make_dir(self.outputs, clean_folders)
+        make_dir(self.outputs + '/untuned_models')
+        make_dir(self.outputs + '/tuned_models')
 
         # Spark setup
-        spark = get_spark_session()
+        spark = get_spark_session(cfg)
         self.spark = spark
 
         # Load features
-        self.features = self.spark.read.csv(features_fname, header=True)
+        self.features = self.spark.read.csv(self.features_fname, header=True)
         if 'name' not in self.features.columns:
             raise ValueError('Features dataframe must include name column')
 
         # Load labels
-        self.labels = self.spark.read.csv(labels_fname, header=True)
+        self.labels = self.spark.read.csv(self.labels_fname, header=True)
         if 'name' not in self.labels.columns:
             raise ValueError('Labels dataframe must include name column')
         if 'label' not in self.labels.columns:
@@ -35,8 +41,7 @@ class Learner:
         if 'weight' not in self.labels.columns:
             self.labels = self.labels.withColumn('weight', lit(1))
         self.labels = self.labels.select(['name', 'label', 'weight'])
-        
-        
+
         self.kfold = KFold(n_splits=kfold, shuffle=True, random_state=100)
 
         # Define models
@@ -148,8 +153,8 @@ class Learner:
         merged = self.labels.join(self.features, on='name', how='inner')
         print('Number of matched observations: %i (%i unique)' % (merged.count(), merged.select('name').distinct().count()))
 
-        save_df(merged, self.wd + '/merged.csv')
-        self.merged = pd.read_csv(self.wd + '/merged.csv')
+        save_df(merged, self.outputs + '/merged.csv')
+        self.merged = pd.read_csv(self.outputs + '/merged.csv')
         self.x = self.merged.drop(['name', 'label', 'weight'], axis=1)
         self.y = self.merged['label']
         # Make the smallest weight 1
@@ -157,22 +162,25 @@ class Learner:
 
     def untuned_model(self, model_name):
 
-        make_dir(self.wd + '/untuned_models/' + model_name)
+        make_dir(self.outputs + '/untuned_models/' + model_name)
 
-        raw_scores = cross_validate(self.untuned_models[model_name], self.x, self.y, cv=self.kfold, return_train_score=True, 
-        scoring=['r2', 'neg_root_mean_squared_error'], fit_params={'model__sample_weight':self.weights})
+        raw_scores = cross_validate(self.untuned_models[model_name], self.x, self.y,
+                                    cv=self.kfold,
+                                    return_train_score=True,
+                                    scoring=['r2', 'neg_root_mean_squared_error'],
+                                    fit_params={'model__sample_weight': self.weights})
 
         scores = {}
         scores['train_r2'] = '%.2f (%.2f)' % (raw_scores['train_r2'].mean(), raw_scores['train_r2'].std())
         scores['test_r2'] = '%.2f (%.2f)' % (raw_scores['test_r2'].mean(), raw_scores['test_r2'].std())
         scores['train_rmse'] = '%.2f (%.2f)' % (-raw_scores['train_neg_root_mean_squared_error'].mean(), -raw_scores['train_neg_root_mean_squared_error'].std())
         scores['test_rmse'] = '%.2f (%.2f)' % (-raw_scores['test_neg_root_mean_squared_error'].mean(), -raw_scores['test_neg_root_mean_squared_error'].std())
-        with open(self.wd + '/untuned_models/' + model_name + '/results.json', 'w') as f:
+        with open(self.outputs + '/untuned_models/' + model_name + '/results.json', 'w') as f:
             json.dump(scores, f)
 
         # Save model
         model = self.untuned_models[model_name].fit(self.x, self.y, model__sample_weight=self.weights)
-        dump(model, self.wd + '/untuned_models/' + model_name + '/model')
+        dump(model, self.outputs + '/untuned_models/' + model_name + '/model')
 
         # Feature importances
         self.feature_importances(model_name, tuned=False)
@@ -181,23 +189,23 @@ class Learner:
 
     def tuned_model(self, model_name):
 
-        make_dir(self.wd + '/tuned_models/' + model_name)
+        make_dir(self.outputs + '/tuned_models/' + model_name)
 
-        model = GridSearchCV(estimator=self.tuned_models[model_name], 
-                            param_grid=self.grids[model_name],
-                            cv=self.kfold,
-                            verbose=0,
-                            scoring=['r2', 'neg_root_mean_squared_error'],
-                            return_train_score=True,
-                            refit='r2',
-                            n_jobs=-1)
+        model = GridSearchCV(estimator=self.tuned_models[model_name],
+                             param_grid=self.grids[model_name],
+                             cv=self.kfold,
+                             verbose=0,
+                             scoring=['r2', 'neg_root_mean_squared_error'],
+                             return_train_score=True,
+                             refit='r2',
+                             n_jobs=-1)
 
         model.fit(self.x, self.y, model__sample_weight=self.weights)
         
         # Save tuning results
         tuning_results = pd.DataFrame(model.cv_results_)
         tuning_results.drop(['mean_fit_time', 'std_fit_time', 'mean_score_time', 'std_fit_time'], axis=1)\
-            .to_csv(self.wd + '/tuned_models/' + model_name + '/tuning.csv', index=False)
+            .to_csv(self.outputs + '/tuned_models/' + model_name + '/tuning.csv', index=False)
 
         # Save accuracy results for best model
         best_model = tuning_results.iloc[tuning_results['mean_test_r2'].argmax()]
@@ -206,11 +214,11 @@ class Learner:
         scores['test_r2'] = '%.2f (%.2f)' % (best_model['mean_test_r2'], best_model['std_test_r2'])
         scores['train_rmse'] = '%.2f (%.2f)' % (-best_model['mean_train_neg_root_mean_squared_error'], -best_model['std_train_neg_root_mean_squared_error'])
         scores['test_rmse'] = '%.2f (%.2f)' % (-best_model['mean_test_neg_root_mean_squared_error'], -best_model['std_test_neg_root_mean_squared_error'])
-        with open(self.wd + '/tuned_models/' + model_name + '/results.json', 'w') as f:
+        with open(self.outputs + '/tuned_models/' + model_name + '/results.json', 'w') as f:
             json.dump(scores, f)
 
         # Save model
-        dump(model, self.wd + '/tuned_models/' + model_name + '/model')
+        dump(model, self.outputs + '/tuned_models/' + model_name + '/model')
 
         # Feature importances
         self.feature_importances(model_name, tuned=True)
@@ -220,7 +228,7 @@ class Learner:
     def feature_importances(self, model_name, tuned=True):
 
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        model = load(self.wd + subdir + model_name + '/model')
+        model = load(self.outputs + subdir + model_name + '/model')
         if tuned:
             model = model.best_estimator_
 
@@ -232,13 +240,13 @@ class Learner:
         imports = pd.DataFrame([self.x.columns, imports]).T
         imports.columns = ['Feature', 'Importance']
         imports = imports.sort_values('Importance', ascending=False)
-        imports.to_csv(self.wd + subdir + model_name + '/feature_importances.csv', index=False)
+        imports.to_csv(self.outputs + subdir + model_name + '/feature_importances.csv', index=False)
         return imports
     
     def oos_predictions(self, model_name, tuned=True):
 
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        model = load(self.wd + subdir + model_name + '/model')
+        model = load(self.outputs + subdir + model_name + '/model')
         if tuned:
             model = model.best_estimator_
 
@@ -246,14 +254,13 @@ class Learner:
         oos = pd.DataFrame([list(self.merged['name']), list(self.y), oos]).T
         oos.columns = ['name', 'true', 'predicted']
         oos['weight'] = self.weights
-        oos.to_csv(self.wd + subdir + model_name + '/oos_predictions.csv', index=False)
+        oos.to_csv(self.outputs + subdir + model_name + '/oos_predictions.csv', index=False)
         return oos
-       
 
     def population_predictions(self, model_name, tuned=True, n_chunks=100):
 
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        model = load(self.wd + subdir + model_name + '/model')
+        model = load(self.outputs + subdir + model_name + '/model')
         
         columns = pd.read_csv(self.features_fname, nrows=1).columns
 
@@ -261,21 +268,20 @@ class Learner:
 
         results = []
         for chunk in range(n_chunks):
-            x = pd.read_csv(self.features_fname, skiprows = 1 + chunk*chunksize, nrows=chunksize, header=None)
+            x = pd.read_csv(self.features_fname, skiprows=1 + chunk*chunksize, nrows=chunksize, header=None)
             x.columns = columns
             results_chunk = x[['name']].copy()
             results_chunk['predicted'] = model.predict(x[self.x.columns])
             results.append(results_chunk)
         results = pd.concat(results)
 
-        results.to_csv(self.wd + subdir + model_name + '/population_predictions.csv', index=False)
+        results.to_csv(self.outputs + subdir + model_name + '/population_predictions.csv', index=False)
         return results
-
 
     def scatter_plot(self, model_name, tuned=True):
 
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        oos = pd.read_csv(self.wd + subdir + model_name + '/oos_predictions.csv')
+        oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
         oos['weight'] = 100*((oos['weight'] - oos['weight'].min())/(oos['weight'].max() - oos['weight'].min()))
         oos_repeat = pd.DataFrame(np.repeat(oos.values, oos['weight'], axis=0), columns=oos.columns).astype(oos.dtypes)
         corr = np.corrcoef(oos_repeat['true'], oos_repeat['predicted'])[0][1]
@@ -300,14 +306,13 @@ class Learner:
         ax.legend(loc='best')
         clean_plot(ax)
 
-        plt.savefig(self.wd + subdir + model_name + '/scatterplot.png', dpi=300)
+        plt.savefig(self.outputs + subdir + model_name + '/scatterplot.png', dpi=300)
         plt.show()
-
 
     def feature_importances_plot(self, model_name, tuned=True, n_features=20):
         
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        importances = pd.read_csv(self.wd + subdir + model_name + '/feature_importances.csv')
+        importances = pd.read_csv(self.outputs + subdir + model_name + '/feature_importances.csv')
 
         importances = importances.sort_values('Importance', ascending=False)
         importances = importances[:n_features].sort_values('Importance', ascending=True)
@@ -337,14 +342,13 @@ class Learner:
         ax.set_xlabel('Feature Importance')
         clean_plot(ax)
 
-        plt.savefig(self.wd + subdir + model_name + '/feature_importances.png', dpi=300)
+        plt.savefig(self.outputs + subdir + model_name + '/feature_importances.png', dpi=300)
         plt.show()
-
 
     def targeting_table(self, model_name, tuned=True):
 
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        oos = pd.read_csv(self.wd + subdir + model_name + '/oos_predictions.csv')
+        oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
         oos['weight'] = 100*(oos['weight'] - oos['weight'].min())/(oos['weight'].max() - oos['weight'].min())
         oos_repeat = pd.DataFrame(np.repeat(oos.values, oos['weight'], axis=0), columns=oos.columns).astype(oos.dtypes)
 
@@ -361,29 +365,5 @@ class Learner:
         table['Recall'] = [('%i' % (g[2]*100)) + '%' for g in metric_grid]
 
         table = table.round(2)
-        table.to_csv(self.wd + subdir + model_name + '/targeting_table.csv', index=False)
+        table.to_csv(self.outputs + subdir + model_name + '/targeting_table.csv', index=False)
         return table
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
-
-
-
-    
-
-    

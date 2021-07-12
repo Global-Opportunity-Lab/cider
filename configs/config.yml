@@ -22,7 +22,10 @@ path:
       shapefiles:
         'regions': '/regions.geojson'
         'prefectures': '/prefectures.geojson'
-  ml: null
+  ml:
+    outputs: "/Users/luciomelito/Documents/GD/cider/outputs/machinelearning"
+    features: '/Users/luciomelito/Documents/GD/cider/outputs/featurizer/datasets/features.csv'
+    labels: "/Users/luciomelito/Documents/GD/cider/synthetic_data/labels.csv"
   home_location:
     data: "/Users/luciomelito/Documents/GD/cider/synthetic_data"
     outputs: "/Users/luciomelito/Documents/GD/cider/outputs/homelocation"

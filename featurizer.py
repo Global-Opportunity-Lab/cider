@@ -11,6 +11,7 @@ from pyspark.sql.utils import AnalysisException
 class Featurizer:
 
     def __init__(self, cfg_dir, clean_folders=False):
+
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
             cfg = Box(yaml.safe_load(ymlfile))
