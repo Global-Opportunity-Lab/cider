@@ -155,7 +155,7 @@ class Learner:
         dump(model, self.outputs + '/untuned_models/' + model_name + '/model')
 
         # Feature importances
-        self.feature_importances(model_name=model_name, tuned=False)
+        self.feature_importances(model=model_name, tuned=False)
 
         return scores
 
@@ -193,7 +193,7 @@ class Learner:
         dump(model, self.outputs + '/tuned_models/' + model_name + '/model')
 
         # Feature importances
-        self.feature_importances(model_name=model_name, tuned=True)
+        self.feature_importances(model=model_name, tuned=True)
 
         return scores
 
