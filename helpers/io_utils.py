@@ -49,7 +49,10 @@ def standardize_col_names(df, col_names):
 
 def load_cdr(cfg, fname=None, df=None, verify=True):
 	# load data as generic df and standardize column_names
-	cdr = load_generic(cfg, fname=fname, df=df)
+	if fname is not None:
+		cdr = load_generic(cfg, fname=fname, df=df)
+	else:
+		cdr = df
 	cdr = standardize_col_names(cdr, cfg.col_names.cdr)
 
 	if verify:
@@ -79,7 +82,10 @@ def load_cdr(cfg, fname=None, df=None, verify=True):
 
 def load_antennas(cfg, fname=None, df=None, verify=True):
 	# load data as generic df and standardize column_names
-	antennas = load_generic(cfg, fname=fname, df=df)
+	if fname is not None:
+		antennas = load_generic(cfg, fname=fname, df=df)
+	else:
+		antennas = df
 	antennas = standardize_col_names(antennas, cfg.col_names.antennas)
 
 	if verify:
@@ -96,7 +102,10 @@ def load_antennas(cfg, fname=None, df=None, verify=True):
 
 def load_recharges(cfg, fname=None, df=None, verify=True):
 	# load data as generic df and standardize column_names
-	recharges = load_generic(cfg, fname=fname, df=df)
+	if fname is not None:
+		recharges = load_generic(cfg, fname=fname, df=df)
+	else:
+		recharges = df
 	recharges = standardize_col_names(recharges, cfg.col_names.recharges)
 		
 	# Clean timestamp column
@@ -111,7 +120,10 @@ def load_recharges(cfg, fname=None, df=None, verify=True):
 
 def load_mobiledata(cfg, fname=None, df=None, verify=True):
 	# load data as generic df and standardize column_names
-	mobiledata = load_generic(cfg, fname=fname, df=df)
+	if fname is not None:
+		mobiledata = load_generic(cfg, fname=fname, df=df)
+	else:
+		mobiledata = df
 	mobiledata = standardize_col_names(mobiledata, cfg.col_names.mobiledata)
 		
 	# Clean timestamp column
@@ -126,7 +138,10 @@ def load_mobiledata(cfg, fname=None, df=None, verify=True):
 
 def load_mobilemoney(cfg, fname=None, df=None, verify=True):
 	# load data as generic df and standardize column_names
-	mobilemoney = load_generic(cfg, fname=fname, df=df)
+	if fname is not None:
+		mobilemoney = load_generic(cfg, fname=fname, df=df)
+	else:
+		mobilemoney = df
 	mobilemoney = standardize_col_names(mobilemoney, cfg.col_names.mobilemoney)
 
 	if verify:

@@ -9,7 +9,7 @@ from helpers.io_utils import *
 
 class HomeLocator:
 
-    def __init__(self, cfg_dir, clean_folders=False):
+    def __init__(self, cfg_dir, dataframes=None, clean_folders=False):
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
@@ -23,8 +23,10 @@ class HomeLocator:
         # Initialize values
         self.geo = cfg.col_names.geo
         self.filter_hours = cfg.params.home_location.filter_hours
-        self.groundtruth = pd.read_csv(data + file_names.groundtruth)
-        #self.poverty_scores = pd.read_csv(data + file_names.poverty_scores)
+        if file_names.groundtruth is not None:
+            self.groundtruth = pd.read_csv(data + file_names.groundtruth)
+        if file_names.poverty_scores is not None:
+            self.poverty_scores = pd.read_csv(data + file_names.poverty_scores)
         self.home_locations = {}
         self.accuracy_tables = {}
 
@@ -38,12 +40,21 @@ class HomeLocator:
         spark = get_spark_session(cfg)
         self.spark = spark
 
+        # Load CDR data 
+        dataframe = dataframes['cdr'] if dataframes is not None and 'cdr' in dataframes.keys() else None
+        fpath = data + file_names.cdr if file_names.cdr is not None else None
+        if file_names.cdr is not None or dataframe is not None:
+            print('Loading CDR...')
+            self.cdr = load_cdr(self.cfg, fpath, df=dataframe)
+        else:
+            self.cdr = None
+
         # Load antennas data 
-        if file_names.antennas is not None:
-            # Get fpath and load data
-            fpath = data + file_names.antennas
+        dataframe = dataframes['antennas'] if dataframes is not None and 'antennas' in dataframes.keys() else None
+        fpath = data + file_names.antennas if file_names.antennas is not None else None
+        if file_names.antennas is not None or dataframe is not None:
             print('Loading antennas...')
-            self.antennas = load_antennas(self.cfg, fpath)
+            self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
         else:
             self.antennas = None
 
@@ -52,10 +63,6 @@ class HomeLocator:
         shapefiles = file_names.shapefiles
         for shapefile_fname in shapefiles.keys():
             self.shapefiles[shapefile_fname] = load_shapefile(data + shapefiles[shapefile_fname])
-
-        # Load CDR data 
-        fpath = data + file_names.cdr
-        self.cdr = load_cdr(self.cfg, fpath)
 
         # Clean and merge CDR data
         outgoing = (self.cdr
