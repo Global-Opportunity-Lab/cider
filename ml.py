@@ -1,3 +1,4 @@
+import autosklearn.regression
 from box import Box
 from helpers.io_utils import load_model
 from helpers.utils import *
@@ -196,6 +197,28 @@ class Learner:
         self.feature_importances(model=model_name, tuned=True)
 
         return scores
+
+    def automl(self, model_name):
+        make_dir(self.outputs + '/untuned_models/' + model_name)
+
+        cfg = self.cfg.params.automl
+
+        model = autosklearn.regression.AutoSklearnRegressor(
+                    time_left_for_this_task=cfg.time_left,
+                    per_run_time_limit=None,
+                    ensemble_nbest=1,
+                    initial_configurations_via_metalearning=0,
+                    resampling_strategy=KFold,
+                    resampling_strategy_arguments={'n_splits': 5, 'shuffle': True, 'random_state': 100},
+                    n_jobs=cfg.n_jobs,
+                    memory_limit=cfg.memory_limit,
+                    seed=100)
+
+        model.fit(self.x, self.y)
+        model.refit(self.x.copy(), self.y.copy())
+        dump(model.get_models_with_weights()[0][1], self.outputs + '/untuned_models/' + model_name + '/model')
+
+        print('Finished automl training!')
 
     def feature_importances(self, model, tuned=True):
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
