@@ -27,7 +27,10 @@ path:
       shapefiles:
         'regions': '/regions.geojson'
         'prefectures': '/prefectures.geojson'
-  ml: null
+  ml: 
+    outputs: "/home/em/cideroutputs/machinelearning"
+    features: '/data/togo_anon/feats/survey_combos/survey2018_cdr2018_cider.csv'
+    labels: "/data/togo_anon/surveys/survey2018/survey2018_labels_cider.csv"
   home_location:
     data: "../synthetic_data"
     outputs: "../tests/outputs/homelocation"
@@ -86,3 +89,37 @@ params:
   home_location:
     filter_hours: null
 
+  automl:
+    time_left: 3600
+    n_jobs: 56
+    memory_limit: 10000
+
+hyperparams:
+  'linear':
+    'dropmissing__threshold': [0.9, 1]
+    'droplowvariance__threshold': [ 0, 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+  'lasso':
+    'dropmissing__threshold': [ 0.9, 1 ]
+    'droplowvariance__threshold': [ 0, 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    'model__alpha': [ .001, .01, .05, .03, .1 ]
+  'ridge':
+    'dropmissing__threshold': [ 0.9, 1 ]
+    'droplowvariance__threshold': [ 0, 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    'model__alpha': [ .001, .01, .05, .03, .1 ]
+  'randomforest':
+    'dropmissing__threshold': [ 0.9, 1 ]
+    'droplowvariance__threshold': [ 0, 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    'model__max_depth': [ 2, 4, 6, 8, 10 ]
+    'model__n_estimators': [ 50, 100, 200 ]
+  'gradientboosting':
+    'dropmissing__threshold': [ 0.99 ]
+    'droplowvariance__threshold': [ 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    'model__min_data_in_leaf': [ 10, 20, 50 ]
+    'model__num_leaves': [ 5, 10, 20 ]
+    'model__learning_rate': [ 0.05, 0.075, 0.1 ]
+    'model__n_estimators': [ 50, 100, 200 ]
