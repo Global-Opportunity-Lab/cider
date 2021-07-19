@@ -8,7 +8,7 @@ from skmisc.loess import loess
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.pipeline import Pipeline
 
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.impute import SimpleImputer
 
@@ -16,7 +16,7 @@ from sklearn.linear_model import LinearRegression, Lasso, Ridge
 from sklearn.ensemble import RandomForestRegressor
 from lightgbm import LGBMRegressor
 
-from sklearn.metrics import confusion_matrix, auc
+from sklearn.metrics import confusion_matrix, auc, r2_score
 from scipy.stats import spearmanr
 from sklearn.model_selection import cross_validate, KFold, GridSearchCV, cross_val_predict
 

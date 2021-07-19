@@ -76,6 +76,13 @@ col_names:
 
   geo: 'tower_id'
 
+col_types:
+  survey:
+    continuous: [ "con0", "con1", "con2", "con3", "con4", "con5", "con6", "con7", "con8", "con9" ]
+    categorical: [ "cat0", "cat1", "cat2", "cat3", "cat4", "cat5", "cat6", "cat7", "cat8", "cat9" ]
+    binary: [ "bin0", "bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8", "bin9" ]
+
 params:
   home_location:
     filter_hours: null
+
