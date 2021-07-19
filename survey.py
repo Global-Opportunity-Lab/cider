@@ -22,7 +22,15 @@ class SurveyOutcomeGenerator:
         outputs = cfg.path.survey.outputs
         self.outputs = outputs
         file_names = cfg.path.survey.file_names
+
+        # Get hypeparameter grids
         self.grids = cfg.hyperparams
+        for key1 in self.grids.keys():
+            grid = {}
+            for key2 in self.grids[key1].keys():
+                if 'variance' not in key2 and 'missing' not in key2 and 'winsorizer' not in key2:
+                    grid[key2] = self.grids[key1][key2]
+            self.grids[key1] = grid
 
         # Initialize values
         if dataframe is not None:
@@ -36,7 +44,6 @@ class SurveyOutcomeGenerator:
         self.continuous = cfg.col_types.survey.continuous
         self.categorical = cfg.col_types.survey.categorical
         self.binary = cfg.col_types.survey.binary
-        
 
         # Prepare working directory
         make_dir(outputs, clean_folders)
@@ -111,7 +118,8 @@ class SurveyOutcomeGenerator:
             continuous_transformer = Pipeline([('null', 'passthrough')])
         categorical_transformer = OneHotEncoder(drop=None, handle_unknown='ignore')
         preprocessor = ColumnTransformer([('continuous', continuous_transformer, list(set(self.continuous).intersection(set(cols)))), 
-                                        ('categorical', categorical_transformer, list(set(self.categorical).intersection(set(cols))))])
+                                        ('categorical', categorical_transformer, list(set(self.categorical).intersection(set(cols))))],
+                                        sparse_threshold=0)
 
         # Compile model
         models = {
@@ -122,15 +130,14 @@ class SurveyOutcomeGenerator:
             'gradientboosting': LGBMRegressor(random_state=1, n_jobs=-1, verbose=-10)
         }
         model = Pipeline([('preprocessor', preprocessor), ('model', models[model_name])])
-        # TODO: Implement functionality for hyperparameter tuning
-        #if model != 'linear':
-        #    model = GridSearchCV(estimator=model,
-        #                     param_grid=self.grids[model_name],
-        #                     cv=kfold,
-        #                     verbose=0,
-        #                     scoring='r2',
-        #                     refit='r2',
-        #                     n_jobs=-1)
+        if model != 'linear':
+            model = GridSearchCV(estimator=model,
+                             param_grid=self.grids[model_name],
+                             cv=kfold,
+                             verbose=0,
+                             scoring='r2',
+                             refit='r2',
+                             n_jobs=-1)
 
 
         # Fit model, save feature importances and model
@@ -138,6 +145,8 @@ class SurveyOutcomeGenerator:
             model.fit(data[cols], data[outcome], model__sample_weight=data['weight'])
         else:
              model.fit(data[cols], data[outcome])
+        if model != 'linear':
+            model = model.best_estimator_
         dump(model, self.outputs + '/' + model_name)
 
         # Get in sample and out of sample predictions
