@@ -10,6 +10,11 @@ spark:
 
 path:
   wd: "/home/em/cider/"
+  survey:
+    data: "../synthetic_data"
+    outputs: "../tests/outputs/survey"
+    file_names:
+      survey: "/survey.csv" 
   featurizer:
     data: "../synthetic_data"
     outputs: "../tests/outputs/featurizer"
