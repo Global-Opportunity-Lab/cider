@@ -1,14 +1,13 @@
+from typing import ValuesView
 from box import Box
 import yaml
 from helpers.utils import *
 from helpers.plot_utils import *
 from helpers.io_utils import *
-import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.decomposition import PCA
-from sklearn.compose import ColumnTransformer
-from wpca import WPCA
 from helpers.ml_utils import *
+from sklearn.decomposition import PCA
+from wpca import WPCA
+
 
 class SurveyOutcomeGenerator:
 
@@ -97,6 +96,9 @@ class SurveyOutcomeGenerator:
 
     def fit_pmt(self, outcome, cols, model_name='linear', kfold=5, use_weights=True, scale=False, winsorize=False):
 
+        # Check that columns are typed correctly
+        check_column_types(self.survey_data[cols], continuous=self.continuous, categorical=self.categorical, binary=self.binary)
+
         # Drop observations with null values
         data = self.survey_data[['unique_id', 'weight', outcome] + cols]
         n_obs = len(data)
@@ -140,7 +142,7 @@ class SurveyOutcomeGenerator:
                              n_jobs=-1)
 
 
-        # Fit model, save feature importances and model
+        # Fit and save model
         if use_weights:
             model.fit(data[cols], data[outcome], model__sample_weight=data['weight'])
         else:
@@ -149,19 +151,74 @@ class SurveyOutcomeGenerator:
             model = model.best_estimator_
         dump(model, self.outputs + '/' + model_name)
 
+        # Save feature importances
+        if 'feature_importances_' in dir(model.named_steps['model']):
+            imports = model.named_steps['model'].feature_importances_
+        else:
+            imports = model.named_steps['model'].coef_
+
+        colnames = list(pd.get_dummies(data[cols], columns=self.categorical, dummy_na=False, drop_first=False).columns)
+        imports = pd.DataFrame([colnames, imports]).T
+        imports.columns = ['Feature', 'Importance']
+        imports = imports.sort_values('Importance', ascending=False)
+        imports.to_csv(self.outputs + '/feature_importances_' + model_name + '.csv', index=False)
+
         # Get in sample and out of sample predictions
         insample = model.predict(data[cols])
         oos = cross_val_predict(model, data[cols], data[outcome], cv=kfold)
-        predictions = pd.DataFrame([data['unique_id'].values, data['weight'].values, data[outcome].values, insample, oos]).T
-        predictions.columns = ['unique_id', 'weight', outcome, 'in_sample_prediction', 'out_of_sample_prediction']
+        predictions = pd.DataFrame([data['unique_id'].values, insample, oos]).T
+        predictions.columns = ['unique_id', 'in_sample_prediction', 'out_of_sample_prediction']
+        predictions = predictions.merge(data[['unique_id', 'weight', outcome] + cols], on='unique_id')
         predictions.to_csv(self.outputs + '/' + model_name + '_predictions.csv', index=False)
-        print('R2 score: %.2f' % r2_score(predictions[outcome], predictions['in_sample_prediction']))
+        if use_weights:
+            r2 = r2_score(predictions[outcome], predictions['in_sample_prediction'], sample_weight=predictions['weight'])
+        else:
+            r2 = r2_score(predictions[outcome], predictions['in_sample_prediction'])
+        print('R2 score: %.2f' % r2)
+        return predictions
 
 
-    def pretrained_pmt(self, cols, use_weights=True):
+    def pretrained_pmt(self, other_data, cols, model_name, dataset_name='other_data'):
 
-        # TODO
-        return False
+        # Load data
+        if isinstance(other_data, str):
+            other_data = pd.read_csv(other_data)
+
+        # Check that all columns are present and check column types
+        original_data = pd.read_csv(self.outputs + '/' + model_name + '_predictions.csv')
+        check_columns_exist(original_data, cols, 'training dataset')
+        check_columns_exist(other_data, cols, 'prediction dataset')
+        check_column_types(other_data[cols], continuous=self.continuous, categorical=self.categorical, binary=self.binary)
+
+        # Drop observations with null values
+        other_data = other_data[['unique_id'] + cols]
+        n_obs = len(other_data)
+        other_data = other_data.dropna(subset=list(set(cols).intersection(set(self.continuous + self.binary))))
+        dropped = n_obs - len(other_data)
+        if  dropped > 0:
+            print('Warning: Dropping %i observations with missing values in continuous or binary columns (%i percent of all observations)' % 
+                (dropped, 100*dropped/n_obs))
+
+        # Check that ranges are the same as training data
+        for c in set(cols).intersection(set(self.categorical)):
+            set_dif = set(other_data[c].dropna()).difference(set(original_data[c].dropna()))
+            if len(set_dif) > 0:
+                print('Warning: There are values in categorical column ' + c + \
+                    ' that are not present in training data; they will not be positive for any dummy column. Values: ' + \
+                    ','.join([str(x) for x in set_dif]))
+        for c in set(cols).intersection(set(self.continuous)):
+            if np.round(other_data[c].min(), 2) < np.round(original_data[c].min(), 2) or np.round(other_data[c].max(), 2) > np.round(original_data[c].max(), 2):
+                print('Warning: There are values in continuous column ' + c + \
+                    ' that are outside of the range in the training data; the original standardization will apply.')
+
+        # Load and apply model, save predictions
+        model = load(self.outputs + '/' + model_name)
+        predictions = pd.DataFrame([other_data['unique_id'].values, model.predict(other_data[cols])]).T
+        predictions.columns = ['unique_id', 'prediction']
+        predictions = predictions.merge(other_data, on='unique_id')
+        predictions.to_csv(self.outputs + '/' + model_name + '_predictions_' + dataset_name + '.csv', index=False)
+        return predictions
+
 
 
     def select_features(self, cols, method='forward_selection', use_weights=True):

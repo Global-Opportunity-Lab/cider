@@ -7,8 +7,10 @@ from skmisc.loess import loess
 
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
 
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, MinMaxScaler
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.impute import SimpleImputer
 
