@@ -221,7 +221,8 @@ class SurveyOutcomeGenerator:
 
 
 
-    def select_features(self, cols, method='forward_selection', use_weights=True):
+    def select_features(self, cols, method='correlation', use_weights=True, plot=True):
+        # Three options: Correlation, LASSO, and forward selection
 
         # TODO
         return False
