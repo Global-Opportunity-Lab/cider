@@ -1,4 +1,4 @@
-from typing import ValuesView
+# TODO: Implement weights for correlation, parallelize lasso and forward selection, fix output structure
 from box import Box
 import yaml
 from helpers.utils import *
@@ -120,7 +120,8 @@ class SurveyOutcomeGenerator:
             continuous_transformer = Pipeline([('null', 'passthrough')])
         categorical_transformer = OneHotEncoder(drop=None, handle_unknown='ignore')
         preprocessor = ColumnTransformer([('continuous', continuous_transformer, list(set(self.continuous).intersection(set(cols)))), 
-                                        ('categorical', categorical_transformer, list(set(self.categorical).intersection(set(cols))))],
+                                        ('categorical', categorical_transformer, list(set(self.categorical).intersection(set(cols)))),
+                                        ('binary', 'passthrough', list(set(self.binary).intersection(set(cols))))],
                                         sparse_threshold=0)
 
         # Compile model
@@ -157,7 +158,7 @@ class SurveyOutcomeGenerator:
         else:
             imports = model.named_steps['model'].coef_
 
-        colnames = list(pd.get_dummies(data[cols], columns=self.categorical, dummy_na=False, drop_first=False).columns)
+        colnames = list(pd.get_dummies(data[cols], columns=self.categorical, dummy_na=True, drop_first=False, prefix_sep='=').columns)
         imports = pd.DataFrame([colnames, imports]).T
         imports.columns = ['Feature', 'Importance']
         imports = imports.sort_values('Importance', ascending=False)
@@ -220,15 +221,146 @@ class SurveyOutcomeGenerator:
         return predictions
 
 
+    def select_features(self, outcome, cols, n_features, method='correlation', use_weights=True, plot=True):
 
-    def select_features(self, cols, method='correlation', use_weights=True, plot=True):
-        # Three options: Correlation, LASSO, and forward selection
+        # Correlation: Return top N features most correlated with the outcome
+        if method == 'correlation':
 
-        # TODO
-        return False
+            correlations = []
+            for c in cols:
+                subset = self.survey_data[[outcome, c]].dropna()
+                correlations.append(np.corrcoef(subset[outcome], subset[c])[0][1])
+            correlations = pd.DataFrame([cols, correlations]).T
+            correlations.columns = ['column', 'correlation']
+            correlations['abs_value_correlation'] = np.abs(correlations['correlation'])
+            correlations = correlations.sort_values('abs_value_correlation', ascending=False)
+            correlations.to_csv(self.outputs + '/correlations.csv')
+            return list(correlations[:n_features]['column']), correlations.reset_index()
 
+        # LASSO: Use LASSO regressions for a grid of penalties to select features, use the one which has the closest to n_features features
+        elif method == 'lasso':
 
+            # Drop observations with null values
+            data = self.survey_data[['unique_id', 'weight', outcome] + cols]
+            n_obs = len(data)
+            data = data.dropna(subset=[outcome] + list(set(cols).intersection(set(self.continuous + self.binary))))
+            dropped = n_obs - len(data)
+            if  dropped > 0:
+                print('Warning: Dropping %i observations with missing values in continuous or binary columns or the outcome (%i percent of all observations)' % 
+                    (dropped, 100*dropped/n_obs))
 
+            # Define preprocessing pipelines
+            continuous_transformer = Pipeline([('scaler', StandardScaler())])
+            categorical_transformer = OneHotEncoder(drop=None, handle_unknown='ignore')
+            preprocessor = ColumnTransformer([('continuous', continuous_transformer, list(set(self.continuous).intersection(set(cols)))), 
+                                            ('categorical', categorical_transformer, list(set(self.categorical).intersection(set(cols)))),
+                                            ('binary', 'passthrough', list(set(self.binary).intersection(set(cols))))],
+                                            sparse_threshold=0)
 
+            # Run LASSO regressions
+            alphas = np.linspace(0, 1, 100)[1:]
+            train_scores, test_scores, features = [], [], []
+            if use_weights:
+                weights = data['weight']
+            else:
+                weights = np.ones(len(data))
+            for alpha in alphas:
+                # Get r2 score over cross validation
+                lasso = Pipeline([('preprocessor', preprocessor), ('model', Lasso(alpha=alpha))])
+                results = cross_validate(lasso, data[cols], data[outcome], return_train_score=True, fit_params={'model__sample_weight': weights})
+                train_scores.append(np.mean(results['train_score']))
+                test_scores.append(np.mean(results['test_score']))
+                # Get nonzero features and importances
+                lasso.fit(data[cols], data[outcome], model__sample_weight=weights)
+                imports = lasso.named_steps['model'].coef_
+                colnames = list(pd.get_dummies(data[cols], columns=self.categorical, dummy_na=True, drop_first=False, prefix_sep='=').columns)
+                imports = pd.DataFrame([colnames, imports]).T
+                imports.columns = ['Feature', 'Coefficient']
+                imports = imports.sort_values('Coefficient', ascending=False)
+                imports = imports[imports['Coefficient'] != 0]
+                imports['feature_without_dummies'] = imports['Feature'].apply(lambda x: str(x).split('=')[0])
+                features.append(imports)
 
-   
+            num_feats = [len(feats['feature_without_dummies'].unique()) for feats in features]
+            r2_df = pd.DataFrame([alphas, num_feats, train_scores, test_scores]).T
+            r2_df.columns = ['alpha', 'num_features', 'train_score', 'test_score']
+            r2_df.to_csv(self.outputs + '/lasso_feature_selection_r2.csv', index=False)
+
+            # Generate plot
+            if plot:
+                fig, ax = plt.subplots(1, figsize=(10, 8))
+                ax.scatter(num_feats, train_scores, color='mediumseagreen', label='Train')
+                ax.scatter(num_feats, test_scores, color='indianred', label='Test')
+                ax.set_xlabel('Number of Features')
+                ax.set_ylabel('r2 Score')
+                ax.set_title('LASSO-based Selection of Features for PMT')
+                plt.legend(loc='best')
+                clean_plot(ax)
+                plt.savefig(self.outputs + '/lasso_selection.png', dpi=300)
+                plt.show()
+
+            # Get LASSO regression with closest to correct number of features and write to file
+            best_idx = np.argmin(np.abs(np.array(num_feats)-n_features))
+            features[best_idx].to_csv(self.outputs + '/lasso_feature_selection_regression.csv', index=False)
+            return list(set(features[best_idx]['feature_without_dummies'])), test_scores[best_idx], alphas[best_idx], r2_df
+
+        # Forward selection with a machine learning model
+        else:
+
+            # Drop observations with null values
+            data = self.survey_data[['unique_id', 'weight', outcome] + cols]
+            n_obs = len(data)
+            data = data.dropna(subset=[outcome] + list(set(cols).intersection(set(self.continuous + self.binary))))
+            dropped = n_obs - len(data)
+            if  dropped > 0:
+                print('Warning: Dropping %i observations with missing values in continuous or binary columns or the outcome (%i percent of all observations)' % 
+                    (dropped, 100*dropped/n_obs))
+            
+            # Stepwise forward selection
+            used_cols, unused_cols, train_scores, test_scores = [], cols, [], []
+            if use_weights:
+                weights = data['weight']
+            else:
+                weights = np.ones(len(data))
+            for i in range(len(cols)):
+                potential_model_test_scores, potential_model_train_scores = [], []
+                for c in unused_cols:
+                    if data[used_cols + [c]].shape[1] != i+1:
+                        print(c)
+                    continuous_transformer = Pipeline([('scaler', StandardScaler())])
+                    categorical_transformer = OneHotEncoder(drop=None, handle_unknown='ignore')
+                    preprocessor = ColumnTransformer([('continuous', continuous_transformer, list(set(self.continuous).intersection(set(used_cols + [c])))), 
+                                                    ('categorical', categorical_transformer, list(set(self.categorical).intersection(set(used_cols + [c])))),
+                                                    ('binary', 'passthrough', list(set(self.binary).intersection(set(used_cols + [c]))))],
+                                                    sparse_threshold=0)
+                    model = Pipeline([('preprocessor', preprocessor), ('model', method)])
+                    results = cross_validate(model, data[used_cols + [c]], data[outcome], return_train_score=True, fit_params={'model__sample_weight': weights})
+                    potential_model_train_scores.append(np.mean(results['train_score']))
+                    potential_model_test_scores.append(np.mean(results['test_score']))
+                best_idx = np.argmax(potential_model_test_scores)
+                best_feature = unused_cols[best_idx]
+                used_cols.append(best_feature)
+                train_scores.append(potential_model_train_scores[best_idx])
+                test_scores.append(potential_model_test_scores[best_idx])
+                unused_cols = list(set(unused_cols) - set([best_feature]))
+
+            # Generate plot
+            if plot:
+                fig, ax = plt.subplots(1, figsize=(10, 8))
+                ax.scatter(range(len(used_cols)), train_scores, color='mediumseagreen')
+                ax.plot(range(len(used_cols)), train_scores, color='mediumseagreen', label='Train')
+                ax.scatter(range(len(used_cols)), test_scores, color='indianred')
+                ax.plot(range(len(used_cols)), test_scores, color='indianred', label='Test')
+                ax.set_xlabel('Number of Features')
+                ax.set_ylabel('r2 Score')
+                ax.set_title('Forward Selection of Features for PMT')
+                plt.legend(loc='best')
+                clean_plot(ax)
+                plt.savefig(self.outputs + '/forward_selection.png', dpi=300)
+                plt.show()
+
+            # Return values
+            scores = pd.DataFrame([used_cols, train_scores, test_scores]).T
+            scores.columns = ['Column added', 'Train score', 'Test Score']
+            scores.to_csv(self.outputs + '/forward_selection.csv', index=False)
+            return used_cols[:n_features], scores
