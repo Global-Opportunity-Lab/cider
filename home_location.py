@@ -13,7 +13,7 @@ class HomeLocator:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.safe_load(ymlfile))
+            cfg = Box(yaml.load(ymlfile),  Loader=yaml.FullLoader)
         self.cfg = cfg
         data = cfg.path.home_location.data
         outputs = cfg.path.home_location.outputs
@@ -146,7 +146,7 @@ class HomeLocator:
             raise ValueError('Home location algorithm not recognized. Must be one of count_transactions, count_days, or count_modal_days')
 
         grouped = grouped.toPandas()
-        grouped.to_csv(self.outputs + '/outputs/' + algo + '.csv', index=False)
+        grouped.to_csv(self.outputs + '/outputs/' + self.geo + '_' + algo + '.csv', index=False)
         self.home_locations[algo] = grouped
         return grouped
 
@@ -179,7 +179,7 @@ class HomeLocator:
         table['overall_accuracy'] = overall_accuracy
 
         # Save table
-        table.to_csv(self.outputs + '/tables/' + algo + '.csv', index=False)
+        table.to_csv(self.outputs + '/tables/' + self.geo + '_' + algo + '.csv', index=False)
         self.accuracy_tables[algo] = table
         return table
 
@@ -241,7 +241,7 @@ class HomeLocator:
         population['population'] = population['population'].fillna(0)
 
         # Save shapefile
-        population.to_file(self.outputs + '/maps/' +  algo + '_' + kind + '_voronoi' + str(voronoi) + '.geojson', driver='GeoJSON')
+        population.to_file(self.outputs + '/maps/' + self.geo + '_' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.geojson', driver='GeoJSON')
 
         # Normalize population data for map
         population['population'] = population['population']/population['population'].sum()
@@ -271,5 +271,5 @@ class HomeLocator:
              else 'Recall Map'
         ax.set_title(title)
         plt.tight_layout()
-        plt.savefig(self.outputs + '/maps/' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.png', dpi=300)
+        plt.savefig(self.outputs + '/maps/' + self.geo + '_' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.png', dpi=300)
         plt.show()
