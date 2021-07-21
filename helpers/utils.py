@@ -1,5 +1,6 @@
 import sys
 import os
+import numpy as np
 import datetime
 import json
 import pandas as pd
@@ -147,3 +148,13 @@ def check_column_types(data, continuous, categorical, binary):
     for c in binary:
         if set(data[c].dropna().astype('int')) != set([0, 1]):
             raise ValueError('Column ' + c + ' is labeled as binary but does not contain only 0 and 1.')
+
+# Source: https://stackoverflow.com/questions/38641691/weighted-correlation-coefficient-with-pandas
+def weighted_mean(x, w):
+    return np.sum(x * w) / np.sum(w)
+
+def weighted_cov(x, y, w):
+    return np.sum(w * (x - weighted_mean(x, w)) * (y - weighted_mean(y, w))) / np.sum(w)
+
+def weighted_corr(x, y, w):
+    return weighted_cov(x, y, w) / np.sqrt(weighted_cov(x, x, w) * weighted_cov(y, y, w))

@@ -67,6 +67,34 @@ def auc_overall(a1, a2):
 
     return auc(fprs, tprs)
 
+#def test_lasso(args):#
+
+#    # Get arguments
+#    preprocessor, alpha, x, y, weights, kfold, categorical = args
+#    print(alpha)
+
+#    # Get r2 score over cross validation
+#    print('making model')
+#    lasso = Pipeline([('preprocessor', preprocessor), ('model', Lasso(alpha=alpha))])
+#    print('running model')
+#    results = cross_validate(lasso, x, y, return_train_score=True, fit_params={'model__sample_weight': weights}, cv=kfold, n_jobs=1)
+
+#    # Get nonzero features and importances
+#    print('refitting model')
+#    lasso.fit(x, y, model__sample_weight=weights)
+#    print('getting importances')
+#    imports = lasso.named_steps['model'].coef_
+#    colnames = list(pd.get_dummies(x, columns=categorical, dummy_na=True, drop_first=False, prefix_sep='=').columns)
+#    imports = pd.DataFrame([colnames, imports]).T
+#    imports.columns = ['Feature', 'Coefficient']
+#    imports = imports.sort_values('Coefficient', ascending=False)
+#    imports = imports[imports['Coefficient'] != 0]
+#    imports['feature_without_dummies'] = imports['Feature'].apply(lambda x: str(x).split('=')[0])
+
+#    print('done, returning')
+
+#    return np.mean(results['train_score']), np.mean(results['test_score']), imports
+
 
 class DropMissing(TransformerMixin, BaseEstimator):
 

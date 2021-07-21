@@ -1,4 +1,4 @@
-# TODO: Implement weights for correlation, parallelize lasso and forward selection, fix output structure
+# TODO: parallelize lasso and forward selection
 from box import Box
 import yaml
 from helpers.utils import *
@@ -21,6 +21,9 @@ class SurveyOutcomeGenerator:
         outputs = cfg.path.survey.outputs
         self.outputs = outputs
         file_names = cfg.path.survey.file_names
+        self.continuous = cfg.col_types.survey.continuous
+        self.categorical = cfg.col_types.survey.categorical
+        self.binary = cfg.col_types.survey.binary
 
         # Get hypeparameter grids
         self.grids = cfg.hyperparams
@@ -39,15 +42,14 @@ class SurveyOutcomeGenerator:
         if 'weight' not in self.survey_data.columns:
             self.survey_data['weight'] = 1
 
-        # Get columns types
-        self.continuous = cfg.col_types.survey.continuous
-        self.categorical = cfg.col_types.survey.categorical
-        self.binary = cfg.col_types.survey.binary
-
         # Prepare working directory
         make_dir(outputs, clean_folders)
     
     def asset_index(self, cols, use_weights=True):
+
+        # Prepare working directory
+        out_subdir = self.outputs + '/asset_index'
+        make_dir(out_subdir, True)
 
         # Check that categorical/binary columns are not being included
         if len(set(cols).intersection(set(self.categorical))) > 0:
@@ -83,18 +85,22 @@ class SurveyOutcomeGenerator:
         asset_index = pd.DataFrame([list(assets['unique_id']), asset_index]).T
         asset_index.columns = ['unique_id', 'asset_index']
         self.index = asset_index
-        asset_index.to_csv(self.outputs + '/asset_index.csv', index=False)
+        asset_index.to_csv(out_subdir + '/index.csv', index=False)
 
         # Write basis vector to file
         basis_vector = pd.DataFrame([cols, pca.components_[0]]).T
         basis_vector.columns = ['Item', 'Magnitude']
         basis_vector = basis_vector.sort_values('Magnitude', ascending=False)
         self.basis_vector = basis_vector
-        basis_vector.to_csv(self.outputs + '/basis_vector.csv', index=False)
+        basis_vector.to_csv(out_subdir + '/basis_vector.csv', index=False)
 
         return asset_index
 
     def fit_pmt(self, outcome, cols, model_name='linear', kfold=5, use_weights=True, scale=False, winsorize=False):
+
+        # Prepare working directory
+        out_subdir = self.outputs + '/pmt_' + model_name
+        make_dir(out_subdir, True)
 
         # Check that columns are typed correctly
         check_column_types(self.survey_data[cols], continuous=self.continuous, categorical=self.categorical, binary=self.binary)
@@ -150,7 +156,7 @@ class SurveyOutcomeGenerator:
              model.fit(data[cols], data[outcome])
         if model != 'linear':
             model = model.best_estimator_
-        dump(model, self.outputs + '/' + model_name)
+        dump(model, out_subdir + '/model')
 
         # Save feature importances
         if 'feature_importances_' in dir(model.named_steps['model']):
@@ -162,7 +168,7 @@ class SurveyOutcomeGenerator:
         imports = pd.DataFrame([colnames, imports]).T
         imports.columns = ['Feature', 'Importance']
         imports = imports.sort_values('Importance', ascending=False)
-        imports.to_csv(self.outputs + '/feature_importances_' + model_name + '.csv', index=False)
+        imports.to_csv(out_subdir + '/feature_importances.csv', index=False)
 
         # Get in sample and out of sample predictions
         insample = model.predict(data[cols])
@@ -170,7 +176,7 @@ class SurveyOutcomeGenerator:
         predictions = pd.DataFrame([data['unique_id'].values, insample, oos]).T
         predictions.columns = ['unique_id', 'in_sample_prediction', 'out_of_sample_prediction']
         predictions = predictions.merge(data[['unique_id', 'weight', outcome] + cols], on='unique_id')
-        predictions.to_csv(self.outputs + '/' + model_name + '_predictions.csv', index=False)
+        predictions.to_csv(out_subdir + '/predictions.csv', index=False)
         if use_weights:
             r2 = r2_score(predictions[outcome], predictions['in_sample_prediction'], sample_weight=predictions['weight'])
         else:
@@ -181,12 +187,16 @@ class SurveyOutcomeGenerator:
 
     def pretrained_pmt(self, other_data, cols, model_name, dataset_name='other_data'):
 
+        # Prepare working directory
+        out_subdir = self.outputs + '/pmt_' + model_name + '/' + dataset_name
+        make_dir(out_subdir, True)
+
         # Load data
         if isinstance(other_data, str):
             other_data = pd.read_csv(other_data)
 
         # Check that all columns are present and check column types
-        original_data = pd.read_csv(self.outputs + '/' + model_name + '_predictions.csv')
+        original_data = pd.read_csv(self.outputs + '/pmt_' + model_name + '/predictions.csv')
         check_columns_exist(original_data, cols, 'training dataset')
         check_columns_exist(other_data, cols, 'prediction dataset')
         check_column_types(other_data[cols], continuous=self.continuous, categorical=self.categorical, binary=self.binary)
@@ -213,28 +223,35 @@ class SurveyOutcomeGenerator:
                     ' that are outside of the range in the training data; the original standardization will apply.')
 
         # Load and apply model, save predictions
-        model = load(self.outputs + '/' + model_name)
+        model = load(self.outputs + '/pmt_' + model_name + '/model')
         predictions = pd.DataFrame([other_data['unique_id'].values, model.predict(other_data[cols])]).T
         predictions.columns = ['unique_id', 'prediction']
         predictions = predictions.merge(other_data, on='unique_id')
-        predictions.to_csv(self.outputs + '/' + model_name + '_predictions_' + dataset_name + '.csv', index=False)
+        predictions.to_csv(out_subdir + '/predictions.csv', index=False)
         return predictions
 
 
-    def select_features(self, outcome, cols, n_features, method='correlation', use_weights=True, plot=True):
+    def select_features(self, outcome, cols, n_features, method='correlation', model_name='', kfold=5, use_weights=True, plot=True):
+
+        # Prepare working directory
+        out_subdir = self.outputs + 'feature_selection'
+        make_dir(out_subdir, True)
 
         # Correlation: Return top N features most correlated with the outcome
         if method == 'correlation':
 
             correlations = []
             for c in cols:
-                subset = self.survey_data[[outcome, c]].dropna()
-                correlations.append(np.corrcoef(subset[outcome], subset[c])[0][1])
+                subset = self.survey_data[[outcome, c, 'weight']].dropna()
+                if use_weights:
+                     correlations.append(weighted_corr(subset[outcome].values.flatten(), subset[c].values.flatten(), subset['weight'].values.flatten()))
+                else:
+                    correlations.append(np.corrcoef(subset[outcome], subset[c])[0][1])
             correlations = pd.DataFrame([cols, correlations]).T
             correlations.columns = ['column', 'correlation']
             correlations['abs_value_correlation'] = np.abs(correlations['correlation'])
             correlations = correlations.sort_values('abs_value_correlation', ascending=False)
-            correlations.to_csv(self.outputs + '/correlations.csv')
+            correlations.to_csv(out_subdir + '/correlations.csv')
             return list(correlations[:n_features]['column']), correlations.reset_index()
 
         # LASSO: Use LASSO regressions for a grid of penalties to select features, use the one which has the closest to n_features features
@@ -264,27 +281,35 @@ class SurveyOutcomeGenerator:
                 weights = data['weight']
             else:
                 weights = np.ones(len(data))
-            for alpha in alphas:
-                # Get r2 score over cross validation
-                lasso = Pipeline([('preprocessor', preprocessor), ('model', Lasso(alpha=alpha))])
-                results = cross_validate(lasso, data[cols], data[outcome], return_train_score=True, fit_params={'model__sample_weight': weights})
-                train_scores.append(np.mean(results['train_score']))
-                test_scores.append(np.mean(results['test_score']))
-                # Get nonzero features and importances
-                lasso.fit(data[cols], data[outcome], model__sample_weight=weights)
-                imports = lasso.named_steps['model'].coef_
-                colnames = list(pd.get_dummies(data[cols], columns=self.categorical, dummy_na=True, drop_first=False, prefix_sep='=').columns)
-                imports = pd.DataFrame([colnames, imports]).T
-                imports.columns = ['Feature', 'Coefficient']
-                imports = imports.sort_values('Coefficient', ascending=False)
-                imports = imports[imports['Coefficient'] != 0]
-                imports['feature_without_dummies'] = imports['Feature'].apply(lambda x: str(x).split('=')[0])
-                features.append(imports)
+            #for alpha in alphas:
+            #    # Get r2 score over cross validation
+            #    lasso = Pipeline([('preprocessor', preprocessor), ('model', Lasso(alpha=alpha))])
+            #    results = cross_validate(lasso, data[cols], data[outcome], return_train_score=True, fit_params={'model__sample_weight': weights}, cv=kfold)
+            #    train_scores.append(np.mean(results['train_score']))
+            #    test_scores.append(np.mean(results['test_score']))
+            #    # Get nonzero features and importances
+            #    lasso.fit(data[cols], data[outcome], model__sample_weight=weights)
+            #    imports = lasso.named_steps['model'].coef_
+            #    colnames = list(pd.get_dummies(data[cols], columns=self.categorical, dummy_na=True, drop_first=False, prefix_sep='=').columns)
+            #    imports = pd.DataFrame([colnames, imports]).T
+            #    imports.columns = ['Feature', 'Coefficient']
+            #    imports = imports.sort_values('Coefficient', ascending=False)
+            #    imports = imports[imports['Coefficient'] != 0]
+            #    imports['feature_without_dummies'] = imports['Feature'].apply(lambda x: str(x).split('=')[0])
+            #    features.append(imports)
+
+            pool = Pool(56)
+            args = [(preprocessor, alpha, data[cols], data[outcome], weights, kfold, self.categorical) for alpha in alphas]
+            results = pool.map(test_lasso, args)
+            print('close and join pool')
+            pool.close()
+            pool.join()
+            train_scores, test_scores, features = [result[0] for result in results], [result[1] for result in results], [result[2] for result in results]
 
             num_feats = [len(feats['feature_without_dummies'].unique()) for feats in features]
             r2_df = pd.DataFrame([alphas, num_feats, train_scores, test_scores]).T
             r2_df.columns = ['alpha', 'num_features', 'train_score', 'test_score']
-            r2_df.to_csv(self.outputs + '/lasso_feature_selection_r2.csv', index=False)
+            r2_df.to_csv(out_subdir + '/lasso_r2.csv', index=False)
 
             # Generate plot
             if plot:
@@ -296,12 +321,12 @@ class SurveyOutcomeGenerator:
                 ax.set_title('LASSO-based Selection of Features for PMT')
                 plt.legend(loc='best')
                 clean_plot(ax)
-                plt.savefig(self.outputs + '/lasso_selection.png', dpi=300)
+                plt.savefig(out_subdir + '/lasso_r2.png', dpi=300)
                 plt.show()
 
             # Get LASSO regression with closest to correct number of features and write to file
             best_idx = np.argmin(np.abs(np.array(num_feats)-n_features))
-            features[best_idx].to_csv(self.outputs + '/lasso_feature_selection_regression.csv', index=False)
+            features[best_idx].to_csv(out_subdir + '/lasso_model.csv', index=False)
             return list(set(features[best_idx]['feature_without_dummies'])), test_scores[best_idx], alphas[best_idx], r2_df
 
         # Forward selection with a machine learning model
@@ -334,7 +359,7 @@ class SurveyOutcomeGenerator:
                                                     ('binary', 'passthrough', list(set(self.binary).intersection(set(used_cols + [c]))))],
                                                     sparse_threshold=0)
                     model = Pipeline([('preprocessor', preprocessor), ('model', method)])
-                    results = cross_validate(model, data[used_cols + [c]], data[outcome], return_train_score=True, fit_params={'model__sample_weight': weights})
+                    results = cross_validate(model, data[used_cols + [c]], data[outcome], return_train_score=True, fit_params={'model__sample_weight': weights}, cv=kfold)
                     potential_model_train_scores.append(np.mean(results['train_score']))
                     potential_model_test_scores.append(np.mean(results['test_score']))
                 best_idx = np.argmax(potential_model_test_scores)
@@ -356,11 +381,11 @@ class SurveyOutcomeGenerator:
                 ax.set_title('Forward Selection of Features for PMT')
                 plt.legend(loc='best')
                 clean_plot(ax)
-                plt.savefig(self.outputs + '/forward_selection.png', dpi=300)
+                plt.savefig(out_subdir + '/forward_selection' + model_name + '.png', dpi=300)
                 plt.show()
 
             # Return values
             scores = pd.DataFrame([used_cols, train_scores, test_scores]).T
             scores.columns = ['Column added', 'Train score', 'Test Score']
-            scores.to_csv(self.outputs + '/forward_selection.csv', index=False)
+            scores.to_csv(out_subdir + '/forward_selection_' + model_name + '.csv', index=False)
             return used_cols[:n_features], scores
