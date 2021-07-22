@@ -29,8 +29,8 @@ path:
         'prefectures': '/prefectures.geojson'
   ml: 
     outputs: "/home/em/cideroutputs/machinelearning"
-    features: '/data/togo_anon/feats/survey_combos/survey2018_cdr2018_cider.csv'
-    labels: "/data/togo_anon/surveys/survey2018/survey2018_labels_cider.csv"
+    features: '/data/togo_anon/feats/survey_combos/survey2020_cdr2020_cider.csv'
+    labels: "/data/togo_anon/surveys/survey2018/survey2020_labels_cider.csv"
   home_location:
     data: "../synthetic_data"
     outputs: "../tests/outputs/homelocation"
