@@ -5,6 +5,10 @@ import yaml
 from helpers.utils import *
 from helpers.plot_utils import *
 from helpers.io_utils import *
+import numpy as np
+import rasterio
+from rasterio.mask import mask
+from shapely.geometry import mapping
 
 
 class HomeLocator:
@@ -13,9 +17,10 @@ class HomeLocator:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.safe_load(ymlfile))
+            cfg = Box(yaml.load(ymlfile),  Loader=yaml.FullLoader)
         self.cfg = cfg
         data = cfg.path.home_location.data
+        self.data = data
         outputs = cfg.path.home_location.outputs
         self.outputs = outputs
         file_names = cfg.path.home_location.file_names
@@ -146,7 +151,7 @@ class HomeLocator:
             raise ValueError('Home location algorithm not recognized. Must be one of count_transactions, count_days, or count_modal_days')
 
         grouped = grouped.toPandas()
-        grouped.to_csv(self.outputs + '/outputs/' + algo + '.csv', index=False)
+        grouped.to_csv(self.outputs + '/outputs/' + self.geo + '_' + algo + '.csv', index=False)
         self.home_locations[algo] = grouped
         return grouped
 
@@ -179,7 +184,7 @@ class HomeLocator:
         table['overall_accuracy'] = overall_accuracy
 
         # Save table
-        table.to_csv(self.outputs + '/tables/' + algo + '.csv', index=False)
+        table.to_csv(self.outputs + '/tables/' + self.geo + '_' + algo + '.csv', index=False)
         self.accuracy_tables[algo] = table
         return table
 
@@ -241,7 +246,7 @@ class HomeLocator:
         population['population'] = population['population'].fillna(0)
 
         # Save shapefile
-        population.to_file(self.outputs + '/maps/' +  algo + '_' + kind + '_voronoi' + str(voronoi) + '.geojson', driver='GeoJSON')
+        population.to_file(self.outputs + '/maps/' + self.geo + '_' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.geojson', driver='GeoJSON')
 
         # Normalize population data for map
         population['population'] = population['population']/population['population'].sum()
@@ -271,5 +276,70 @@ class HomeLocator:
              else 'Recall Map'
         ax.set_title(title)
         plt.tight_layout()
-        plt.savefig(self.outputs + '/maps/' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.png', dpi=300)
+        plt.savefig(self.outputs + '/maps/' + self.geo + '_' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.png', dpi=300)
+        plt.show()
+
+    def pop_comparison(self, algo='count_transactions'):
+        # Get population assigned to each antenna/tower/polygon
+        if algo in self.home_locations:
+            homes = self.home_locations[algo].groupby(self.geo).agg('count')\
+                                                  .rename({'subscriber_id': 'population'}, axis=1).reset_index()
+        else:
+            raise ValueError(f"Home locations have not been computed for '{algo}' algo")
+
+        # Obtain shapefiles for masking of raster data
+        if self.geo in ['antenna_id', 'tower_id']:
+            # Get pandas dataframes of antennas/towers
+            if self.geo == 'antenna_id':
+                points = self.antennas.toPandas().dropna(subset=['antenna_id', 'latitude', 'longitude'])
+            else:
+                points = self.antennas.toPandas()[
+                    ['tower_id', 'latitude', 'longitude']].dropna().drop_duplicates().copy()
+
+            # Calculate voronoi tesselation
+            if len(self.shapefiles.keys()) == 0:
+                raise ValueError('At least one shapefile must be loaded to compute voronoi polygons.')
+            shapes = voronoi_tessellation(points, list(self.shapefiles.values())[0], key=self.geo)
+
+        elif self.geo in self.shapefiles.keys():
+            shapes = self.shapefiles[self.geo].rename({'region': self.geo}, axis=1)
+        else:
+            raise ValueError('Invalid geometry.')
+
+        # Read raster with population data, mask with each shape and compute population in units
+        raster_fpath = self.data + self.cfg.path.home_location.file_names.population
+        out_data = []
+        with rasterio.open(raster_fpath) as src:
+            for _, row in shapes.iterrows():
+                idx = row[self.geo]
+                geometry = row['geometry']
+                geoms = [mapping(row['geometry'])]
+                out_image, out_transform = mask(src, geoms, crop=True)
+                out_image = np.nan_to_num(out_image)
+                out_data.append([idx, geometry, out_image.sum()])
+        population = pd.DataFrame(data=out_data, columns=['region', 'geometry', 'pop'])
+
+        # Merge with number of locations and compute pct point difference of relative populations
+        homes = homes.rename(columns={self.geo: 'region', 'population': 'homes'})
+        df = pd.merge(population, homes[['region', 'homes']], on='region', how='left')
+        df = df.fillna(0)
+
+        df['pop_pct'] = df['pop'] / df['pop'].sum() * 100
+        df['homes_pct'] = df['homes'] / df['homes'].sum() * 100
+        df['diff'] = df['homes_pct'] - df['pop_pct']
+        df = gpd.GeoDataFrame(df)
+
+        # Save shapefile
+        df.to_file(self.outputs + '/maps/' + self.geo + '_' + algo + '_' + 'pop_comparisons' + '.geojson',
+                   driver='GeoJSON')
+
+        # Plot map
+        fig, ax = plt.subplots(1, figsize=(10, 10))
+
+        df.plot(ax=ax, color='lightgrey')
+        df.plot(ax=ax, column='diff', cmap='RdYlGn', legend=True, legend_kwds={'shrink': 0.5})
+
+        ax.axis('off')
+        plt.tight_layout()
+        plt.savefig(self.outputs + '/maps/' + self.geo + '_' + algo + '_' + 'pop_comparisons' + '.png', dpi=300)
         plt.show()

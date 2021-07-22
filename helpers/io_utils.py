@@ -1,3 +1,4 @@
+from autogluon.tabular import TabularPredictor
 from helpers.utils import *
 import geopandas as gpd
 from joblib import load
@@ -183,11 +184,15 @@ def load_shapefile(fname):
 	return shapefile
 
 
-def load_model(model, out_path, tuned=True):
-	subdir = '/tuned_models/' if tuned else '/untuned_models/'
+def load_model(model, out_path, type='tuned'):
+	subdir = '/' + type + '_models/'
+
 	if os.path.isfile(out_path + subdir + model + '/model'):
 		model_name = model
 		model = load(out_path + subdir + model + '/model')
+	elif os.path.isdir(out_path + subdir + model + '/model'):
+		model_name = model
+		model = TabularPredictor.load(out_path + subdir + model + '/model')
 	elif os.path.isfile(model):
 		model_name = model.split('/')[-1]
 		model = load(model)
@@ -195,7 +200,7 @@ def load_model(model, out_path, tuned=True):
 	else:
 		raise ValueError("The 'model' argument should be a path or a recognized model name")
 
-	if tuned:
+	if type == 'tuned':
 		model = model.best_estimator_
 
 	return model_name, model
