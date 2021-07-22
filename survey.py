@@ -7,6 +7,7 @@ from helpers.io_utils import *
 from helpers.ml_utils import *
 from sklearn.decomposition import PCA
 from wpca import WPCA
+import multiprocessing as mp
 
 
 class SurveyOutcomeGenerator:
@@ -281,30 +282,22 @@ class SurveyOutcomeGenerator:
                 weights = data['weight']
             else:
                 weights = np.ones(len(data))
-            #for alpha in alphas:
-            #    # Get r2 score over cross validation
-            #    lasso = Pipeline([('preprocessor', preprocessor), ('model', Lasso(alpha=alpha))])
-            #    results = cross_validate(lasso, data[cols], data[outcome], return_train_score=True, fit_params={'model__sample_weight': weights}, cv=kfold)
-            #    train_scores.append(np.mean(results['train_score']))
-            #    test_scores.append(np.mean(results['test_score']))
-            #    # Get nonzero features and importances
-            #    lasso.fit(data[cols], data[outcome], model__sample_weight=weights)
-            #    imports = lasso.named_steps['model'].coef_
-            #    colnames = list(pd.get_dummies(data[cols], columns=self.categorical, dummy_na=True, drop_first=False, prefix_sep='=').columns)
-            #    imports = pd.DataFrame([colnames, imports]).T
-            #    imports.columns = ['Feature', 'Coefficient']
-            #    imports = imports.sort_values('Coefficient', ascending=False)
-            #    imports = imports[imports['Coefficient'] != 0]
-            #    imports['feature_without_dummies'] = imports['Feature'].apply(lambda x: str(x).split('=')[0])
-            #    features.append(imports)
-
-            pool = Pool(56)
-            args = [(preprocessor, alpha, data[cols], data[outcome], weights, kfold, self.categorical) for alpha in alphas]
-            results = pool.map(test_lasso, args)
-            print('close and join pool')
-            pool.close()
-            pool.join()
-            train_scores, test_scores, features = [result[0] for result in results], [result[1] for result in results], [result[2] for result in results]
+            for alpha in alphas:
+                # Get r2 score over cross validation
+                lasso = Pipeline([('preprocessor', preprocessor), ('model', Lasso(alpha=alpha))])
+                results = cross_validate(lasso, data[cols], data[outcome], return_train_score=True, fit_params={'model__sample_weight': weights}, cv=kfold)
+                train_scores.append(np.mean(results['train_score']))
+                test_scores.append(np.mean(results['test_score']))
+                # Get nonzero features and importances
+                lasso.fit(data[cols], data[outcome], model__sample_weight=weights)
+                imports = lasso.named_steps['model'].coef_
+                colnames = list(pd.get_dummies(data[cols], columns=self.categorical, dummy_na=True, drop_first=False, prefix_sep='=').columns)
+                imports = pd.DataFrame([colnames, imports]).T
+                imports.columns = ['Feature', 'Coefficient']
+                imports = imports.sort_values('Coefficient', ascending=False)
+                imports = imports[imports['Coefficient'] != 0]
+                imports['feature_without_dummies'] = imports['Feature'].apply(lambda x: str(x).split('=')[0])
+                features.append(imports)
 
             num_feats = [len(feats['feature_without_dummies'].unique()) for feats in features]
             r2_df = pd.DataFrame([alphas, num_feats, train_scores, test_scores]).T
@@ -350,8 +343,6 @@ class SurveyOutcomeGenerator:
             for i in range(len(cols)):
                 potential_model_test_scores, potential_model_train_scores = [], []
                 for c in unused_cols:
-                    if data[used_cols + [c]].shape[1] != i+1:
-                        print(c)
                     continuous_transformer = Pipeline([('scaler', StandardScaler())])
                     categorical_transformer = OneHotEncoder(drop=None, handle_unknown='ignore')
                     preprocessor = ColumnTransformer([('continuous', continuous_transformer, list(set(self.continuous).intersection(set(used_cols + [c])))), 
@@ -362,6 +353,7 @@ class SurveyOutcomeGenerator:
                     results = cross_validate(model, data[used_cols + [c]], data[outcome], return_train_score=True, fit_params={'model__sample_weight': weights}, cv=kfold)
                     potential_model_train_scores.append(np.mean(results['train_score']))
                     potential_model_test_scores.append(np.mean(results['test_score']))
+                
                 best_idx = np.argmax(potential_model_test_scores)
                 best_feature = unused_cols[best_idx]
                 used_cols.append(best_feature)
