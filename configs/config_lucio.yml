@@ -33,6 +33,8 @@ path:
       cdr: '/cdr.csv'
       antennas: '/antennas.csv'
       shapefiles:
+        'regions': '/regions.geojson'
+        'cantons': '/cantons.geojson'
         'prefectures': '/prefectures.geojson'
       poverty_scores: null
       groundtruth: '/home_locations.csv'
@@ -71,7 +73,7 @@ col_names:
     sender_balance_after: "sender_balance_after"
     recipient_balance_before: "recipient_balance_before"
     recipient_balance_after: "recipient_balance_after"
-  geo: 'tower_id'
+  geo: 'cantons'
 
 
 params:

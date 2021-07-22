@@ -1,3 +1,4 @@
+from autogluon.tabular import TabularPredictor
 import autosklearn.regression
 from box import Box
 from helpers.io_utils import load_model
@@ -199,24 +200,40 @@ class Learner:
         return scores
 
     def automl(self, model_name):
-        make_dir(self.outputs + '/untuned_models/' + model_name)
+        # Make sure model_name is correct, get relevant cfg
+        assert model_name in ['autosklearn', 'autogluon']
+        make_dir(self.outputs + '/automl_models/' + model_name)
 
-        cfg = self.cfg.params.automl
+        if model_name == 'autosklearn':
+            cfg = self.cfg.params.automl.autosklearn
+            model = autosklearn.regression.AutoSklearnRegressor(
+                        time_left_for_this_task=cfg.time_left,
+                        per_run_time_limit=None,
+                        ensemble_nbest=1,
+                        initial_configurations_via_metalearning=0,
+                        resampling_strategy=KFold,
+                        resampling_strategy_arguments={'n_splits': 5, 'shuffle': True, 'random_state': 100},
+                        n_jobs=cfg.n_jobs,
+                        memory_limit=cfg.memory_limit,
+                        seed=100)
 
-        model = autosklearn.regression.AutoSklearnRegressor(
-                    time_left_for_this_task=cfg.time_left,
-                    per_run_time_limit=None,
-                    ensemble_nbest=1,
-                    initial_configurations_via_metalearning=0,
-                    resampling_strategy=KFold,
-                    resampling_strategy_arguments={'n_splits': 5, 'shuffle': True, 'random_state': 100},
-                    n_jobs=cfg.n_jobs,
-                    memory_limit=cfg.memory_limit,
-                    seed=100)
+            model.fit(self.x, self.y)
+            model.refit(self.x.copy(), self.y.copy())
+            dump(model.get_models_with_weights()[0][1], self.outputs + '/automl_models/' + model_name + '/model')
 
-        model.fit(self.x, self.y)
-        model.refit(self.x.copy(), self.y.copy())
-        dump(model.get_models_with_weights()[0][1], self.outputs + '/untuned_models/' + model_name + '/model')
+        elif model_name == 'autogluon':
+            cfg = self.cfg.params.automl.autogluon
+            train_data = pd.concat([self.x, self.y, self.weights], axis=1)
+            model = TabularPredictor(label=cfg.label,
+                                     eval_metric=cfg.eval_metric,
+                                     sample_weight=cfg.sample_weight,
+                                     weight_evaluation=True,
+                                     path=self.outputs + '/automl_models/' + model_name + '/model')
+            model.fit(train_data,
+                      presets='best_quality',
+                      auto_stack=True,
+                      time_limit=cfg.time_limit,
+                      excluded_model_types=['FASTAI'])
 
         print('Finished automl training!')
 
@@ -236,12 +253,15 @@ class Learner:
         imports.to_csv(self.outputs + subdir + model_name + '/feature_importances.csv', index=False)
         return imports
     
-    def oos_predictions(self, model, tuned=True):
+    def oos_predictions(self, model, type='tuned'):
 
-        subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        model_name, model = load_model(model, out_path=self.outputs, tuned=tuned)
+        subdir = '/' + type + '_models/'
+        model_name, model = load_model(model, out_path=self.outputs, type=type)
 
-        oos = cross_val_predict(model, self.x, self.y, cv=self.kfold)
+        if model_name == 'autogluon':
+            oos = model.get_oof_pred()
+        else:
+            oos = cross_val_predict(model, self.x, self.y, cv=self.kfold)
         oos = pd.DataFrame([list(self.merged['name']), list(self.y), oos]).T
         oos.columns = ['name', 'true', 'predicted']
         oos['weight'] = self.weights
@@ -269,9 +289,9 @@ class Learner:
         results.to_csv(self.outputs + subdir + model_name + '/population_predictions.csv', index=False)
         return results
 
-    def scatter_plot(self, model_name, tuned=True):
+    def scatter_plot(self, model_name, type='tuned'):
 
-        subdir = '/tuned_models/' if tuned else '/untuned_models/'
+        subdir = '/' + type + '_models/'
         oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
         oos['weight'] = 100*((oos['weight'] - oos['weight'].min())/(oos['weight'].max() - oos['weight'].min()))
         oos_repeat = pd.DataFrame(np.repeat(oos.values, oos['weight'], axis=0), columns=oos.columns).astype(oos.dtypes)
@@ -336,9 +356,9 @@ class Learner:
         plt.savefig(self.outputs + subdir + model_name + '/feature_importances.png', dpi=300)
         plt.show()
 
-    def targeting_table(self, model_name, tuned=True):
+    def targeting_table(self, model_name, type='tuned'):
 
-        subdir = '/tuned_models/' if tuned else '/untuned_models/'
+        subdir = '/' + type + '_models/'
         oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
         oos['weight'] = 100*(oos['weight'] - oos['weight'].min())/(oos['weight'].max() - oos['weight'].min())
         oos_repeat = pd.DataFrame(np.repeat(oos.values, oos['weight'], axis=0), columns=oos.columns).astype(oos.dtypes)
