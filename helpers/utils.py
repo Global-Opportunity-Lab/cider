@@ -1,5 +1,6 @@
 import sys
 import os
+import numpy as np
 import datetime
 import json
 import pandas as pd
@@ -127,6 +128,33 @@ def long_join_pyspark(dfs, on, how):
         df = df.join(dfs[i], on=on, how=how)
     return df
 
-
 def strictly_increasing(L):
     return all(x < y for x, y in zip(L, L[1:]))
+
+def check_columns_exist(data, columns, data_name=''):
+    for c in columns:
+        if c not in data.columns:
+            raise ValueError('Column ' + c + ' not in data ' + data_name + '.')
+    
+def check_column_types(data, continuous, categorical, binary):
+    for c in continuous:
+        n_unique = len(data[c].unique())
+        if n_unique < 20:
+            print('Warning: Column ' + c + ' is of continuous type but has fewer than 20 (%i) unique values.' % n_unique)
+    for c in categorical:
+        n_unique = len(data[c].unique())
+        if n_unique > 20:
+            print('Warning: Column ' + c + ' is of categorical type but has more than 20 (%i) unique values.' % n_unique)
+    for c in binary:
+        if set(data[c].dropna().astype('int')) != set([0, 1]):
+            raise ValueError('Column ' + c + ' is labeled as binary but does not contain only 0 and 1.')
+
+# Source: https://stackoverflow.com/questions/38641691/weighted-correlation-coefficient-with-pandas
+def weighted_mean(x, w):
+    return np.sum(x * w) / np.sum(w)
+
+def weighted_cov(x, y, w):
+    return np.sum(w * (x - weighted_mean(x, w)) * (y - weighted_mean(y, w))) / np.sum(w)
+
+def weighted_corr(x, y, w):
+    return weighted_cov(x, y, w) / np.sqrt(weighted_cov(x, x, w) * weighted_cov(y, y, w))
