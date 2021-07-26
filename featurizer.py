@@ -4,9 +4,11 @@ import yaml
 import sys
 
 from helpers.utils import *
+from helpers.features import *
 from helpers.io_utils import *
 from helpers.plot_utils import *
 from pyspark.sql.utils import AnalysisException
+
 
 class Featurizer:
 
@@ -14,7 +16,7 @@ class Featurizer:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.safe_load(ymlfile))
+            cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
         self.cfg = cfg
         data = cfg.path.featurizer.data
         self.data = data
@@ -369,6 +371,18 @@ class Featurizer:
         cdr_features = cdr_features.toDF(*[c if c == 'name' else 'cdr_' + c for c in cdr_features.columns])
         save_df(cdr_features, self.outputs + '/datasets/bandicoot_features/all.csv')
         self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/bandicoot_features/all.csv', header=True)
+
+    def cdr_features_spark(self):
+
+        # Check that CDR is present to calculate international features
+        if self.cdr is None:
+            raise ValueError('CDR file must be loaded to calculate CDR features.')
+        print('Calculating CDR features...')
+
+        cdr_features = all_spark(self.cdr)
+
+        save_df(cdr_features, self.outputs + '/datasets/cdr_features_spark/all.csv')
+        self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/cdr_features_spark/all.csv', header=True)
 
     def international_features(self):
 
