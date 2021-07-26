@@ -18,6 +18,9 @@ def all_spark(df):
     features.append(active_days(df))
     features.append(number_of_contacts(df))
     features.append(call_duration(df))
+    features.append(percent_nocturnal(df))
+    features.append(percent_initiated_conversations(df))
+    features.append(percent_initiated_interactions(df))
 
     return features
 
@@ -73,6 +76,57 @@ def call_duration(df):
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'])
 
     col_selection = [col(col_name).alias('call_duration_' + col_name) for col_name in out.columns if col_name != 'caller_id']
+    out = out.select('caller_id', *col_selection)
+
+    return out
+
+
+def percent_nocturnal(df):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek'})
+
+    out = (df
+           .withColumn('nocturnal', F.when(col('daytime') == 'night', 1).otherwise(0))
+           .groupby('caller_id', 'weekday', 'txn_type')
+           .agg(F.mean('nocturnal').alias('percent_nocturnal')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'txn_type'], values=['percent_nocturnal'])
+
+    col_selection = [col(col_name).alias('percent_nocturnal_' + col_name) for col_name in out.columns if col_name != 'caller_id']
+    out = out.select('caller_id', *col_selection)
+
+    return out
+
+
+def percent_initiated_conversations(df):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    out = (df
+           .withColumn('initiated', F.when(col('direction') == 'out', 1).otherwise(0))
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.mean('initiated').alias('percent_initiated_conversations')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['percent_initiated_conversations'])
+
+    col_selection = [col(col_name).alias('percent_initiated_conversations_' + col_name) for col_name in out.columns if col_name != 'caller_id']
+    out = out.select('caller_id', *col_selection)
+
+    return out
+
+
+def percent_initiated_interactions(df):
+    df = df.where(col('txn_type') == 'call')
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    out = (df
+           .withColumn('initiated', F.when(col('direction') == 'out', 1).otherwise(0))
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.mean('initiated').alias('percent_initiated_interactions')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['percent_initiated_interactions'])
+
+    col_selection = [col(col_name).alias('percent_initiated_interactions_' + col_name) for col_name in out.columns if col_name != 'caller_id']
     out = out.select('caller_id', *col_selection)
 
     return out
