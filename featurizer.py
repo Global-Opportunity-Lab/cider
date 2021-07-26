@@ -380,6 +380,7 @@ class Featurizer:
         print('Calculating CDR features...')
 
         cdr_features = all_spark(self.cdr)
+        cdr_features = long_join_pyspark(cdr_features, on='caller_id', how='outer')
 
         save_df(cdr_features, self.outputs + '/datasets/cdr_features_spark/all.csv')
         self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/cdr_features_spark/all.csv', header=True)
