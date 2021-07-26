@@ -24,8 +24,8 @@ path:
         'prefectures': '/prefectures.geojson'
   ml: 
     outputs: "/home/em/cideroutputs/machinelearning"
-    features: '/data/togo_anon/feats/survey_combos/survey2018_cdr2018_cider.csv'
-    labels: "/data/togo_anon/surveys/survey2018/survey2018_labels_cider.csv"
+    features: '/data/togo_anon/feats/survey_combos/survey2020_cdr2020_cider.csv'
+    labels: "/data/togo_anon/surveys/survey2018/survey2020_labels_cider.csv"
   home_location:
     data: "../synthetic_data"
     outputs: "../tests/outputs/homelocation"
@@ -78,9 +78,15 @@ params:
   home_location:
     filter_hours: null
   automl:
-    time_left: 3600
-    n_jobs: 56
-    memory_limit: 10000
+    autosklearn:
+      time_left: 3600
+      n_jobs: 
+      memory_limit: 3072
+    autogluon:
+      time_limit: 3600
+      eval_metric: 'r2'
+      label: 'label'
+      sample_weight: 'weight'
 
 hyperparams:
   'linear':
