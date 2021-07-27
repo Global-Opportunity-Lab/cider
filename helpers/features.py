@@ -1,9 +1,11 @@
 import pyspark.sql.functions as F
 from pyspark.sql.functions import col, lit
+from pyspark.sql.window import Window
 
 
 def all_spark(df):
     features = []
+
     df = (df
           .withColumn('weekday', F.when(F.dayofweek('day').isin([1, 7]), 'weekend').otherwise('weekday'))
           .withColumn('daytime', F.when((F.hour('timestamp') < 7)|(F.hour('timestamp') >= 19), 'night').otherwise('day'))
@@ -15,12 +17,14 @@ def all_spark(df):
           .withColumn('recipient_id', F.when(col('direction') == 'in', col('caller_id_copy')).otherwise(col('recipient_id')))
           .drop('directions', 'caller_id_copy'))
 
-    features.append(active_days(df))
-    features.append(number_of_contacts(df))
-    features.append(call_duration(df))
-    features.append(percent_nocturnal(df))
+    df = tag_conversations(df)
+
+    #features.append(active_days(df))
+    #features.append(number_of_contacts(df))
+    #features.append(call_duration(df))
+    #features.append(percent_nocturnal(df))
     features.append(percent_initiated_conversations(df))
-    features.append(percent_initiated_interactions(df))
+    #features.append(percent_initiated_interactions(df))
 
     return features
 
@@ -102,6 +106,7 @@ def percent_initiated_conversations(df):
                                       'daytime': 'allday'})
 
     out = (df
+           .where(col('conversation') == col('timestamp').cast('long'))
            .withColumn('initiated', F.when(col('direction') == 'out', 1).otherwise(0))
            .groupby('caller_id', 'weekday', 'daytime')
            .agg(F.mean('initiated').alias('percent_initiated_conversations')))
@@ -132,6 +137,10 @@ def percent_initiated_interactions(df):
     return out
 
 
+def response_delay_text(df):
+    pass
+
+
 def add_all_cat(df, col_mapping):
     for column, value in col_mapping.items():
         df = (df
@@ -149,5 +158,25 @@ def pivot_df(df, index, columns, values):
               .pivot(column)
               .agg(*[F.first(val).alias(val) for val in values]))
         values = [val for val in df.columns if val not in index and val not in columns]
+
+    return df
+
+
+def tag_conversations(df):
+    w = Window.partitionBy('caller_id', 'recipient_id').orderBy('timestamp')
+
+    df = (df
+          .withColumn('ts', col('timestamp').cast('long'))
+          .withColumn('prev_txn', F.lag(col('txn_type')).over(w))
+          .withColumn('prev_ts', F.lag(col('ts')).over(w))
+          .withColumn('wait', col('ts') - col('prev_ts'))
+          .withColumn('conversation', F.when((col('txn_type') == 'text')&
+                                             ((col('prev_txn') == 'call')|
+                                              (col('prev_txn').isNull())|
+                                              (col('wait') >= 3600)), col('ts')))
+          .withColumn('convo', F.last('conversation', ignorenulls=True).over(w))
+          .withColumn('conversation', F.when(col('conversation').isNotNull(), col('conversation'))
+                                       .otherwise(F.when(col('txn_type') == 'text', col('convo'))))
+          .drop('ts', 'prev_txn', 'prev_ts', 'wait', 'convo'))
 
     return df
