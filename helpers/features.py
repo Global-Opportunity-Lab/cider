@@ -23,9 +23,10 @@ def all_spark(df):
     #features.append(number_of_contacts(df))
     #features.append(call_duration(df))
     #features.append(percent_nocturnal(df))
-    features.append(percent_initiated_conversations(df))
+    #features.append(percent_initiated_conversations(df))
     #features.append(percent_initiated_interactions(df))
-    features.append(response_delay_text(df))
+    #features.append(response_delay_text(df))
+    features.append(response_rate_text(df))
 
     return features
 
@@ -160,6 +161,28 @@ def response_delay_text(df):
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'])
 
     col_selection = [col(col_name).alias('response_delay_text_' + col_name) for col_name in out.columns if
+                     col_name != 'caller_id']
+    out = out.select('caller_id', *col_selection)
+
+    return out
+
+
+def response_rate_text(df):
+    df = df.where(col('txn_type') == 'text')
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    w = Window.partitionBy('caller_id', 'recipient_id', 'conversation').orderBy('timestamp')
+    out = (df
+           .withColumn('dir', F.when(col('direction') == 'out', 1).otherwise(0))
+           .withColumn('responded', F.max(col('dir')).over(w))
+           .where((col('conversation') == col('timestamp').cast('long')) & (col('direction') == 'in'))
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.mean('responded').alias('response_rate_text')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['response_rate_text'])
+
+    col_selection = [col(col_name).alias('response_rate_text_' + col_name) for col_name in out.columns if
                      col_name != 'caller_id']
     out = out.select('caller_id', *col_selection)
 
