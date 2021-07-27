@@ -25,6 +25,7 @@ def all_spark(df):
     #features.append(percent_nocturnal(df))
     features.append(percent_initiated_conversations(df))
     #features.append(percent_initiated_interactions(df))
+    features.append(response_delay_text(df))
 
     return features
 
@@ -138,7 +139,31 @@ def percent_initiated_interactions(df):
 
 
 def response_delay_text(df):
-    pass
+    df = df.where(col('txn_type') == 'text')
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    w = Window.partitionBy('caller_id', 'recipient_id', 'conversation').orderBy('timestamp')
+    out = (df
+           .withColumn('prev_dir', F.lag(col('direction')).over(w))
+           .withColumn('response_delay', F.when((col('direction') == 'out')&(col('prev_dir') == 'in'), col('wait')))
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.mean('response_delay').alias('mean'),
+                F.min('response_delay').alias('min'),
+                F.max('response_delay').alias('max'),
+                F.stddev_pop('response_delay').alias('std'),
+                F.expr('percentile_approx(response_delay, 0.5)').alias('median'),
+                F.skewness('response_delay').alias('skewness'),
+                F.kurtosis('response_delay').alias('kurtosis')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'],
+                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'])
+
+    col_selection = [col(col_name).alias('response_delay_text_' + col_name) for col_name in out.columns if
+                     col_name != 'caller_id']
+    out = out.select('caller_id', *col_selection)
+
+    return out
 
 
 def add_all_cat(df, col_mapping):
@@ -177,6 +202,6 @@ def tag_conversations(df):
           .withColumn('convo', F.last('conversation', ignorenulls=True).over(w))
           .withColumn('conversation', F.when(col('conversation').isNotNull(), col('conversation'))
                                        .otherwise(F.when(col('txn_type') == 'text', col('convo'))))
-          .drop('ts', 'prev_txn', 'prev_ts', 'wait', 'convo'))
+          .drop('ts', 'prev_txn', 'prev_ts', 'convo'))
 
     return df
