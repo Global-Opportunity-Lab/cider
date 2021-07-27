@@ -27,7 +27,8 @@ def all_spark(df):
     #features.append(percent_initiated_interactions(df))
     #features.append(response_delay_text(df))
     #features.append(response_rate_text(df))
-    features.append(entropy_of_contacts(df))
+    #features.append(entropy_of_contacts(df))
+    features.append((balance_of_contacts(df)))
 
     return features
 
@@ -206,6 +207,38 @@ def entropy_of_contacts(df):
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['entropy'])
 
     col_selection = [col(col_name).alias('entropy_of_contacts_' + col_name) for col_name in out.columns if
+                     col_name != 'caller_id']
+    out = out.select('caller_id', *col_selection)
+
+    return out
+
+
+def balance_of_contacts(df):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    out = (df
+           .groupby('caller_id', 'recipient_id', 'direction', 'weekday', 'daytime', 'txn_type')
+           .agg(F.count(lit(0)).alias('n'))
+           .groupby('caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type')
+           .pivot('direction')
+           .agg(F.first('n').alias('n'))
+           .fillna(0)
+           .withColumn('n_total', col('in')+col('out'))
+           .withColumn('n', (col('out')/col('n_total')))
+           .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
+           .agg(F.mean('n').alias('mean'),
+                F.min('n').alias('min'),
+                F.max('n').alias('max'),
+                F.stddev_pop('n').alias('std'),
+                F.expr('percentile_approx(n, 0.5)').alias('median'),
+                F.skewness('n').alias('skewness'),
+                F.kurtosis('n').alias('kurtosis')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
+                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'])
+
+    col_selection = [col(col_name).alias('balance_of_contacts_' + col_name) for col_name in out.columns if
                      col_name != 'caller_id']
     out = out.select('caller_id', *col_selection)
 
