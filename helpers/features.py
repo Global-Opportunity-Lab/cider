@@ -26,7 +26,8 @@ def all_spark(df):
     #features.append(percent_initiated_conversations(df))
     #features.append(percent_initiated_interactions(df))
     #features.append(response_delay_text(df))
-    features.append(response_rate_text(df))
+    #features.append(response_rate_text(df))
+    features.append(entropy_of_contacts(df))
 
     return features
 
@@ -183,6 +184,28 @@ def response_rate_text(df):
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['response_rate_text'])
 
     col_selection = [col(col_name).alias('response_rate_text_' + col_name) for col_name in out.columns if
+                     col_name != 'caller_id']
+    out = out.select('caller_id', *col_selection)
+
+    return out
+
+
+def entropy_of_contacts(df):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    w = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type')
+    out = (df
+           .groupby('caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type')
+           .agg(F.count(lit(0)).alias('n'))
+           .withColumn('n_total', F.sum('n').over(w))
+           .withColumn('n', (col('n')/col('n_total').cast('float')))
+           .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
+           .agg((-1*F.sum(col('n')*F.log(col('n')))).alias('entropy')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['entropy'])
+
+    col_selection = [col(col_name).alias('entropy_of_contacts_' + col_name) for col_name in out.columns if
                      col_name != 'caller_id']
     out = out.select('caller_id', *col_selection)
 
