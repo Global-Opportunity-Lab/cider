@@ -41,7 +41,8 @@ def all_spark(df):
     #features.append((percent_pareto_durations(df)))
     #features.append(number_of_interactions(df))
     #features.append(number_of_antennas(df))
-    features.append(entropy_of_antennas(df))
+    #features.append(entropy_of_antennas(df))
+    features.append(frequent_antennas(df))
 
     return features
 
@@ -379,6 +380,30 @@ def entropy_of_antennas(df):
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['entropy'],
                    indicator_name='entropy_of_antennas')
+
+    return out
+
+
+def frequent_antennas(df, percentage=0.8):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    w = Window.partitionBy('caller_id', 'weekday', 'daytime')
+    w1 = Window.partitionBy('caller_id', 'weekday', 'daytime').orderBy(col('n').desc())
+    w2 = Window.partitionBy('caller_id', 'weekday', 'daytime').orderBy('row_number')
+    out = (df
+           .groupby('caller_id', 'caller_antenna', 'weekday', 'daytime')
+           .agg(F.count(lit(0)).alias('n'))
+           .withColumn('row_number', F.row_number().over(w1))
+           .withColumn('total', F.sum('n').over(w))
+           .withColumn('cumsum', F.sum('n').over(w2))
+           .withColumn('fraction', col('cumsum')/col('total'))
+           .withColumn('row_number', F.when(col('fraction') >= percentage, col('row_number')))
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.min('row_number').alias('pareto_antennas')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['pareto_antennas'],
+                   indicator_name='frequent_antennas')
 
     return out
 
