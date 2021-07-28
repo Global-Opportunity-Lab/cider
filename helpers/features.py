@@ -31,7 +31,8 @@ def all_spark(df):
     #features.append((balance_of_contacts(df)))
     #features.append(interactions_per_contact(df))
     #features.append(interevent_time(df))
-    features.append(percent_pareto_interactions(df))
+    #features.append(percent_pareto_interactions(df))
+    features.append((percent_pareto_durations(df)))
 
     return features
 
@@ -294,6 +295,33 @@ def percent_pareto_interactions(df, percentage=0.8):
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['pareto'],
                    indicator_name='percent_pareto_interactions')
+
+    return out
+
+
+def percent_pareto_durations(df, percentage=0.8):
+    df = df.where(col('txn_type') == 'call')
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    w = Window.partitionBy('caller_id', 'weekday', 'daytime')
+    w1 = Window.partitionBy('caller_id', 'weekday', 'daytime').orderBy(col('duration').desc())
+    w2 = Window.partitionBy('caller_id', 'weekday', 'daytime').orderBy('row_number')
+    out = (df
+           .groupby('caller_id', 'recipient_id', 'weekday', 'daytime')
+           .agg(F.sum('duration').alias('duration'))
+           .withColumn('row_number', F.row_number().over(w1))
+           .withColumn('total', F.sum('duration').over(w))
+           .withColumn('cumsum', F.sum('duration').over(w2))
+           .withColumn('fraction', col('cumsum')/col('total'))
+           .withColumn('row_number', F.when(col('fraction') >= percentage, col('row_number')))
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.min('row_number').alias('pareto_users'),
+                F.countDistinct('recipient_id').alias('n_users'))
+           .withColumn('pareto', col('pareto_users')/col('n_users')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['pareto'],
+                   indicator_name='percent_pareto_durations')
 
     return out
 
