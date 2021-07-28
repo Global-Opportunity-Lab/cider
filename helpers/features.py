@@ -32,7 +32,8 @@ def all_spark(df):
     #features.append(interactions_per_contact(df))
     #features.append(interevent_time(df))
     #features.append(percent_pareto_interactions(df))
-    features.append((percent_pareto_durations(df)))
+    #features.append((percent_pareto_durations(df)))
+    features.append(number_of_interactions(df))
 
     return features
 
@@ -322,6 +323,21 @@ def percent_pareto_durations(df, percentage=0.8):
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['pareto'],
                    indicator_name='percent_pareto_durations')
+
+    return out
+
+
+def number_of_interactions(df):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday',
+                                      'direction': 'alldir'})
+
+    out = (df
+           .groupby('caller_id', 'weekday', 'daytime', 'txn_type', 'direction')
+           .agg(F.count(lit(0)).alias('n')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['direction', 'weekday', 'daytime', 'txn_type'], values=['n'],
+                   indicator_name='number_of_interactions')
 
     return out
 
