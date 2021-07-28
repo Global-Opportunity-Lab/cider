@@ -29,7 +29,8 @@ def all_spark(df):
     #features.append(response_rate_text(df))
     #features.append(entropy_of_contacts(df))
     #features.append((balance_of_contacts(df)))
-    features.append(interactions_per_contact(df))
+    #features.append(interactions_per_contact(df))
+    features.append(interevent_time(df))
 
     return features
 
@@ -42,10 +43,8 @@ def active_days(df):
            .groupby('caller_id', 'weekday', 'daytime')
            .agg(F.countDistinct('day').alias('active_days')))
 
-    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['active_days'])
-
-    col_selection = [col(col_name).alias('active_days_' + col_name) for col_name in out.columns if col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['active_days'],
+                   indicator_name='active_days')
 
     return out
 
@@ -58,10 +57,8 @@ def number_of_contacts(df):
            .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
            .agg(F.countDistinct('recipient_id').alias('number_of_contacts')))
 
-    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['number_of_contacts'])
-
-    col_selection = [col(col_name).alias('number_of_contacts_' + col_name) for col_name in out.columns if col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['number_of_contacts'],
+                   indicator_name='number_of_contacts')
 
     return out
 
@@ -82,10 +79,8 @@ def call_duration(df):
                 F.kurtosis('duration').alias('kurtosis')))
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
-                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'])
-
-    col_selection = [col(col_name).alias('call_duration_' + col_name) for col_name in out.columns if col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
+                   indicator_name='call_duration')
 
     return out
 
@@ -98,10 +93,8 @@ def percent_nocturnal(df):
            .groupby('caller_id', 'weekday', 'txn_type')
            .agg(F.mean('nocturnal').alias('percent_nocturnal')))
 
-    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'txn_type'], values=['percent_nocturnal'])
-
-    col_selection = [col(col_name).alias('percent_nocturnal_' + col_name) for col_name in out.columns if col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'txn_type'], values=['percent_nocturnal'],
+                   indicator_name='percent_nocturnal')
 
     return out
 
@@ -116,10 +109,8 @@ def percent_initiated_conversations(df):
            .groupby('caller_id', 'weekday', 'daytime')
            .agg(F.mean('initiated').alias('percent_initiated_conversations')))
 
-    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['percent_initiated_conversations'])
-
-    col_selection = [col(col_name).alias('percent_initiated_conversations_' + col_name) for col_name in out.columns if col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['percent_initiated_conversations'],
+                   indicator_name='percent_initiated_conversations')
 
     return out
 
@@ -134,10 +125,8 @@ def percent_initiated_interactions(df):
            .groupby('caller_id', 'weekday', 'daytime')
            .agg(F.mean('initiated').alias('percent_initiated_interactions')))
 
-    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['percent_initiated_interactions'])
-
-    col_selection = [col(col_name).alias('percent_initiated_interactions_' + col_name) for col_name in out.columns if col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['percent_initiated_interactions'],
+                   indicator_name='percent_initiated_interactions')
 
     return out
 
@@ -161,11 +150,8 @@ def response_delay_text(df):
                 F.kurtosis('response_delay').alias('kurtosis')))
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'],
-                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'])
-
-    col_selection = [col(col_name).alias('response_delay_text_' + col_name) for col_name in out.columns if
-                     col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
+                   indicator_name='response_delay_text')
 
     return out
 
@@ -183,11 +169,8 @@ def response_rate_text(df):
            .groupby('caller_id', 'weekday', 'daytime')
            .agg(F.mean('responded').alias('response_rate_text')))
 
-    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['response_rate_text'])
-
-    col_selection = [col(col_name).alias('response_rate_text_' + col_name) for col_name in out.columns if
-                     col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['response_rate_text'],
+                   indicator_name='response_rate_text')
 
     return out
 
@@ -205,11 +188,8 @@ def entropy_of_contacts(df):
            .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
            .agg((-1*F.sum(col('n')*F.log(col('n')))).alias('entropy')))
 
-    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['entropy'])
-
-    col_selection = [col(col_name).alias('entropy_of_contacts_' + col_name) for col_name in out.columns if
-                     col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['entropy'],
+                   indicator_name='entropy_of_contacts')
 
     return out
 
@@ -237,11 +217,8 @@ def balance_of_contacts(df):
                 F.kurtosis('n').alias('kurtosis')))
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
-                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'])
-
-    col_selection = [col(col_name).alias('balance_of_contacts_' + col_name) for col_name in out.columns if
-                     col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
+                   indicator_name='balance_of_contacts')
 
     return out
 
@@ -263,11 +240,33 @@ def interactions_per_contact(df):
                 F.kurtosis('n').alias('kurtosis')))
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
-                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'])
+                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
+                   indicator_name='interactions_per_contact')
 
-    col_selection = [col(col_name).alias('interactions_per_contact_' + col_name) for col_name in out.columns if
-                     col_name != 'caller_id']
-    out = out.select('caller_id', *col_selection)
+    return out
+
+
+def interevent_time(df):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    w = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type').orderBy('timestamp')
+    out = (df
+           .withColumn('ts', col('timestamp').cast('long'))
+           .withColumn('prev_ts', F.lag(col('ts')).over(w))
+           .withColumn('wait', col('ts') - col('prev_ts'))
+           .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
+           .agg(F.mean('wait').alias('mean'),
+                F.min('wait').alias('min'),
+                F.max('wait').alias('max'),
+                F.stddev_pop('wait').alias('std'),
+                F.expr('percentile_approx(wait, 0.5)').alias('median'),
+                F.skewness('wait').alias('skewness'),
+                F.kurtosis('wait').alias('kurtosis')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
+                   values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
+                   indicator_name='interevent_time')
 
     return out
 
@@ -281,7 +280,7 @@ def add_all_cat(df, col_mapping):
     return df
 
 
-def pivot_df(df, index, columns, values):
+def pivot_df(df, index, columns, values, indicator_name):
     while columns:
         column = columns.pop()
         df = (df
@@ -289,6 +288,11 @@ def pivot_df(df, index, columns, values):
               .pivot(column)
               .agg(*[F.first(val).alias(val) for val in values]))
         values = [val for val in df.columns if val not in index and val not in columns]
+
+    # Rename columns by prefixing indicator name
+    col_selection = [col(col_name).alias(indicator_name + '_' + col_name) for col_name in df.columns if
+                     col_name != 'caller_id']
+    df = df.select('caller_id', *col_selection)
 
     return df
 
