@@ -13,9 +13,15 @@ def all_spark(df):
           .withColumn('directions', F.array(lit('in'), col('direction')))
           .withColumn('direction', F.explode('directions'))
           .withColumn('caller_id_copy', col('caller_id'))
+          .withColumn('caller_antenna_copy', col('caller_antenna'))
           .withColumn('caller_id', F.when(col('direction') == 'in', col('recipient_id')).otherwise(col('caller_id')))
-          .withColumn('recipient_id', F.when(col('direction') == 'in', col('caller_id_copy')).otherwise(col('recipient_id')))
-          .drop('directions', 'caller_id_copy'))
+          .withColumn('recipient_id',
+                      F.when(col('direction') == 'in', col('caller_id_copy')).otherwise(col('recipient_id')))
+          .withColumn('caller_antenna',
+                      F.when(col('direction') == 'in', col('recipient_antenna')).otherwise(col('caller_antenna')))
+          .withColumn('recipient_antenna',
+                      F.when(col('direction') == 'in', col('caller_antenna_copy')).otherwise(col('recipient_antenna')))
+          .drop('directions', 'caller_id_copy', 'recipient_antenna_copy'))
 
     df = tag_conversations(df)
 
@@ -33,7 +39,8 @@ def all_spark(df):
     #features.append(interevent_time(df))
     #features.append(percent_pareto_interactions(df))
     #features.append((percent_pareto_durations(df)))
-    features.append(number_of_interactions(df))
+    #features.append(number_of_interactions(df))
+    features.append(number_of_antennas(df))
 
     return features
 
@@ -338,6 +345,20 @@ def number_of_interactions(df):
 
     out = pivot_df(out, index=['caller_id'], columns=['direction', 'weekday', 'daytime', 'txn_type'], values=['n'],
                    indicator_name='number_of_interactions')
+
+    return out
+
+
+def number_of_antennas(df):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday',})
+
+    out = (df
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.countDistinct('caller_antenna').alias('n_antennas')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['n_antennas'],
+                   indicator_name='number_of_antennas')
 
     return out
 
