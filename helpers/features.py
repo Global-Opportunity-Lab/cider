@@ -40,7 +40,8 @@ def all_spark(df):
     #features.append(percent_pareto_interactions(df))
     #features.append((percent_pareto_durations(df)))
     #features.append(number_of_interactions(df))
-    features.append(number_of_antennas(df))
+    #features.append(number_of_antennas(df))
+    features.append(entropy_of_antennas(df))
 
     return features
 
@@ -359,6 +360,25 @@ def number_of_antennas(df):
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['n_antennas'],
                    indicator_name='number_of_antennas')
+
+    return out
+
+
+def entropy_of_antennas(df):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    w = Window.partitionBy('caller_id', 'weekday', 'daytime')
+    out = (df
+           .groupby('caller_id', 'caller_antenna', 'weekday', 'daytime')
+           .agg(F.count(lit(0)).alias('n'))
+           .withColumn('n_total', F.sum('n').over(w))
+           .withColumn('n', (col('n')/col('n_total').cast('float')))
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg((-1*F.sum(col('n')*F.log(col('n')))).alias('entropy')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['entropy'],
+                   indicator_name='entropy_of_antennas')
 
     return out
 
