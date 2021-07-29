@@ -3,7 +3,7 @@ from pyspark.sql.functions import col, lit
 from pyspark.sql.window import Window
 
 
-def all_spark(df):
+def all_spark(df, antennas):
     features = []
 
     df = (df
@@ -42,7 +42,8 @@ def all_spark(df):
     #features.append(number_of_interactions(df))
     #features.append(number_of_antennas(df))
     #features.append(entropy_of_antennas(df))
-    features.append(frequent_antennas(df))
+    features.append(radius_of_gyration(df, antennas))
+    #features.append(frequent_antennas(df))
 
     return features
 
@@ -384,6 +385,35 @@ def entropy_of_antennas(df):
     return out
 
 
+def radius_of_gyration(df, antennas):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    df = (df
+          .join(antennas, on=df.caller_antenna == antennas.antenna_id, how='inner')
+          .dropna(subset=['latitude', 'longitude']))
+
+    bar = (df
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.sum('latitude').alias('latitude'),
+                F.sum('longitude').alias('longitude'),
+                F.count(lit(0)).alias('n'))
+           .withColumn('bar_lat', col('latitude')/col('n'))
+           .withColumn('bar_lon', col('longitude') / col('n'))
+           .drop('latitude', 'longitude'))
+
+    df = df.join(bar, on=['caller_id', 'weekday', 'daytime'])
+    df = great_circle_distance(df)
+    out = (df
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.sqrt(F.sum(col('r')**2/col('n'))).alias('r')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['r'],
+                   indicator_name='radius_of_gyration')
+
+    return out
+
+
 def frequent_antennas(df, percentage=0.8):
     df = add_all_cat(df, col_mapping={'weekday': 'allweek',
                                       'daytime': 'allday'})
@@ -450,5 +480,20 @@ def tag_conversations(df):
           .withColumn('conversation', F.when(col('conversation').isNotNull(), col('conversation'))
                                        .otherwise(F.when(col('txn_type') == 'text', col('convo'))))
           .drop('ts', 'prev_txn', 'prev_ts', 'convo'))
+
+    return df
+
+
+def great_circle_distance(df):
+    r = 6371.
+
+    df = (df
+          .withColumn('delta_latitude', F.radians(col('latitude') - col('bar_lat')))
+          .withColumn('delta_longitude', F.radians(col('longitude') - col('bar_lon')))
+          .withColumn('latitude1', F.radians(col('latitude')))
+          .withColumn('latitude2', F.radians(col('bar_lat')))
+          .withColumn('a', F.sin(col('delta_latitude')/2)**2 +
+                           F.cos('latitude1')*F.cos('latitude2')*(F.sin(col('delta_longitude')/2)**2))
+          .withColumn('r', 2*lit(r)*F.asin(F.sqrt('a'))))
 
     return df

@@ -379,7 +379,7 @@ class Featurizer:
             raise ValueError('CDR file must be loaded to calculate CDR features.')
         print('Calculating CDR features...')
 
-        cdr_features = all_spark(self.cdr)
+        cdr_features = all_spark(self.cdr, self.antennas)
         cdr_features = long_join_pyspark(cdr_features, on='caller_id', how='outer')
 
         save_df(cdr_features, self.outputs + '/datasets/cdr_features_spark/all.csv')
