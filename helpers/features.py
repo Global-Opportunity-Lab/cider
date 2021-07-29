@@ -3,6 +3,31 @@ from pyspark.sql.functions import col, lit
 from pyspark.sql.window import Window
 
 
+def add_all_cat(df, col_mapping):
+    for column, value in col_mapping.items():
+        df = (df
+              .withColumn(column, F.array(lit(value), col(column)))
+              .withColumn(column, F.explode(column)))
+
+    return df
+
+
+def real_decorator(cols):
+    def pseudo_decorator(function_to_be_decorated):
+        def real_wrapper(function_arguments):
+            if cols == 'week':
+                col_mapping = {'weekday': 'allweek'}
+            elif cols == 'week_day':
+                col_mapping = {'weekday': 'allweek', 'daytime': 'allday'}
+            elif cols == 'week_day_dir':
+                col_mapping = {'weekday': 'allweek', 'daytime': 'allday', 'direction': 'alldir'}
+            df = add_all_cat(function_arguments, col_mapping)
+            result = function_to_be_decorated(df)
+            return result
+        return real_wrapper
+    return pseudo_decorator
+
+
 def all_spark(df, antennas):
     features = []
 
@@ -42,15 +67,17 @@ def all_spark(df, antennas):
     #features.append(number_of_interactions(df))
     #features.append(number_of_antennas(df))
     #features.append(entropy_of_antennas(df))
-    features.append(radius_of_gyration(df, antennas))
+    #features.append(radius_of_gyration(df, antennas))
     #features.append(frequent_antennas(df))
+    features.append(percent_at_home(df))
 
     return features
 
 
+@real_decorator(cols='week_day')
 def active_days(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    #df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+    #                                 'daytime': 'allday'})
 
     out = (df
            .groupby('caller_id', 'weekday', 'daytime')
@@ -385,6 +412,34 @@ def entropy_of_antennas(df):
     return out
 
 
+def percent_at_home(df):
+    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
+                                      'daytime': 'allday'})
+
+    df = df.dropna(subset=['caller_antenna'])
+
+    w = Window.partitionBy('caller_id').orderBy(col('n').desc())
+    home_antenna = (df
+                    .where(col('daytime') == 'night')
+                    .groupby('caller_id', 'caller_antenna')
+                    .agg(F.count(lit(0)).alias('n'))
+                    .withColumn('row_number', F.row_number().over(w))
+                    .where(col('row_number') == 1)
+                    .withColumnRenamed('caller_antenna', 'home_antenna')
+                    .drop('n'))
+
+    out = (df
+           .join(home_antenna, on='caller_id', how='inner')
+           .withColumn('home_interaction', F.when(col('caller_antenna') == col('home_antenna'), 1).otherwise(0))
+           .groupby('caller_id', 'weekday', 'daytime')
+           .agg(F.mean('home_interaction').alias('mean')))
+
+    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['mean'],
+                   indicator_name='percent_at_home')
+
+    return out
+
+
 def radius_of_gyration(df, antennas):
     df = add_all_cat(df, col_mapping={'weekday': 'allweek',
                                       'daytime': 'allday'})
@@ -436,15 +491,6 @@ def frequent_antennas(df, percentage=0.8):
                    indicator_name='frequent_antennas')
 
     return out
-
-
-def add_all_cat(df, col_mapping):
-    for column, value in col_mapping.items():
-        df = (df
-              .withColumn(column, F.array(lit(value), col(column)))
-              .withColumn(column, F.explode(column)))
-
-    return df
 
 
 def pivot_df(df, index, columns, values, indicator_name):
