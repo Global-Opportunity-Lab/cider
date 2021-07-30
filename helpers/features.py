@@ -57,7 +57,7 @@ def all_spark(df, antennas):
     #features.append(percent_initiated_conversations(df))
     #features.append(percent_initiated_interactions(df))
     #features.append(response_delay_text(df))
-    #features.append(response_rate_text(df))
+    features.append(response_rate_text(df))
     #features.append(entropy_of_contacts(df))
     #features.append((balance_of_contacts(df)))
     #features.append(interactions_per_contact(df))
@@ -69,7 +69,7 @@ def all_spark(df, antennas):
     #features.append(entropy_of_antennas(df))
     #features.append(radius_of_gyration(df, antennas))
     #features.append(frequent_antennas(df))
-    features.append(percent_at_home(df))
+    #features.append(percent_at_home(df))
 
     return features
 
@@ -201,7 +201,7 @@ def response_rate_text(df):
     df = add_all_cat(df, col_mapping={'weekday': 'allweek',
                                       'daytime': 'allday'})
 
-    w = Window.partitionBy('caller_id', 'recipient_id', 'conversation').orderBy('timestamp')
+    w = Window.partitionBy('caller_id', 'recipient_id', 'conversation')
     out = (df
            .withColumn('dir', F.when(col('direction') == 'out', 1).otherwise(0))
            .withColumn('responded', F.max(col('dir')).over(w))
