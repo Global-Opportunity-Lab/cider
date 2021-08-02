@@ -80,13 +80,7 @@ def call_duration(df):
 
     out = (df
            .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
-           .agg(F.mean('duration').alias('mean'),
-                F.min('duration').alias('min'),
-                F.max('duration').alias('max'),
-                F.stddev_pop('duration').alias('std'),
-                F.expr('percentile_approx(duration, 0.5)').alias('median'),
-                F.skewness('duration').alias('skewness'),
-                F.kurtosis('duration').alias('kurtosis')))
+           .agg(*summary_stats('duration')))
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
@@ -148,13 +142,7 @@ def response_delay_text(df):
            .withColumn('prev_dir', F.lag(col('direction')).over(w))
            .withColumn('response_delay', F.when((col('direction') == 'out')&(col('prev_dir') == 'in'), col('wait')))
            .groupby('caller_id', 'weekday', 'daytime')
-           .agg(F.mean('response_delay').alias('mean'),
-                F.min('response_delay').alias('min'),
-                F.max('response_delay').alias('max'),
-                F.stddev_pop('response_delay').alias('std'),
-                F.expr('percentile_approx(response_delay, 0.5)').alias('median'),
-                F.skewness('response_delay').alias('skewness'),
-                F.kurtosis('response_delay').alias('kurtosis')))
+           .agg(*summary_stats('response_delay')))
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
@@ -212,13 +200,7 @@ def balance_of_contacts(df):
            .withColumn('n_total', col('in')+col('out'))
            .withColumn('n', (col('out')/col('n_total')))
            .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
-           .agg(F.mean('n').alias('mean'),
-                F.min('n').alias('min'),
-                F.max('n').alias('max'),
-                F.stddev_pop('n').alias('std'),
-                F.expr('percentile_approx(n, 0.5)').alias('median'),
-                F.skewness('n').alias('skewness'),
-                F.kurtosis('n').alias('kurtosis')))
+           .agg(*summary_stats('n')))
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
@@ -234,13 +216,7 @@ def interactions_per_contact(df):
            .groupby('caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type')
            .agg(F.count(lit(0)).alias('n'))
            .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
-           .agg(F.mean('n').alias('mean'),
-                F.min('n').alias('min'),
-                F.max('n').alias('max'),
-                F.stddev_pop('n').alias('std'),
-                F.expr('percentile_approx(n, 0.5)').alias('median'),
-                F.skewness('n').alias('skewness'),
-                F.kurtosis('n').alias('kurtosis')))
+           .agg(*summary_stats('n')))
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
@@ -258,13 +234,7 @@ def interevent_time(df):
            .withColumn('prev_ts', F.lag(col('ts')).over(w))
            .withColumn('wait', col('ts') - col('prev_ts'))
            .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
-           .agg(F.mean('wait').alias('mean'),
-                F.min('wait').alias('min'),
-                F.max('wait').alias('max'),
-                F.stddev_pop('wait').alias('std'),
-                F.expr('percentile_approx(wait, 0.5)').alias('median'),
-                F.skewness('wait').alias('skewness'),
-                F.kurtosis('wait').alias('kurtosis')))
+           .agg(*summary_stats('wait')))
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],

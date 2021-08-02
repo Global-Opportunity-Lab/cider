@@ -609,8 +609,8 @@ class Featurizer:
     def load_features(self):
         data_path = self.outputs + '/datasets/'
 
-        features = ['cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
-        datasets = ['/bandicoot_features/all', 'international_feats', 'location_features',
+        features = ['cdr', 'cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
+        datasets = ['/bandicoot_features/all', 'cdr_features_spark/all',  'international_feats', 'location_features',
                     'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
         # Read data from disk if requested
         for feature, dataset in zip(features, datasets):

@@ -14,7 +14,7 @@ path:
     data: "/Users/luciomelito/Documents/GD/cider/synthetic_data"
     outputs: "/Users/luciomelito/Documents/GD/cider/outputs/featurizer"
     file_names:
-      cdr: '/cdr_v2.csv'
+      cdr: '/cdr.csv'
       antennas: '/antennas.csv'
       recharges: '/recharges.csv'
       mobiledata: '/mobiledata.csv'

@@ -29,8 +29,8 @@ def pivot_df(df, index, columns, values, indicator_name):
         values = [val for val in df.columns if val not in index and val not in columns]
 
     # Rename columns by prefixing indicator name
-    col_selection = [col(col_name).alias(indicator_name + '_' + col_name) for col_name in df.columns if
-                     col_name != 'caller_id']
+    col_selection = [col(col_name).alias(indicator_name + '_' + col_name) for col_name in df.columns
+                     if col_name != 'caller_id']
     df = df.select('caller_id', *col_selection)
 
     return df
@@ -54,6 +54,20 @@ def tag_conversations(df):
           .drop('ts', 'prev_txn', 'prev_ts', 'convo'))
 
     return df
+
+
+def summary_stats(col_name):
+    functions = [
+        F.mean(col_name).alias('mean'),
+        F.min(col_name).alias('min'),
+        F.max(col_name).alias('max'),
+        F.stddev_pop(col_name).alias('std'),
+        F.expr(f'percentile_approx({col_name}, 0.5)').alias('median'),
+        F.skewness(col_name).alias('skewness'),
+        F.kurtosis(col_name).alias('kurtosis')
+    ]
+
+    return functions
 
 
 def great_circle_distance(df):
