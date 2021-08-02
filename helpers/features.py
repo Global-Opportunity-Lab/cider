@@ -48,10 +48,8 @@ def all_spark(df, antennas, cfg):
     return features
 
 
-@real_decorator(cols='week_day')
 def active_days(df):
-    #df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-    #                                 'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     out = (df
            .groupby('caller_id', 'weekday', 'daytime')
@@ -64,8 +62,7 @@ def active_days(df):
 
 
 def number_of_contacts(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     out = (df
            .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
@@ -79,8 +76,7 @@ def number_of_contacts(df):
 
 def call_duration(df):
     df = df.where(col('txn_type') == 'call')
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     out = (df
            .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
@@ -100,7 +96,7 @@ def call_duration(df):
 
 
 def percent_nocturnal(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek'})
+    df = add_all_cat(df, cols='week')
 
     out = (df
            .withColumn('nocturnal', F.when(col('daytime') == 'night', 1).otherwise(0))
@@ -114,8 +110,7 @@ def percent_nocturnal(df):
 
 
 def percent_initiated_conversations(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     out = (df
            .where(col('conversation') == col('timestamp').cast('long'))
@@ -131,8 +126,7 @@ def percent_initiated_conversations(df):
 
 def percent_initiated_interactions(df):
     df = df.where(col('txn_type') == 'call')
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     out = (df
            .withColumn('initiated', F.when(col('direction') == 'out', 1).otherwise(0))
@@ -147,8 +141,7 @@ def percent_initiated_interactions(df):
 
 def response_delay_text(df):
     df = df.where(col('txn_type') == 'text')
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'recipient_id', 'conversation').orderBy('timestamp')
     out = (df
@@ -172,8 +165,7 @@ def response_delay_text(df):
 
 def response_rate_text(df):
     df = df.where(col('txn_type') == 'text')
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'recipient_id', 'conversation')
     out = (df
@@ -190,8 +182,7 @@ def response_rate_text(df):
 
 
 def entropy_of_contacts(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type')
     out = (df
@@ -209,8 +200,7 @@ def entropy_of_contacts(df):
 
 
 def balance_of_contacts(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     out = (df
            .groupby('caller_id', 'recipient_id', 'direction', 'weekday', 'daytime', 'txn_type')
@@ -238,8 +228,7 @@ def balance_of_contacts(df):
 
 
 def interactions_per_contact(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     out = (df
            .groupby('caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type')
@@ -261,8 +250,7 @@ def interactions_per_contact(df):
 
 
 def interevent_time(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type').orderBy('timestamp')
     out = (df
@@ -286,8 +274,7 @@ def interevent_time(df):
 
 
 def percent_pareto_interactions(df, percentage=0.8):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type')
     w1 = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type').orderBy(col('n').desc())
@@ -313,8 +300,7 @@ def percent_pareto_interactions(df, percentage=0.8):
 
 def percent_pareto_durations(df, percentage=0.8):
     df = df.where(col('txn_type') == 'call')
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime')
     w1 = Window.partitionBy('caller_id', 'weekday', 'daytime').orderBy(col('duration').desc())
@@ -339,9 +325,7 @@ def percent_pareto_durations(df, percentage=0.8):
 
 
 def number_of_interactions(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday',
-                                      'direction': 'alldir'})
+    df = add_all_cat(df, cols='week_day_dir')
 
     out = (df
            .groupby('caller_id', 'weekday', 'daytime', 'txn_type', 'direction')
@@ -354,8 +338,7 @@ def number_of_interactions(df):
 
 
 def number_of_antennas(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday',})
+    df = add_all_cat(df, cols='week_day')
 
     out = (df
            .groupby('caller_id', 'weekday', 'daytime')
@@ -368,8 +351,7 @@ def number_of_antennas(df):
 
 
 def entropy_of_antennas(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime')
     out = (df
@@ -387,8 +369,7 @@ def entropy_of_antennas(df):
 
 
 def percent_at_home(df):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     df = df.dropna(subset=['caller_antenna'])
 
@@ -415,8 +396,7 @@ def percent_at_home(df):
 
 
 def radius_of_gyration(df, antennas):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     df = (df
           .join(antennas, on=df.caller_antenna == antennas.antenna_id, how='inner')
@@ -444,8 +424,7 @@ def radius_of_gyration(df, antennas):
 
 
 def frequent_antennas(df, percentage=0.8):
-    df = add_all_cat(df, col_mapping={'weekday': 'allweek',
-                                      'daytime': 'allday'})
+    df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime')
     w1 = Window.partitionBy('caller_id', 'weekday', 'daytime').orderBy(col('n').desc())

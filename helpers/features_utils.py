@@ -3,29 +3,20 @@ from pyspark.sql.functions import col, lit
 from pyspark.sql.window import Window
 
 
-def add_all_cat(df, col_mapping):
+def add_all_cat(df, cols):
+    if cols == 'week':
+        col_mapping = {'weekday': 'allweek'}
+    elif cols == 'week_day':
+        col_mapping = {'weekday': 'allweek', 'daytime': 'allday'}
+    elif cols == 'week_day_dir':
+        col_mapping = {'weekday': 'allweek', 'daytime': 'allday', 'direction': 'alldir'}
+
     for column, value in col_mapping.items():
         df = (df
               .withColumn(column, F.array(lit(value), col(column)))
               .withColumn(column, F.explode(column)))
 
     return df
-
-
-def real_decorator(cols):
-    def pseudo_decorator(function_to_be_decorated):
-        def real_wrapper(function_arguments):
-            if cols == 'week':
-                col_mapping = {'weekday': 'allweek'}
-            elif cols == 'week_day':
-                col_mapping = {'weekday': 'allweek', 'daytime': 'allday'}
-            elif cols == 'week_day_dir':
-                col_mapping = {'weekday': 'allweek', 'daytime': 'allday', 'direction': 'alldir'}
-            df = add_all_cat(function_arguments, col_mapping)
-            result = function_to_be_decorated(df)
-            return result
-        return real_wrapper
-    return pseudo_decorator
 
 
 def pivot_df(df, index, columns, values, indicator_name):
