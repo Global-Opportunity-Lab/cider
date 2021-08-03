@@ -3,7 +3,7 @@ spark:
   files:
     max_partition_bytes: 67108864
   driver:
-    memory: "50g"
+    memory: "8g"
     max_result_size: "2g"
   loglevel: "ERROR"
 
@@ -78,6 +78,10 @@ col_names:
 
 
 params:
+  cdr:
+    weekend: [1, 7]
+    start_of_day: 7
+    end_of_day: 19
   home_location:
     filter_hours: null
   automl:

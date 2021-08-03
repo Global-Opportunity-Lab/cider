@@ -1,12 +1,13 @@
 import bandicoot as bc
-from box import Box
 import yaml
 import sys
 
 from helpers.utils import *
+from helpers.features import *
 from helpers.io_utils import *
 from helpers.plot_utils import *
 from pyspark.sql.utils import AnalysisException
+
 
 class Featurizer:
 
@@ -14,7 +15,7 @@ class Featurizer:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.safe_load(ymlfile))
+            cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
         self.cfg = cfg
         data = cfg.path.featurizer.data
         self.data = data
@@ -370,6 +371,19 @@ class Featurizer:
         save_df(cdr_features, self.outputs + '/datasets/bandicoot_features/all.csv')
         self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/bandicoot_features/all.csv', header=True)
 
+    def cdr_features_spark(self):
+
+        # Check that CDR is present to calculate international features
+        if self.cdr is None:
+            raise ValueError('CDR file must be loaded to calculate CDR features.')
+        print('Calculating CDR features...')
+
+        cdr_features = all_spark(self.cdr, self.antennas, cfg=self.cfg.params.cdr)
+        cdr_features = long_join_pyspark(cdr_features, on='caller_id', how='outer')
+
+        save_df(cdr_features, self.outputs + '/datasets/cdr_features_spark/all.csv')
+        self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/cdr_features_spark/all.csv', header=True)
+
     def international_features(self):
 
         # Check that CDR is present to calculate international features
@@ -594,8 +608,8 @@ class Featurizer:
     def load_features(self):
         data_path = self.outputs + '/datasets/'
 
-        features = ['cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
-        datasets = ['/bandicoot_features/all', 'international_feats', 'location_features',
+        features = ['cdr', 'cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
+        datasets = ['/bandicoot_features/all', 'cdr_features_spark/all',  'international_feats', 'location_features',
                     'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
         # Read data from disk if requested
         for feature, dataset in zip(features, datasets):
