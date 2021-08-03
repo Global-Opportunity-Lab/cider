@@ -105,7 +105,7 @@ def tag_conversations(df: SparkDataFrame, max_wait: int = 3600) -> SparkDataFram
     return df
 
 
-def great_circle_distance(df):
+def great_circle_distance(df: SparkDataFrame) -> SparkDataFrame:
     """
     Return the great-circle distance in kilometers between two points, in this case always the antenna handling an
     interaction and the barycenter of all the user's interactions.
@@ -125,7 +125,7 @@ def great_circle_distance(df):
     return df
 
 
-def summary_stats(col_name):
+def summary_stats(col_name: str) -> list:
     # Standard list of functions to be applied to column after group by
     functions = [
         F.mean(col_name).alias('mean'),

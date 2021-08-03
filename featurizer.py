@@ -1,5 +1,4 @@
 import bandicoot as bc
-from box import Box
 import yaml
 import sys
 

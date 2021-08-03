@@ -1,13 +1,27 @@
+from box import Box
 from helpers.features_utils import *
 
 
-def all_spark(df, antennas, cfg):
+def all_spark(df: SparkDataFrame, antennas: SparkDataFrame, cfg: Box) -> List[SparkDataFrame]:
+    """
+    Compute cdr features starting from raw interaction data
+
+    Args:
+        df: spark dataframe with cdr interactions
+        antennas: spark dataframe with antenna ids and coordinates
+        cfg: config object
+
+    Returns:
+        features: list of features as spark dataframes
+    """
     features = []
 
     df = (df
+          # Add weekday and daytime columns for subsequent groupby(s)
           .withColumn('weekday', F.when(F.dayofweek('day').isin(cfg.weekend), 'weekend').otherwise('weekday'))
           .withColumn('daytime', F.when((F.hour('timestamp') < cfg.start_of_day) |
                                         (F.hour('timestamp') >= cfg.end_of_day), 'night').otherwise('day'))
+          # Duplicate rows, switching caller and recipient columns
           .withColumn('direction', lit('out'))
           .withColumn('directions', F.array(lit('in'), col('direction')))
           .withColumn('direction', F.explode('directions'))
@@ -22,8 +36,10 @@ def all_spark(df, antennas, cfg):
                       F.when(col('direction') == 'in', col('caller_antenna_copy')).otherwise(col('recipient_antenna')))
           .drop('directions', 'caller_id_copy', 'recipient_antenna_copy'))
 
+    # Assign interactions to conversations if relevant
     df = tag_conversations(df)
 
+    # Compute features and append them to list
     features.append(active_days(df))
     features.append(number_of_contacts(df))
     features.append(call_duration(df))
@@ -48,7 +64,10 @@ def all_spark(df, antennas, cfg):
     return features
 
 
-def active_days(df):
+def active_days(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the number of active days per user, disaggregated by type and time of day
+    """
     df = add_all_cat(df, cols='week_day')
 
     out = (df
@@ -61,7 +80,10 @@ def active_days(df):
     return out
 
 
-def number_of_contacts(df):
+def number_of_contacts(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the number of distinct contacts per user, disaggregated by type and time of day, and transaction type
+    """
     df = add_all_cat(df, cols='week_day')
 
     out = (df
@@ -74,7 +96,10 @@ def number_of_contacts(df):
     return out
 
 
-def call_duration(df):
+def call_duration(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns summary stats of users' call durations, disaggregated by type and time of day
+    """
     df = df.where(col('txn_type') == 'call')
     df = add_all_cat(df, cols='week_day')
 
@@ -89,7 +114,10 @@ def call_duration(df):
     return out
 
 
-def percent_nocturnal(df):
+def percent_nocturnal(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the percentage of interactions done at night, per user, disaggregated by type of day and transaction type
+    """
     df = add_all_cat(df, cols='week')
 
     out = (df
@@ -103,7 +131,10 @@ def percent_nocturnal(df):
     return out
 
 
-def percent_initiated_conversations(df):
+def percent_initiated_conversations(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the percentage of conversations initiated by the user, disaggregated by type and time of day
+    """
     df = add_all_cat(df, cols='week_day')
 
     out = (df
@@ -118,7 +149,10 @@ def percent_initiated_conversations(df):
     return out
 
 
-def percent_initiated_interactions(df):
+def percent_initiated_interactions(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the percentage of interactions initiated by the user, disaggregated by type and time of day
+    """
     df = df.where(col('txn_type') == 'call')
     df = add_all_cat(df, cols='week_day')
 
@@ -133,14 +167,17 @@ def percent_initiated_interactions(df):
     return out
 
 
-def response_delay_text(df):
+def response_delay_text(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns summary stats of users' delays in responding to texts, disaggregated by type and time of day
+    """
     df = df.where(col('txn_type') == 'text')
     df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'recipient_id', 'conversation').orderBy('timestamp')
     out = (df
            .withColumn('prev_dir', F.lag(col('direction')).over(w))
-           .withColumn('response_delay', F.when((col('direction') == 'out')&(col('prev_dir') == 'in'), col('wait')))
+           .withColumn('response_delay', F.when((col('direction') == 'out') & (col('prev_dir') == 'in'), col('wait')))
            .groupby('caller_id', 'weekday', 'daytime')
            .agg(*summary_stats('response_delay')))
 
@@ -151,7 +188,10 @@ def response_delay_text(df):
     return out
 
 
-def response_rate_text(df):
+def response_rate_text(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the percentage of texts to which the users responded, disaggregated by type and time of day
+    """
     df = df.where(col('txn_type') == 'text')
     df = add_all_cat(df, cols='week_day')
 
@@ -169,7 +209,11 @@ def response_rate_text(df):
     return out
 
 
-def entropy_of_contacts(df):
+def entropy_of_contacts(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the entropy of interactions the users had with their contacts, disaggregated by type and time of day, and
+    transaction type
+    """
     df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type')
@@ -187,7 +231,11 @@ def entropy_of_contacts(df):
     return out
 
 
-def balance_of_contacts(df):
+def balance_of_contacts(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns summary stats for the balance of interactions (out/(in+out)) the users had with their contacts,
+    disaggregated by type and time of day, and transaction type
+    """
     df = add_all_cat(df, cols='week_day')
 
     out = (df
@@ -209,7 +257,11 @@ def balance_of_contacts(df):
     return out
 
 
-def interactions_per_contact(df):
+def interactions_per_contact(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns summary stats for the number of interactions the users had with their contacts, disaggregated by type and
+    time of day, and transaction type
+    """
     df = add_all_cat(df, cols='week_day')
 
     out = (df
@@ -225,7 +277,11 @@ def interactions_per_contact(df):
     return out
 
 
-def interevent_time(df):
+def interevent_time(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns summary stats for the time between users' interactions, disaggregated by type and time of day, and
+    transaction type
+    """
     df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type').orderBy('timestamp')
@@ -243,7 +299,11 @@ def interevent_time(df):
     return out
 
 
-def percent_pareto_interactions(df, percentage=0.8):
+def percent_pareto_interactions(df: SparkDataFrame, percentage: float = 0.8) -> SparkDataFrame:
+    """
+    Returns the percentage of a user's contacts that account for 80% of their interactions, disaggregated by type and
+    time of day, and transaction type
+    """
     df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type')
@@ -268,7 +328,11 @@ def percent_pareto_interactions(df, percentage=0.8):
     return out
 
 
-def percent_pareto_durations(df, percentage=0.8):
+def percent_pareto_durations(df: SparkDataFrame, percentage: float = 0.8) -> SparkDataFrame:
+    """
+    Returns the percentage of a user's contacts that account for 80% of their call durations, disaggregated by type and
+    time of day, and transaction type
+    """
     df = df.where(col('txn_type') == 'call')
     df = add_all_cat(df, cols='week_day')
 
@@ -294,7 +358,10 @@ def percent_pareto_durations(df, percentage=0.8):
     return out
 
 
-def number_of_interactions(df):
+def number_of_interactions(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the number of interactions per user, disaggregated by type and time of day, transaction type, and direction
+    """
     df = add_all_cat(df, cols='week_day_dir')
 
     out = (df
@@ -307,7 +374,10 @@ def number_of_interactions(df):
     return out
 
 
-def number_of_antennas(df):
+def number_of_antennas(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the number of antennas the handled users' interactions, disaggregated by type and time of day
+    """
     df = add_all_cat(df, cols='week_day')
 
     out = (df
@@ -320,7 +390,10 @@ def number_of_antennas(df):
     return out
 
 
-def entropy_of_antennas(df):
+def entropy_of_antennas(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the entropy of a user's antennas' shares of handled interactions, disaggregated by type and time of day
+    """
     df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime')
@@ -338,11 +411,15 @@ def entropy_of_antennas(df):
     return out
 
 
-def percent_at_home(df):
+def percent_at_home(df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the percentage of interactions handled by a user's home antenna, disaggregated by type and time of day
+    """
     df = add_all_cat(df, cols='week_day')
 
     df = df.dropna(subset=['caller_antenna'])
 
+    # Compute home antennas for all users, if possible
     w = Window.partitionBy('caller_id').orderBy(col('n').desc())
     home_antenna = (df
                     .where(col('daytime') == 'night')
@@ -365,7 +442,16 @@ def percent_at_home(df):
     return out
 
 
-def radius_of_gyration(df, antennas):
+def radius_of_gyration(df: SparkDataFrame, antennas: SparkDataFrame) -> SparkDataFrame:
+    """
+    Returns the radius of gyration of users, disaggregated by type and time of day
+
+    References
+    ----------
+    .. [GON2008] Gonzalez, M. C., Hidalgo, C. A., & Barabasi, A. L. (2008).
+        Understanding individual human mobility patterns. Nature, 453(7196),
+        779-782.
+    """
     df = add_all_cat(df, cols='week_day')
 
     df = (df
@@ -393,7 +479,10 @@ def radius_of_gyration(df, antennas):
     return out
 
 
-def frequent_antennas(df, percentage=0.8):
+def frequent_antennas(df: SparkDataFrame, percentage: float = 0.8) -> SparkDataFrame:
+    """
+    Returns the percentage of antennas accounting for 80% of users' interactions, disaggregated by type and time of day
+    """
     df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'weekday', 'daytime')
