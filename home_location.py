@@ -118,7 +118,6 @@ class HomeLocator:
 
         self.cdr = self.cdr.distinct()
 
-
     def get_home_locations(self, algo='count_transactions'):
 
         if algo == 'count_transactions':
@@ -163,7 +162,7 @@ class HomeLocator:
         # Inner join ground truth data and inferred home locations
         merged = self.home_locations[algo].rename({self.geo: self.geo + '_inferred'}, axis=1)\
             .merge(self.groundtruth.rename({self.geo: self.geo + '_groundtruth'}, axis=1), on='subscriber_id', how='inner')
-        print('Observations with inferred home location: %i (%i unique)' % (len(self.home_locations[algo]), \
+        print('Observations with inferred home location: %i (%i unique)' % (len(self.home_locations[algo]),
             len(self.home_locations[algo]['subscriber_id'].unique())))
         print('Observations with ground truth home location: %i (%i unique)' % (len(self.groundtruth), len(self.groundtruth['subscriber_id'].unique())))
         print('Observations with both: %i (%i unique)' % (len(merged), len(merged['subscriber_id'].unique())))

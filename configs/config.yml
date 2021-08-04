@@ -39,6 +39,17 @@ path:
       poverty_scores: null
       groundtruth: '/home_locations.csv'
       population: '/population_tgo_2019-07-01.tif'
+  satellite:
+    data: "/Users/luciomelito/Documents/GD/cider/synthetic_data"
+    outputs: "/Users/luciomelito/Documents/GD/cider/outputs/satellite"
+    file_names:
+      antennas: '/antennas.csv'
+      shapefiles:
+        regions: '/regions.geojson'
+        cantons: '/cantons.geojson'
+        prefectures: '/prefectures.geojson'
+        population: '/population_tgo_2019-07-01.tif'
+      rwi: '/TGO_relative_wealth_index.csv'
 
 
 col_names:
