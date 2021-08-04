@@ -48,7 +48,7 @@ path:
         regions: '/regions.geojson'
         cantons: '/cantons.geojson'
         prefectures: '/prefectures.geojson'
-        population: '/population_tgo_2019-07-01.tif'
+      population: '/population_tgo_2019-07-01.tif'
       rwi: '/TGO_relative_wealth_index.csv'
 
 

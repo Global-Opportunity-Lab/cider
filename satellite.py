@@ -63,7 +63,7 @@ class SatellitePredictor:
     def aggregate_scores(self, dataset: str = 'rwi'):
         # Check data is loaded and preprocess it
         if dataset == 'rwi':
-            if not self.rwi:
+            if self.rwi is None     :
                 raise ValueError("The RWI data has not been loaded.")
             scores = self.rwi
             scores = scores.rename(columns={'rwi': 'score'})
@@ -101,17 +101,18 @@ class SatellitePredictor:
                 out_image = np.nan_to_num(out_image)
                 row['pop'] = out_image.sum()
                 out_data.append(row)
-        scores_pop = gpd.GeoDataFrame(pd.DataFrame(data=out_data, columns=list(scores.columns) + ['pop']))
+        scores_pop = gpd.GeoDataFrame(pd.DataFrame(data=out_data, columns=list(scores.columns) + ['pop']),
+                                      geometry='polygon')
 
         # Compute population-weighted scores per admin unit
-        shapes = gpd.GeoDataFrame(shapes)
-        scores_pop['unit_area'] = scores['polygon'].area
+        scores_pop['unit_area'] = scores_pop['polygon'].area
         intersection = gpd.overlay(scores_pop, shapes, how='intersection')
         intersection['area'] = intersection['geometry'].area
         intersection['pop_rel'] = intersection['pop'] * intersection['area'] / intersection['unit_area']
         wm = lambda x: np.average(x, weights=intersection.loc[x.index, "pop_rel"])
         intersection = intersection[intersection['pop_rel'] != 0]
         df = intersection.groupby(self.geo).agg({'score': wm, 'pop_rel': 'sum'}).reset_index()
+        df = gpd.GeoDataFrame(pd.merge(df, shapes, on=self.geo))
 
         # Save shapefile
         df.to_file(self.outputs + '/maps/' + self.geo + '_' + dataset + '.geojson', driver='GeoJSON')
