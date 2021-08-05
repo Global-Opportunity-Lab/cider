@@ -1,5 +1,6 @@
 from box import Box
 import geopandas as gpd
+import glob
 from helpers.io_utils import *
 from helpers.plot_utils import *
 from helpers.satellite_utils import *
@@ -7,6 +8,7 @@ from helpers.utils import *
 import numpy as np
 import rasterio
 from rasterio.mask import mask
+from rasterio.merge import merge
 from shapely.geometry import mapping
 import yaml
 
@@ -63,7 +65,7 @@ class SatellitePredictor:
     def aggregate_scores(self, dataset: str = 'rwi'):
         # Check data is loaded and preprocess it
         if dataset == 'rwi':
-            if self.rwi is None     :
+            if self.rwi is None:
                 raise ValueError("The RWI data has not been loaded.")
             scores = self.rwi
             scores = scores.rename(columns={'rwi': 'score'})
@@ -90,29 +92,69 @@ class SatellitePredictor:
         else:
             raise ValueError('Invalid geometry.')
 
-        # Read raster with population data, mask with scores, compute number of people living in each quadkey polygon
-        raster_fpath = self.data + self.file_names.population
+        # Read raster with population data, mask with scores and create new score band, write multiband output
+        pop_fpath = self.data + self.file_names.population
+        pop_score_fpath = self.outputs + f'/pop_{dataset}.tif'
+        if not os.path.isfile(pop_score_fpath):
+            temp_folder = self.outputs + '/temp'
+            make_dir(temp_folder, remove=True)
+            with rasterio.open(pop_fpath) as src:
+                meta = src.meta
+                for i, row in scores.iterrows():
+                    row = row.copy()
+                    score = row['score']
+                    geoms = [mapping(row['polygon'])]
+
+                    # Mask with shape, create new multiband image
+                    out_image, out_transform = mask(src, geoms, crop=True)
+                    out_image = np.nan_to_num(out_image)[0]
+                    new_band = np.full_like(out_image, fill_value=score)
+                    new_band = np.where(out_image == 0, 0, new_band)
+
+                    # Update metadata
+                    new_meta = meta.copy()
+                    new_meta.update({'transform': out_transform,
+                                     'count': 2,
+                                     'height': out_image.shape[0],
+                                     'width': out_image.shape[1],
+                                     'nodata': 0})
+
+                    # Write to out file
+                    with rasterio.open(temp_folder + f'/{i}.tif', 'w', **new_meta) as dst:
+                        for idx, band in enumerate([out_image, new_band]):
+                            dst.write_band(idx + 1, band)
+
+            new_raster_paths = glob.glob(temp_folder + '/*.tif')
+            for raster in new_raster_paths:
+                src = rasterio.open(raster)
+                break
+
+            mosaic, out_trans = merge(new_raster_paths)
+
+            # Update the metadata
+            out_meta = src.meta.copy()
+            out_meta.update({"height": mosaic.shape[1],
+                             "width": mosaic.shape[2],
+                             "transform": out_trans})
+
+            with rasterio.open(pop_score_fpath, "w", **out_meta) as dest:
+                dest.write(mosaic)
+
+        # Read raster with population and score bands, mask with admin shapes and aggregate
         out_data = []
-        with rasterio.open(raster_fpath) as src:
-            for _, row in scores.iterrows():
-                row = row.copy()
-                geoms = [mapping(row['polygon'])]
+        with rasterio.open(pop_score_fpath) as src:
+            for _, row in shapes.iterrows():
+                idx = row[self.geo]
+                geometry = row['geometry']
+                geoms = [mapping(row['geometry'])]
                 out_image, out_transform = mask(src, geoms, crop=True)
                 out_image = np.nan_to_num(out_image)
-                row['pop'] = out_image.sum()
-                out_data.append(row)
-        scores_pop = gpd.GeoDataFrame(pd.DataFrame(data=out_data, columns=list(scores.columns) + ['pop']),
-                                      geometry='polygon')
-
-        # Compute population-weighted scores per admin unit
-        scores_pop['unit_area'] = scores_pop['polygon'].area
-        intersection = gpd.overlay(scores_pop, shapes, how='intersection')
-        intersection['area'] = intersection['geometry'].area
-        intersection['pop_rel'] = intersection['pop'] * intersection['area'] / intersection['unit_area']
-        wm = lambda x: np.average(x, weights=intersection.loc[x.index, "pop_rel"])
-        intersection = intersection[intersection['pop_rel'] != 0]
-        df = intersection.groupby(self.geo).agg({'score': wm, 'pop_rel': 'sum'}).reset_index()
-        df = gpd.GeoDataFrame(pd.merge(df, shapes, on=self.geo))
+                pop, score = out_image[0], out_image[1]
+                score = (score * pop).sum() / pop.sum()
+                total_pop = pop.sum()
+                out_data.append([idx, geometry, score, total_pop])
+        df = gpd.GeoDataFrame(pd.DataFrame(data=out_data, columns=['region', 'geometry', 'score', 'pop']),
+                              geometry='geometry')
 
         # Save shapefile
         df.to_file(self.outputs + '/maps/' + self.geo + '_' + dataset + '.geojson', driver='GeoJSON')
