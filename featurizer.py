@@ -6,36 +6,19 @@ from helpers.utils import *
 from helpers.features import *
 from helpers.io_utils import *
 from helpers.plot_utils import *
+from parent import *
 from pyspark.sql.utils import AnalysisException
 
 
-class Featurizer:
+class Featurizer(Parent):
 
     def __init__(self, cfg_dir, dataframes=None, clean_folders=False):
+        super().__init__(cfg_dir, module='featurizer', clean_folders=clean_folders)
+        file_names = self.file_names
+        data = self.data
 
-        # Read config file
-        with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
-        self.cfg = cfg
-        data = cfg.path.featurizer.data
-        self.data = data
-        outputs = cfg.path.featurizer.outputs
-        self.outputs = outputs
-        file_names = cfg.path.featurizer.file_names
-        self.file_names = file_names
-
-        # Prepare working directory
         self.features = {'cdr': None, 'international': None, 'recharges': None,
                          'location': None, 'mobiledata': None, 'mobilemoney': None}
-        make_dir(outputs, clean_folders)
-        make_dir(outputs + '/tables')
-        make_dir(outputs + '/datasets')
-        make_dir(outputs + '/plots')
-
-        # Spark setup
-        spark = get_spark_session(self.cfg)
-        self.spark = spark
-
 
         # Load CDR data 
         dataframe = dataframes['cdr'] if dataframes is not None and 'cdr' in dataframes.keys() else None

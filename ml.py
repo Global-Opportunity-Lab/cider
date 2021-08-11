@@ -5,30 +5,17 @@ from helpers.io_utils import load_model
 from helpers.utils import *
 from helpers.plot_utils import *
 from helpers.ml_utils import *
+from parent import *
 import yaml
 
 
 class Learner:
 
-    def __init__(self, cfg_dir,
-                 clean_folders=False, kfold=5):
-
-        # Read config file
-        with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
-        self.cfg = cfg
-
-        # Prepare working directory
+    def __init__(self, cfg_dir, clean_folders=False, kfold=5):
+        super().__init__(cfg_dir, module='ml', clean_folders=clean_folders)
+        cfg = self.cfg
         self.features_fname = cfg.path.ml.features
         self.labels_fname = cfg.path.ml.labels
-        self.outputs = cfg.path.ml.outputs
-        make_dir(self.outputs, clean_folders)
-        make_dir(self.outputs + '/untuned_models')
-        make_dir(self.outputs + '/tuned_models')
-
-        # Spark setup
-        spark = get_spark_session(cfg)
-        self.spark = spark
 
         # Load features
         self.features = self.spark.read.csv(self.features_fname, header=True)

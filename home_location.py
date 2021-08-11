@@ -6,24 +6,19 @@ from helpers.utils import *
 from helpers.plot_utils import *
 from helpers.io_utils import *
 import numpy as np
+from parent import Parent
 import rasterio
 from rasterio.mask import mask
 from shapely.geometry import mapping
 
 
-class HomeLocator:
+class HomeLocator(Parent):
 
     def __init__(self, cfg_dir, dataframes=None, clean_folders=False):
-
-        # Read config file
-        with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.load(ymlfile),  Loader=yaml.FullLoader)
-        self.cfg = cfg
-        data = cfg.path.home_location.data
-        self.data = data
-        outputs = cfg.path.home_location.outputs
-        self.outputs = outputs
-        file_names = cfg.path.home_location.file_names
+        super().__init__(cfg_dir, module='home_location', clean_folders=clean_folders)
+        cfg = self.cfg
+        file_names = self.file_names
+        data = self.data
 
         # Initialize values
         self.geo = cfg.col_names.geo
@@ -34,16 +29,6 @@ class HomeLocator:
             self.poverty_scores = pd.read_csv(data + file_names.poverty_scores)
         self.home_locations = {}
         self.accuracy_tables = {}
-
-        # Prepare working directory
-        make_dir(outputs, clean_folders)
-        make_dir(outputs + '/outputs/')
-        make_dir(outputs + '/maps/')
-        make_dir(outputs + '/tables/')
-        
-        # Spark setup
-        spark = get_spark_session(cfg)
-        self.spark = spark
 
         # Load CDR data 
         dataframe = dataframes['cdr'] if dataframes is not None and 'cdr' in dataframes.keys() else None
@@ -97,7 +82,9 @@ class HomeLocator:
         # Get polygon for each transaction based on antenna latitude and longitudes
         elif self.geo in self.shapefiles.keys():
             antennas = self.antennas.na.drop().toPandas()
-            antennas = gpd.GeoDataFrame(antennas, geometry=gpd.points_from_xy(antennas['longitude'], antennas['latitude']))
+            antennas = gpd.GeoDataFrame(antennas,
+                                        geometry=gpd.points_from_xy(antennas['longitude'], antennas['latitude']))
+            antennas.crs = {"init": "epsg:4326"}
             antennas = gpd.sjoin(antennas, self.shapefiles[self.geo], op='within', how='left')[['antenna_id', 'region']].rename({'region':self.geo}, axis=1)
             antennas = self.spark.createDataFrame(antennas).na.drop()
             length_before = self.cdr.count()
