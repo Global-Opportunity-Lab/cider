@@ -105,6 +105,7 @@ params:
       eval_metric: 'r2'
       label: 'label'
       sample_weight: 'weight'
+  opt_in_default: false
 
 
 hyperparams:

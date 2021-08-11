@@ -3,19 +3,20 @@
 from box import Box
 import yaml
 from helpers.utils import *
+from helpers.opt_utils import *
 from helpers.plot_utils import *
 from helpers.io_utils import *
 import numpy as np
-from parent import Parent
+from parent import *
 import rasterio
 from rasterio.mask import mask
 from shapely.geometry import mapping
 
 
-class HomeLocator(Parent):
+class HomeLocator(Opt):
 
     def __init__(self, cfg_dir, dataframes=None, clean_folders=False):
-        super().__init__(cfg_dir, module='home_location', clean_folders=clean_folders)
+        super(HomeLocator, self).__init__(cfg_dir, module='home_location', clean_folders=clean_folders)
         cfg = self.cfg
         file_names = self.file_names
         data = self.data
@@ -96,6 +97,9 @@ class HomeLocator(Parent):
 
         elif self.geo != 'antenna_id':
             raise ValueError('Invalid geography, must be antenna_id, tower_id, or shapefile name')
+
+        self.user_consent = generate_user_consent_list([self.cdr], user_id_col='subscriber_id',
+                                                       opt_in=self.cfg.params.opt_in_default)
 
     def filter_dates(self, start_date, end_date):
 
