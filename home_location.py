@@ -16,12 +16,13 @@ from shapely.geometry import mapping
 class HomeLocator(Opt):
 
     def __init__(self, cfg_dir, dataframes=None, clean_folders=False):
-        super(HomeLocator, self).__init__(cfg_dir, module='home_location', clean_folders=clean_folders)
+        super(HomeLocator, self).__init__(cfg_dir, module='home_location', dataframes=dataframes, clean_folders=clean_folders)
         cfg = self.cfg
         file_names = self.file_names
         data = self.data
 
         # Initialize values
+        self.user_id = 'subscriber_id'
         self.geo = cfg.col_names.geo
         self.filter_hours = cfg.params.home_location.filter_hours
         if file_names.groundtruth is not None:
@@ -31,24 +32,6 @@ class HomeLocator(Opt):
         self.home_locations = {}
         self.accuracy_tables = {}
 
-        # Load CDR data 
-        dataframe = dataframes['cdr'] if dataframes is not None and 'cdr' in dataframes.keys() else None
-        fpath = data + file_names.cdr if file_names.cdr is not None else None
-        if file_names.cdr is not None or dataframe is not None:
-            print('Loading CDR...')
-            self.cdr = load_cdr(self.cfg, fpath, df=dataframe)
-        else:
-            self.cdr = None
-
-        # Load antennas data 
-        dataframe = dataframes['antennas'] if dataframes is not None and 'antennas' in dataframes.keys() else None
-        fpath = data + file_names.antennas if file_names.antennas is not None else None
-        if file_names.antennas is not None or dataframe is not None:
-            print('Loading antennas...')
-            self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
-        else:
-            self.antennas = None
-
         # Load shapefiles
         self.shapefiles = {}
         shapefiles = file_names.shapefiles
@@ -56,29 +39,29 @@ class HomeLocator(Opt):
             self.shapefiles[shapefile_fname] = load_shapefile(data + shapefiles[shapefile_fname])
 
         # Clean and merge CDR data
-        outgoing = (self.cdr
+        outgoing = (self.cdr_full
                     .select(['caller_id', 'caller_antenna', 'timestamp', 'day'])
-                    .withColumnRenamed('caller_id', 'subscriber_id')
+                    .withColumnRenamed('caller_id', self.user_id)
                     .withColumnRenamed('caller_antenna', 'antenna_id'))
-        incoming = (self.cdr
+        incoming = (self.cdr_full
                     .select(['recipient_id', 'recipient_antenna', 'timestamp', 'day'])
-                    .withColumnRenamed('recipient_id', 'subscriber_id')
+                    .withColumnRenamed('recipient_id', self.user_id)
                     .withColumnRenamed('recipient_antenna', 'antenna_id'))
-        self.cdr = (outgoing
-                    .select(incoming.columns)
-                    .union(incoming)
-                    .na.drop()
-                    .withColumn('hour', hour('timestamp')))
+        self.cdr_full = (outgoing
+                         .select(incoming.columns)
+                         .union(incoming)
+                         .na.drop()
+                         .withColumn('hour', hour('timestamp')))
 
         # Filter CDR to only desired hours
         if self.filter_hours is not None:
-            self.cdr = self.cdr.where(col('hour').isin(self.filter_hours))
+            self.cdr_full = self.cdr_full.where(col('hour').isin(self.filter_hours))
         
         # Get tower ID for each transaction
         if self.geo == 'tower_id':
-            self.cdr = (self.cdr
-                        .join(self.antennas
-                              .select(['antenna_id', 'tower_id']).na.drop(), on='antenna_id', how='inner'))
+            self.cdr_full = (self.cdr_full
+                             .join(self.antennas
+                                   .select(['antenna_id', 'tower_id']).na.drop(), on='antenna_id', how='inner'))
         
         # Get polygon for each transaction based on antenna latitude and longitudes
         elif self.geo in self.shapefiles.keys():
@@ -88,9 +71,9 @@ class HomeLocator(Opt):
             antennas.crs = {"init": "epsg:4326"}
             antennas = gpd.sjoin(antennas, self.shapefiles[self.geo], op='within', how='left')[['antenna_id', 'region']].rename({'region':self.geo}, axis=1)
             antennas = self.spark.createDataFrame(antennas).na.drop()
-            length_before = self.cdr.count()
-            self.cdr = self.cdr.join(antennas, on='antenna_id', how='inner')
-            length_after = self.cdr.count()
+            length_before = self.cdr_full.count()
+            self.cdr_full = self.cdr_full.join(antennas, on='antenna_id', how='inner')
+            length_after = self.cdr_full.count()
             if length_before != length_after:
                 print('Warning: %i (%.2f percent of) transactions not located in a polygon' % \
                     (length_before-length_after, 100*(length_before-length_after)/length_before))
@@ -98,7 +81,8 @@ class HomeLocator(Opt):
         elif self.geo != 'antenna_id':
             raise ValueError('Invalid geography, must be antenna_id, tower_id, or shapefile name')
 
-        self.user_consent = generate_user_consent_list([self.cdr], user_id_col='subscriber_id',
+        # Initialize user consent table
+        self.user_consent = generate_user_consent_list([self.cdr_full], user_id_col=self.user_id,
                                                        opt_in=self.cfg.params.opt_in_default)
 
     def filter_dates(self, start_date, end_date):
@@ -112,30 +96,29 @@ class HomeLocator(Opt):
     def get_home_locations(self, algo='count_transactions'):
 
         if algo == 'count_transactions':
-            grouped = self.cdr.groupby(['subscriber_id', self.geo]).agg(count('timestamp').alias('count_transactions'))
-            window = Window.partitionBy('subscriber_id').orderBy(desc_nulls_last('count_transactions'))
+            grouped = self.cdr.groupby([self.user_id, self.geo]).agg(count('timestamp').alias('count_transactions'))
+            window = Window.partitionBy(self.user_id).orderBy(desc_nulls_last('count_transactions'))
             grouped = grouped.withColumn('order', row_number().over(window))\
                 .where(col('order') == 1)\
-                .select(['subscriber_id', self.geo, 'count_transactions'])
+                .select([self.user_id, self.geo, 'count_transactions'])
         
         elif algo == 'count_days':
-            grouped = self.cdr.groupby(['subscriber_id', self.geo]).agg(countDistinct('day').alias('count_days'))
-            window = Window.partitionBy('subscriber_id').orderBy(desc_nulls_last('count_days'))
-            grouped = grouped.withColumn('order', row_number().over(window))\
+            grouped = self.cdr.groupby([self.user_id, self.geo]).agg(countDistinct('day').alias('count_days'))
+            grouped = grouped.withColumn(self.user_id, 'order', row_number().over(window))\
                 .where(col('order') == 1)\
-                .select(['subscriber_id', self.geo, 'count_days'])
+                .select([self.user_id, self.geo, 'count_days'])
 
         elif algo == 'count_modal_days':
-            grouped = self.cdr.groupby(['subscriber_id', 'day', self.geo]).agg(count('timestamp').alias('count_transactions_per_day'))
-            window = Window.partitionBy(['subscriber_id', 'day']).orderBy(desc_nulls_last('count_transactions_per_day'))
+            grouped = self.cdr.groupby([self.user_id, 'day', self.geo]).agg(count('timestamp').alias('count_transactions_per_day'))
+            window = Window.partitionBy([self.user_id, 'day']).orderBy(desc_nulls_last('count_transactions_per_day'))
             grouped = grouped.withColumn('order', row_number().over(window))\
                 .where(col('order') == 1)\
-                .groupby(['subscriber_id', self.geo])\
+                .groupby([self.user_id, self.geo])\
                 .agg(count('order').alias('count_modal_days'))
-            window = Window.partitionBy(['subscriber_id']).orderBy(desc_nulls_last('count_modal_days'))
+            window = Window.partitionBy([self.user_id]).orderBy(desc_nulls_last('count_modal_days'))
             grouped = grouped.withColumn('order', row_number().over(window))\
                 .where(col('order') == 1)\
-                .select(['subscriber_id', self.geo, 'count_modal_days'])
+                .select([self.user_id, self.geo, 'count_modal_days'])
 
         else:
             raise ValueError('Home location algorithm not recognized. Must be one of count_transactions, count_days, or count_modal_days')
@@ -152,11 +135,11 @@ class HomeLocator(Opt):
         
         # Inner join ground truth data and inferred home locations
         merged = self.home_locations[algo].rename({self.geo: self.geo + '_inferred'}, axis=1)\
-            .merge(self.groundtruth.rename({self.geo: self.geo + '_groundtruth'}, axis=1), on='subscriber_id', how='inner')
+            .merge(self.groundtruth.rename({self.geo: self.geo + '_groundtruth'}, axis=1), on=self.user_id, how='inner')
         print('Observations with inferred home location: %i (%i unique)' % (len(self.home_locations[algo]),
-            len(self.home_locations[algo]['subscriber_id'].unique())))
-        print('Observations with ground truth home location: %i (%i unique)' % (len(self.groundtruth), len(self.groundtruth['subscriber_id'].unique())))
-        print('Observations with both: %i (%i unique)' % (len(merged), len(merged['subscriber_id'].unique())))
+            len(self.home_locations[algo][self.user_id].unique())))
+        print('Observations with ground truth home location: %i (%i unique)' % (len(self.groundtruth), len(self.groundtruth[self.user_id].unique())))
+        print('Observations with both: %i (%i unique)' % (len(merged), len(merged[self.user_id].unique())))
 
         # Correct observatiosn are ones where the groundtruth home location is the same as the inferred home location
         merged['correct'] = merged[self.geo + '_inferred'] == merged[self.geo + '_groundtruth']
@@ -193,11 +176,11 @@ class HomeLocator(Opt):
             raise ValueError('Accuracy must be calculated to construct accuracy map.')
 
         # Get population assigned to each antenna/tower/polygon
-        population = self.home_locations[algo].groupby(self.geo).agg('count').rename({'subscriber_id':'population'}, axis=1)
+        population = self.home_locations[algo].groupby(self.geo).agg('count').rename({self.user_id:'population'}, axis=1)
         
         # For poverty map, get average polygon for subscribers assigned to each antenna/tower/polygon and merge with population data
         if kind == 'poverty':
-            poverty = self.home_locations[algo].merge(self.poverty_scores.rename({'name':'subscriber_id'}, axis=1), on='subscriber_id', how='inner')
+            poverty = self.home_locations[algo].merge(self.poverty_scores.rename({'name':self.user_id}, axis=1), on=self.user_id, how='inner')
             poverty = poverty.groupby(self.geo).agg('mean').rename({'predicted':'poverty'}, axis=1)
             population = population.merge(poverty, on=self.geo, how='left')
         
@@ -273,7 +256,7 @@ class HomeLocator(Opt):
         # Get population assigned to each antenna/tower/polygon
         if algo in self.home_locations:
             homes = self.home_locations[algo].groupby(self.geo).agg('count')\
-                                                  .rename({'subscriber_id': 'population'}, axis=1).reset_index()
+                                                  .rename({self.user_id: 'population'}, axis=1).reset_index()
         else:
             raise ValueError(f"Home locations have not been computed for '{algo}' algo")
 
