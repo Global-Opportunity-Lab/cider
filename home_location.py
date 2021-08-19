@@ -2,7 +2,7 @@
 
 from helpers.utils import *
 from helpers.plot_utils import *
-from parent import *
+from datastore import *
 import rasterio
 from rasterio.mask import mask
 from shapely.geometry import mapping

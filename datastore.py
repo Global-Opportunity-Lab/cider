@@ -4,7 +4,7 @@ from collections import defaultdict
 from helpers.io_utils import *
 from helpers.opt_utils import *
 import pyspark.sql.functions as F
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, count, lit
 import yaml
 
 
@@ -15,6 +15,18 @@ class InitializerInterface(ABC):
 
     @abstractmethod
     def load_antennas(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def load_recharges(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def load_mobiledata(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def load_mobilemoney(self, *args, **kwargs):
         pass
 
     @abstractmethod
@@ -53,8 +65,10 @@ class DataStore(InitializerInterface):
 
         # Possible datasets
         self.datasets = ['cdr', 'recharges', 'mobiledata', 'mobilemoney']
-        for dataset_name in self.datasets:
-            setattr(self, dataset_name, None)
+        self.cdr = None
+        self.recharges = None
+        self.mobiledata = None
+        self.mobilemoney = None
         self.antennas = None
         self.shapefiles = {}
         self.ground_truth = None
@@ -62,7 +76,7 @@ class DataStore(InitializerInterface):
 
     def load_cdr(self, dataframe=None):
         fpath = self.data + self.file_names.cdr if self.file_names.cdr is not None else None
-        if self.file_names.cdr is not None or dataframe is not None:
+        if fpath or dataframe is not None:
             print('Loading CDR...')
             cdr = load_cdr(self.cfg, fpath, df=dataframe)
             self.cdr = cdr
@@ -70,9 +84,27 @@ class DataStore(InitializerInterface):
 
     def load_antennas(self, dataframe=None):
         fpath = self.data + self.file_names.antennas if self.file_names.antennas is not None else None
-        if self.file_names.antennas is not None or dataframe is not None:
+        if fpath or dataframe is not None:
             print('Loading antennas...')
             self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
+
+    def load_recharges(self, dataframe=None):
+        fpath = self.data + self.file_names.recharges if self.file_names.recharges is not None else None
+        if fpath or dataframe is not None:
+            print('Loading recharges...')
+            self.recharges = load_recharges(self.cfg, fpath, df=dataframe)
+
+    def load_mobiledata(self, dataframe=None):
+        fpath = self.data + self.file_names.mobiledata if self.file_names.mobiledata is not None else None
+        if fpath or dataframe is not None:
+            print('Loading mobile data...')
+            self.mobiledata = load_mobiledata(self.cfg, fpath, df=dataframe)
+
+    def load_mobilemoney(self, dataframe=None):
+        fpath = self.data + self.file_names.mobilemoney if self.file_names.mobilemoney is not None else None
+        if fpath or dataframe is not None:
+            print('Loading mobile data...')
+            self.mobilemoney = load_mobilemoney(self.cfg, fpath, df=dataframe)
 
     def load_shapefiles(self):
         # Load shapefiles
@@ -93,8 +125,18 @@ class DataStore(InitializerInterface):
     def load_data(self, module, dataframes=None):
         dataframes = dataframes if dataframes else defaultdict(lambda: None)
         cdr_df = dataframes['cdr']
+        recharges_df = dataframes['recharges']
+        mobiledata_df = dataframes['mobiledata']
+        mobilemoney_df = dataframes['mobilemoney']
         antennas_df = dataframes['antennas']
-        if module == 'home_location':
+        if module == 'featurizer':
+            self.load_cdr(dataframe=cdr_df)
+            self.load_recharges(dataframe=recharges_df)
+            self.load_mobiledata(dataframe=mobiledata_df)
+            self.load_mobilemoney(dataframe=mobilemoney_df)
+            self.load_antennas(dataframe=antennas_df)
+            self.load_shapefiles()
+        elif module == 'home_location':
             self.load_cdr(dataframe=cdr_df)
             self.load_antennas(dataframe=antennas_df)
             self.load_shapefiles()
@@ -154,6 +196,74 @@ class DataStore(InitializerInterface):
             dataset = getattr(self, '_' + dataset_name, None)
             if dataset is not None:
                 setattr(self, dataset_name, dataset.distinct())
+
+    def remove_spammers(self, spammer_threshold=100):
+
+        # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
+        if self.cdr is None:
+            raise ValueError('CDR must be loaded to identify and remove spammers.')
+
+        # Get average number of calls and SMS per day
+        grouped = (self.cdr
+                   .groupby('caller_id', 'txn_type')
+                   .agg(count(lit(0)).alias('n_transactions'),
+                        countDistinct(col('day')).alias('active_days'))
+                   .withColumn('count', col('n_transactions') / col('active_days')))
+
+        # Get list of spammers
+        self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(
+            lambda r: r[0]).collect()
+        pd.DataFrame(self.spammers).to_csv(self.outputs + '/datasets/spammers.csv', index=False)
+        print('Number of spammers identified: %i' % len(self.spammers))
+
+        # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
+        self.cdr = self.cdr.where(~col('caller_id').isin(self.spammers))
+        self.cdr = self.cdr.where(~col('recipient_id').isin(self.spammers))
+        if self.recharges is not None:
+            self.recharges = self.recharges.where(~col('caller_id').isin(self.spammers))
+        if self.mobiledata is not None:
+            self.mobiledata = self.mobiledata.where(~col('caller_id').isin(self.spammers))
+        if self.mobilemoney is not None:
+            self.mobilemoney = self.mobilemoney.where(~col('caller_id').isin(self.spammers))
+            self.mobilemoney = self.mobilemoney.where(~col('recipient_id').isin(self.spammers))
+
+        return self.spammers
+
+    def filter_outlier_days(self, num_sds=2):
+
+        # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
+        if self.cdr is None:
+            raise ValueError('CDR must be loaded to identify and remove outlier days.')
+
+        # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
+        if not os.path.isfile(self.outputs + '/datasets/CDR_transactionsbyday.csv'):
+            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.outputs + '/datasets/CDR_transactionsbyday.csv')
+
+        # Read in timeseries of subscribers by day
+        timeseries = pd.read_csv(self.outputs + '/datasets/CDR_transactionsbyday.csv')
+
+        # Calculate timeseries of all transaction (voice + SMS together)
+        timeseries = timeseries.groupby('day', as_index=False).agg('sum')
+
+        # Calculate top and bottom acceptable values
+        bottomrange = timeseries['count'].mean() - num_sds * timeseries['count'].std()
+        toprange = timeseries['count'].mean() + num_sds * timeseries['count'].std()
+
+        # Obtain list of outlier days
+        outliers = timeseries[(timeseries['count'] < bottomrange) | (timeseries['count'] > toprange)]
+        outliers.to_csv(self.outputs + '/datasets/outlier_days.csv', index=False)
+        outliers = list(outliers['day'])
+        print('Outliers removed: ' + ', '.join([outlier.split('T')[0] for outlier in outliers]))
+
+        # Remove outlier days from all datasets
+        for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
+            for outlier in outliers:
+                outlier = pd.to_datetime(outlier)
+                if getattr(self, df_name, None) is not None:
+                    setattr(self, df_name, getattr(self, df_name)
+                            .where((col('timestamp') < outlier) | (col('timestamp') >= outlier + pd.Timedelta(days=1))))
+
+        return outliers
 
 
 class OptDataStore(DataStore):
