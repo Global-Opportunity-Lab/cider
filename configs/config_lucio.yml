@@ -3,7 +3,7 @@ spark:
   files:
     max_partition_bytes: 67108864
   driver:
-    memory: "50g"
+    memory: "8g"
     max_result_size: "2g"
   loglevel: "ERROR"
 
@@ -25,7 +25,7 @@ path:
   ml:
     outputs: "/Users/luciomelito/Documents/GD/cider/outputs/machinelearning"
     features: '/Users/luciomelito/Documents/GD/cider/outputs/featurizer/datasets/features.csv'
-    labels: "/Users/luciomelito/Documents/GD/cider/synthetic_data/labels_v2.csv"
+    labels: "/Users/luciomelito/Documents/GD/cider/synthetic_data/labels.csv"
   home_location:
     data: "/Users/luciomelito/Documents/GD/cider/synthetic_data"
     outputs: "/Users/luciomelito/Documents/GD/cider/outputs/homelocation"
@@ -33,11 +33,22 @@ path:
       cdr: '/cdr.csv'
       antennas: '/antennas.csv'
       shapefiles:
-        'regions': '/regions.geojson'
-        'cantons': '/cantons.geojson'
-        'prefectures': '/prefectures.geojson'
+        regions: '/regions.geojson'
+        cantons: '/cantons.geojson'
+        prefectures: '/prefectures.geojson'
       poverty_scores: null
       groundtruth: '/home_locations.csv'
+      population: '/population_tgo_2019-07-01.tif'
+  satellite:
+    data: "/Users/luciomelito/Documents/GD/cider/synthetic_data"
+    outputs: "/Users/luciomelito/Documents/GD/cider/outputs/satellite"
+    file_names:
+      antennas: '/antennas.csv'
+      shapefiles:
+        adm3: '/adm3.geojson'
+        adm4: '/adm4.geojson'
+      population: '/bgd_general_2020.tif'
+      rwi: '/BGD_relative_wealth_index.csv'
 
 
 col_names:
@@ -73,16 +84,27 @@ col_names:
     sender_balance_after: "sender_balance_after"
     recipient_balance_before: "recipient_balance_before"
     recipient_balance_after: "recipient_balance_after"
-  geo: 'cantons'
+  geo: 'adm4'
 
 
 params:
+  cdr:
+    weekend: [1, 7]
+    start_of_day: 7
+    end_of_day: 19
   home_location:
     filter_hours: null
   automl:
-    time_left: 900
-    n_jobs: 1
-    memory_limit: 3072
+    autosklearn:
+      time_left: 3600
+      n_jobs: 1
+      memory_limit: 3072
+    autogluon:
+      time_limit: 3600
+      eval_metric: 'r2'
+      label: 'label'
+      sample_weight: 'weight'
+  opt_in_default: false
 
 
 hyperparams:

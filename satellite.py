@@ -19,7 +19,7 @@ class SatellitePredictor:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.load(ymlfile),  Loader=yaml.FullLoader)
+            cfg = Box(yaml.load(ymlfile,  Loader=yaml.FullLoader))
         self.cfg = cfg
         data = cfg.path.satellite.data
         self.data = data
