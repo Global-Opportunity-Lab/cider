@@ -153,7 +153,7 @@ class DataStore(InitializerInterface):
         if self.file_names.poverty_scores is not None:
             self.poverty_scores = pd.read_csv(self.data + self.file_names.poverty_scores)
 
-    def load_data(self, module: str, dataframes:  Dict[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
+    def load_data(self, module: str, dataframes:  Dict[str, Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load and process all datasets required by a module
         Args:

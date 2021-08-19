@@ -210,6 +210,7 @@ class Featurizer:
 
         cdr_features = all_spark(self.ds.cdr, self.ds.antennas, cfg=self.cfg.params.cdr)
         cdr_features = long_join_pyspark(cdr_features, on='caller_id', how='outer')
+        cdr_features = cdr_features.withColumnRenamed('caller_id', 'name')
 
         save_df(cdr_features, self.outputs + '/datasets/cdr_features_spark/all.csv')
         self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/cdr_features_spark/all.csv', header=True)
@@ -261,7 +262,7 @@ class Featurizer:
         print('Calculating spatial features...')
 
         # If CDR is not available in bandicoot format, calculate it
-        if self.cdr_bandicoot is None:
+        if self.ds.cdr_bandicoot is None:
             self.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
 
         # Get dataframe of antennas located within regions
