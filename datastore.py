@@ -12,35 +12,35 @@ import yaml
 
 class InitializerInterface(ABC):
     @abstractmethod
-    def load_cdr(self, *args, **kwargs):
+    def load_cdr(self, dataframe):
         pass
 
     @abstractmethod
-    def load_antennas(self, *args, **kwargs):
+    def load_antennas(self, dataframe):
         pass
 
     @abstractmethod
-    def load_recharges(self, *args, **kwargs):
+    def load_recharges(self, dataframe):
         pass
 
     @abstractmethod
-    def load_mobiledata(self, *args, **kwargs):
+    def load_mobiledata(self, dataframe):
         pass
 
     @abstractmethod
-    def load_mobilemoney(self, *args, **kwargs):
+    def load_mobilemoney(self, dataframe):
         pass
 
     @abstractmethod
-    def load_shapefiles(self, *args, **kwargs):
+    def load_shapefiles(self):
         pass
 
     @abstractmethod
-    def load_home_ground_truth(self, *args, **kwargs):
+    def load_home_ground_truth(self):
         pass
 
     @abstractmethod
-    def load_poverty_scores(self, *args, **kwargs):
+    def load_poverty_scores(self):
         pass
 
 
