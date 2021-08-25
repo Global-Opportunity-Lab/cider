@@ -43,6 +43,14 @@ class InitializerInterface(ABC):
     def load_poverty_scores(self):
         pass
 
+    @abstractmethod
+    def load_features(self):
+        pass
+
+    @abstractmethod
+    def load_labels(self):
+        pass
+
 
 class DataStore(InitializerInterface):
     def __init__(self, cfg_dir: str):
@@ -65,8 +73,9 @@ class DataStore(InitializerInterface):
         spark = get_spark_session(cfg)
         self.spark = spark
 
-        # Possible datasets
-        self.datasets = ['cdr', 'recharges', 'mobiledata', 'mobilemoney']
+        # Possible datasets to opt in/out of
+        self.datasets = ['cdr', 'recharges', 'mobiledata', 'mobilemoney', 'features']
+        # featurizer/home location datasets
         self.cdr = None
         self.cdr_bandicoot = None
         self.recharges = None
@@ -76,6 +85,13 @@ class DataStore(InitializerInterface):
         self.shapefiles = {}
         self.ground_truth = None
         self.poverty_scores = None
+        # ml datasets
+        self.features = None
+        self.labels = None
+        self.merged = None
+        self.x = None
+        self.y = None
+        self.weights = None
 
     def load_cdr(self, dataframe: Union[SparkDataFrame, PandasDataFrame] = None) -> None:
         """
@@ -153,6 +169,47 @@ class DataStore(InitializerInterface):
         if self.file_names.poverty_scores is not None:
             self.poverty_scores = pd.read_csv(self.data + self.file_names.poverty_scores)
 
+    def load_features(self) -> None:
+        """
+        Load phone usage features to be used for training ML model and subsequent poverty prediction
+        """
+        self.features = self.spark.read.csv(self.cfg.path.features, header=True)
+        if 'name' not in self.features.columns:
+            raise ValueError('Features dataframe must include name column')
+
+    def load_labels(self) -> None:
+        """
+        Load labels to train ML model on
+        """
+        self.labels = self.spark.read.csv(self.data + self.file_names.labels, header=True)
+        if 'name' not in self.labels.columns:
+            raise ValueError('Labels dataframe must include name column')
+        if 'label' not in self.labels.columns:
+            raise ValueError('Labels dataframe must include label column')
+        if 'weight' not in self.labels.columns:
+            self.labels = self.labels.withColumn('weight', lit(1))
+        self.labels = self.labels.select(['name', 'label', 'weight'])
+
+    def merge(self) -> None:
+        """
+        Merge features and labels, split into x and y dataframes
+        """
+        print('Number of observations with features: %i (%i unique)' %
+              (self.features.count(), self.features.select('name').distinct().count()))
+        print('Number of observations with labels: %i (%i unique)' %
+              (self.labels.count(), self.labels.select('name').distinct().count()))
+
+        merged = self.labels.join(self.features, on='name', how='inner')
+        print('Number of matched observations: %i (%i unique)' %
+              (merged.count(), merged.select('name').distinct().count()))
+
+        save_df(merged, self.outputs + '/merged.csv')
+        self.merged = pd.read_csv(self.outputs + '/merged.csv')
+        self.x = self.merged.drop(['name', 'label', 'weight'], axis=1)
+        self.y = self.merged['label']
+        # Make the smallest weight 1
+        self.weights = self.merged['weight']/self.merged['weight'].min()
+
     def load_data(self, module: str, dataframes:  Dict[str, Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load and process all datasets required by a module
@@ -167,6 +224,7 @@ class DataStore(InitializerInterface):
         mobiledata_df = dataframes['mobiledata']
         mobilemoney_df = dataframes['mobilemoney']
         antennas_df = dataframes['antennas']
+
         if module == 'featurizer':
             self.load_cdr(dataframe=cdr_df)
             self.load_recharges(dataframe=recharges_df)
@@ -174,6 +232,7 @@ class DataStore(InitializerInterface):
             self.load_mobilemoney(dataframe=mobilemoney_df)
             self.load_antennas(dataframe=antennas_df)
             self.load_shapefiles()
+
         elif module == 'home_location':
             self.load_cdr(dataframe=cdr_df)
             self.load_antennas(dataframe=antennas_df)
@@ -222,6 +281,12 @@ class DataStore(InitializerInterface):
 
             elif self.geo != 'antenna_id':
                 raise ValueError('Invalid geography, must be antenna_id, tower_id, or shapefile name')
+
+        elif module == 'ml':
+            self.load_features()
+            self.load_labels()
+            self.merge()
+
         else:
             raise ValueError(f"The module name provided - '{module}' - is incorrect or not supported.")
 
@@ -354,7 +419,12 @@ class OptDataStore(DataStore):
         for dataset_name in self.datasets:
             if getattr(self, '_' + dataset_name, None) is not None:
                 data.append(getattr(self, '_' + dataset_name))
-        user_col_name = 'subscriber_id' if 'subscriber_id' in data[0].columns else 'caller_id'
+        if 'subscriber_id' in data[0].columns:  # home location
+            user_col_name = 'subscriber_id'
+        elif 'caller_id' in data[0].columns:  # featurizer
+            user_col_name = 'caller_id'
+        else:  # ml
+            user_col_name = 'name'
         self.user_consent = generate_user_consent_list(data, user_id_col=user_col_name,
                                                        opt_in=self.cfg.params.opt_in_default)
 

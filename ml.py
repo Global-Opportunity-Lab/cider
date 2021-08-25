@@ -5,32 +5,22 @@ from helpers.io_utils import load_model
 from helpers.utils import *
 from helpers.plot_utils import *
 from helpers.ml_utils import *
-from parent import *
+from datastore import *
 import yaml
 
 
 class Learner:
 
-    def __init__(self, cfg_dir, clean_folders=False, kfold=5):
-        super().__init__(cfg_dir, module='ml', clean_folders=clean_folders)
-        cfg = self.cfg
-        self.features_fname = cfg.path.ml.features
-        self.labels_fname = cfg.path.ml.labels
+    def __init__(self, datastore: DataStore, clean_folders=False, kfold=5):
+        self.cfg = datastore.cfg
+        self.ds = datastore
+        self.outputs = datastore.outputs + 'ml/'
 
-        # Load features
-        self.features = self.spark.read.csv(self.features_fname, header=True)
-        if 'name' not in self.features.columns:
-            raise ValueError('Features dataframe must include name column')
-
-        # Load labels
-        self.labels = self.spark.read.csv(self.labels_fname, header=True)
-        if 'name' not in self.labels.columns:
-            raise ValueError('Labels dataframe must include name column')
-        if 'label' not in self.labels.columns:
-            raise ValueError('Labels dataframe must include label column')
-        if 'weight' not in self.labels.columns:
-            self.labels = self.labels.withColumn('weight', lit(1))
-        self.labels = self.labels.select(['name', 'label', 'weight'])
+        # Prepare working directories
+        make_dir(self.outputs, clean_folders)
+        make_dir(self.outputs + '/outputs/')
+        make_dir(self.outputs + '/maps/')
+        make_dir(self.outputs + '/tables/')
 
         self.kfold = KFold(n_splits=kfold, shuffle=True, random_state=100)
 
@@ -38,113 +28,101 @@ class Learner:
         self.untuned_models = {
             'linear': Pipeline([('dropmissing', DropMissing(threshold=0.9)),
                                 ('droplowvariance', VarianceThreshold(threshold=0.01)),
-                                ('imputer', SimpleImputer(strategy='constant', fill_value=0)), 
-                                ('winsorizer', Winsorizer(limits=(.005, .995))), 
-                                ('scaler', StandardScaler()), 
+                                ('imputer', SimpleImputer(strategy='constant', fill_value=0)),
+                                ('winsorizer', Winsorizer(limits=(.005, .995))),
+                                ('scaler', StandardScaler()),
                                 ('model', LinearRegression())]),
-            
+
             'lasso': Pipeline([('dropmissing', DropMissing(threshold=0.9)),
-                                ('droplowvariance', VarianceThreshold(threshold=0.01)),
-                                ('imputer', SimpleImputer(strategy='constant', fill_value=0)), 
-                                ('winsorizer', Winsorizer(limits=(.005, .995))), 
-                                ('scaler', StandardScaler()), 
-                                ('model', Lasso(alpha=.05))]),
+                               ('droplowvariance', VarianceThreshold(threshold=0.01)),
+                               ('imputer', SimpleImputer(strategy='constant', fill_value=0)),
+                               ('winsorizer', Winsorizer(limits=(.005, .995))),
+                               ('scaler', StandardScaler()),
+                               ('model', Lasso(alpha=.05))]),
 
             'ridge': Pipeline([('dropmissing', DropMissing(threshold=0.9)),
-                                ('droplowvariance', VarianceThreshold(threshold=0.01)),
-                                ('imputer', SimpleImputer(strategy='constant', fill_value=0)), 
-                                ('winsorizer', Winsorizer(limits=(.005, .995))), 
-                                ('scaler', StandardScaler()), 
-                                ('model', Ridge(alpha=.05))]),
+                               ('droplowvariance', VarianceThreshold(threshold=0.01)),
+                               ('imputer', SimpleImputer(strategy='constant', fill_value=0)),
+                               ('winsorizer', Winsorizer(limits=(.005, .995))),
+                               ('scaler', StandardScaler()),
+                               ('model', Ridge(alpha=.05))]),
 
             'randomforest': Pipeline([('dropmissing', DropMissing(threshold=0.9)),
-                                        ('droplowvariance', VarianceThreshold(threshold=0.01)),
-                                        ('imputer', SimpleImputer(strategy='constant', fill_value=0)), 
-                                        ('winsorizer', Winsorizer(limits=(.005, .995))), 
-                                        ('model', RandomForestRegressor(n_estimators=100, n_jobs=-1, random_state=1, max_depth=4))]),
+                                      ('droplowvariance', VarianceThreshold(threshold=0.01)),
+                                      ('imputer', SimpleImputer(strategy='constant', fill_value=0)),
+                                      ('winsorizer', Winsorizer(limits=(.005, .995))),
+                                      ('model', RandomForestRegressor(n_estimators=100, n_jobs=-1, random_state=1,
+                                                                      max_depth=4))]),
 
             'gradientboosting': Pipeline([('dropmissing', DropMissing(threshold=0.9)),
-                                            ('droplowvariance', VarianceThreshold(threshold=0.01)),
-                                            ('winsorizer', Winsorizer(limits=(.005, .995))), 
-                                            ('model', LGBMRegressor(n_estimators=100, n_jobs=-1, random_state=1, min_data_in_leaf=100, num_leaves=4, 
-                                            learning_rate=0.1, verbose=-10))])
+                                          ('droplowvariance', VarianceThreshold(threshold=0.01)),
+                                          ('winsorizer', Winsorizer(limits=(.005, .995))),
+                                          ('model', LGBMRegressor(n_estimators=100, n_jobs=-1, random_state=1,
+                                                                  min_data_in_leaf=100, num_leaves=4,
+                                                                  learning_rate=0.1, verbose=-10))])
         }
 
         self.tuned_models = {
             'linear': Pipeline([('dropmissing', DropMissing()),
                                 ('droplowvariance', VarianceThreshold()),
-                                ('imputer', SimpleImputer(strategy='constant', fill_value=0)), 
-                                ('winsorizer', Winsorizer()), 
-                                ('scaler', StandardScaler()), 
+                                ('imputer', SimpleImputer(strategy='constant', fill_value=0)),
+                                ('winsorizer', Winsorizer()),
+                                ('scaler', StandardScaler()),
                                 ('model', LinearRegression())]),
-            
+
             'lasso': Pipeline([('dropmissing', DropMissing()),
-                                ('droplowvariance', VarianceThreshold()),
-                                ('imputer', SimpleImputer(strategy='constant', fill_value=0)), 
-                                ('winsorizer', Winsorizer()), 
-                                ('scaler', StandardScaler()), 
-                                ('model', Lasso())]),
+                               ('droplowvariance', VarianceThreshold()),
+                               ('imputer', SimpleImputer(strategy='constant', fill_value=0)),
+                               ('winsorizer', Winsorizer()),
+                               ('scaler', StandardScaler()),
+                               ('model', Lasso())]),
 
             'ridge': Pipeline([('dropmissing', DropMissing()),
-                                ('droplowvariance', VarianceThreshold()),
-                                ('imputer', SimpleImputer(strategy='constant', fill_value=0)), 
-                                ('winsorizer', Winsorizer()), 
-                                ('scaler', StandardScaler()), 
-                                ('model', Ridge())]),
+                               ('droplowvariance', VarianceThreshold()),
+                               ('imputer', SimpleImputer(strategy='constant', fill_value=0)),
+                               ('winsorizer', Winsorizer()),
+                               ('scaler', StandardScaler()),
+                               ('model', Ridge())]),
 
             'randomforest': Pipeline([('dropmissing', DropMissing()),
-                                        ('droplowvariance', VarianceThreshold()),
-                                        ('imputer', SimpleImputer(strategy='constant', fill_value=0)), 
-                                        ('winsorizer', Winsorizer()), 
-                                        ('model', RandomForestRegressor(random_state=1, n_jobs=-1))]),
+                                      ('droplowvariance', VarianceThreshold()),
+                                      ('imputer', SimpleImputer(strategy='constant', fill_value=0)),
+                                      ('winsorizer', Winsorizer()),
+                                      ('model', RandomForestRegressor(random_state=1, n_jobs=-1))]),
 
             'gradientboosting': Pipeline([('dropmissing', DropMissing()),
-                                            ('droplowvariance', VarianceThreshold()),
-                                            ('winsorizer', Winsorizer()), 
-                                            ('model', LGBMRegressor(random_state=1, n_jobs=-1, verbose=-10))])
+                                          ('droplowvariance', VarianceThreshold()),
+                                          ('winsorizer', Winsorizer()),
+                                          ('model', LGBMRegressor(random_state=1, n_jobs=-1, verbose=-10))])
         }
 
-        self.grids = cfg.hyperparams
-
-    def merge(self):
-
-        print('Number of observations with features: %i (%i unique)' % (self.features.count(), self.features.select('name').distinct().count()))
-        print('Number of observations with labels: %i (%i unique)' % (self.labels.count(), self.labels.select('name').distinct().count()))
-
-        merged = self.labels.join(self.features, on='name', how='inner')
-        print('Number of matched observations: %i (%i unique)' % (merged.count(), merged.select('name').distinct().count()))
-
-        save_df(merged, self.outputs + '/merged.csv')
-        self.merged = pd.read_csv(self.outputs + '/merged.csv')
-        self.x = self.merged.drop(['name', 'label', 'weight'], axis=1)
-        self.y = self.merged['label']
-        # Make the smallest weight 1
-        self.weights = self.merged['weight']/self.merged['weight'].min()
+        self.grids = self.ds.cfg.hyperparams
 
     def untuned_model(self, model_name):
 
         make_dir(self.outputs + '/untuned_models/' + model_name)
 
-        raw_scores = cross_validate(self.untuned_models[model_name], self.x, self.y,
+        raw_scores = cross_validate(self.untuned_models[model_name], self.ds.x, self.ds.y,
                                     cv=self.kfold,
                                     return_train_score=True,
                                     scoring=['r2', 'neg_root_mean_squared_error'],
-                                    fit_params={'model__sample_weight': self.weights})
+                                    fit_params={'model__sample_weight': self.ds.weights})
 
-        scores = {}
-        scores['train_r2'] = '%.2f (%.2f)' % (raw_scores['train_r2'].mean(), raw_scores['train_r2'].std())
-        scores['test_r2'] = '%.2f (%.2f)' % (raw_scores['test_r2'].mean(), raw_scores['test_r2'].std())
-        scores['train_rmse'] = '%.2f (%.2f)' % (-raw_scores['train_neg_root_mean_squared_error'].mean(), -raw_scores['train_neg_root_mean_squared_error'].std())
-        scores['test_rmse'] = '%.2f (%.2f)' % (-raw_scores['test_neg_root_mean_squared_error'].mean(), -raw_scores['test_neg_root_mean_squared_error'].std())
+        scores = {'train_r2': '%.2f (%.2f)' % (raw_scores['train_r2'].mean(), raw_scores['train_r2'].std()),
+                  'test_r2': '%.2f (%.2f)' % (raw_scores['test_r2'].mean(), raw_scores['test_r2'].std()),
+                  'train_rmse': '%.2f (%.2f)' % (-raw_scores['train_neg_root_mean_squared_error'].mean(),
+                                                 -raw_scores['train_neg_root_mean_squared_error'].std()),
+                  'test_rmse': '%.2f (%.2f)' % (-raw_scores['test_neg_root_mean_squared_error'].mean(),
+                                                -raw_scores['test_neg_root_mean_squared_error'].std())}
         with open(self.outputs + '/untuned_models/' + model_name + '/results.json', 'w') as f:
             json.dump(scores, f)
 
         # Save model
-        model = self.untuned_models[model_name].fit(self.x, self.y, model__sample_weight=self.weights)
+        model = self.untuned_models[model_name].fit(self.ds.x, self.ds.y, model__sample_weight=self.ds.weights)
         dump(model, self.outputs + '/untuned_models/' + model_name + '/model')
 
         # Feature importances
-        self.feature_importances(model=model_name, tuned=False)
+        self.feature_importances(model=model_name, kind='untuned')
 
         return scores
 
@@ -161,20 +139,22 @@ class Learner:
                              refit='r2',
                              n_jobs=-1)
 
-        model.fit(self.x, self.y, model__sample_weight=self.weights)
-        
+        model.fit(self.ds.x, self.ds.y, model__sample_weight=self.ds.weights)
+
         # Save tuning results
         tuning_results = pd.DataFrame(model.cv_results_)
-        tuning_results.drop(['mean_fit_time', 'std_fit_time', 'mean_score_time', 'std_fit_time'], axis=1)\
+        tuning_results.drop(['mean_fit_time', 'std_fit_time', 'mean_score_time', 'std_fit_time'], axis=1) \
             .to_csv(self.outputs + '/tuned_models/' + model_name + '/tuning.csv', index=False)
 
         # Save accuracy results for best model
         best_model = tuning_results.iloc[tuning_results['mean_test_r2'].argmax()]
-        scores = {}
-        scores['train_r2'] = '%.2f (%.2f)' % (best_model['mean_train_r2'], best_model['std_train_r2'])
-        scores['test_r2'] = '%.2f (%.2f)' % (best_model['mean_test_r2'], best_model['std_test_r2'])
-        scores['train_rmse'] = '%.2f (%.2f)' % (-best_model['mean_train_neg_root_mean_squared_error'], -best_model['std_train_neg_root_mean_squared_error'])
-        scores['test_rmse'] = '%.2f (%.2f)' % (-best_model['mean_test_neg_root_mean_squared_error'], -best_model['std_test_neg_root_mean_squared_error'])
+        scores = {'train_r2': '%.2f (%.2f)' % (best_model['mean_train_r2'], best_model['std_train_r2']),
+                  'test_r2': '%.2f (%.2f)' % (best_model['mean_test_r2'], best_model['std_test_r2']),
+                  'train_rmse': '%.2f (%.2f)' % (
+                      -best_model['mean_train_neg_root_mean_squared_error'],
+                      -best_model['std_train_neg_root_mean_squared_error']), 'test_rmse': '%.2f (%.2f)' % (
+                -best_model['mean_test_neg_root_mean_squared_error'],
+                -best_model['std_test_neg_root_mean_squared_error'])}
         with open(self.outputs + '/tuned_models/' + model_name + '/results.json', 'w') as f:
             json.dump(scores, f)
 
@@ -182,7 +162,7 @@ class Learner:
         dump(model, self.outputs + '/tuned_models/' + model_name + '/model')
 
         # Feature importances
-        self.feature_importances(model=model_name, tuned=True)
+        self.feature_importances(model=model_name, kind='tuned')
 
         return scores
 
@@ -194,23 +174,23 @@ class Learner:
         if model_name == 'autosklearn':
             cfg = self.cfg.params.automl.autosklearn
             model = autosklearn.regression.AutoSklearnRegressor(
-                        time_left_for_this_task=cfg.time_left,
-                        per_run_time_limit=None,
-                        ensemble_nbest=1,
-                        initial_configurations_via_metalearning=0,
-                        resampling_strategy=KFold,
-                        resampling_strategy_arguments={'n_splits': 5, 'shuffle': True, 'random_state': 100},
-                        n_jobs=cfg.n_jobs,
-                        memory_limit=cfg.memory_limit,
-                        seed=100)
+                time_left_for_this_task=cfg.time_left,
+                per_run_time_limit=None,
+                ensemble_nbest=1,
+                initial_configurations_via_metalearning=0,
+                resampling_strategy=KFold,
+                resampling_strategy_arguments={'n_splits': 5, 'shuffle': True, 'random_state': 100},
+                n_jobs=cfg.n_jobs,
+                memory_limit=cfg.memory_limit,
+                seed=100)
 
-            model.fit(self.x, self.y)
-            model.refit(self.x.copy(), self.y.copy())
+            model.fit(self.ds.x, self.ds.y)
+            model.refit(self.ds.x.copy(), self.ds.y.copy())
             dump(model.get_models_with_weights()[0][1], self.outputs + '/automl_models/' + model_name + '/model')
 
         elif model_name == 'autogluon':
             cfg = self.cfg.params.automl.autogluon
-            train_data = pd.concat([self.x, self.y, self.weights], axis=1)
+            train_data = pd.concat([self.ds.x, self.ds.y, self.ds.weights], axis=1)
             model = TabularPredictor(label=cfg.label,
                                      eval_metric=cfg.eval_metric,
                                      sample_weight=cfg.sample_weight,
@@ -224,63 +204,63 @@ class Learner:
 
         print('Finished automl training!')
 
-    def feature_importances(self, model, tuned=True):
-        subdir = '/tuned_models/' if tuned else '/untuned_models/'
+    def feature_importances(self, model, kind='tuned'):
         # Load model
-        model_name, model = load_model(model, out_path=self.outputs, tuned=tuned)
+        subdir = '/' + kind + '_models/'
+        model_name, model = load_model(model, out_path=self.outputs, type=kind)
 
         if 'feature_importances_' in dir(model.named_steps['model']):
             imports = model.named_steps['model'].feature_importances_
         else:
             imports = model.named_steps['model'].coef_
 
-        imports = pd.DataFrame([self.x.columns, imports]).T
+        imports = pd.DataFrame([self.ds.x.columns, imports]).T
         imports.columns = ['Feature', 'Importance']
         imports = imports.sort_values('Importance', ascending=False)
         imports.to_csv(self.outputs + subdir + model_name + '/feature_importances.csv', index=False)
         return imports
-    
-    def oos_predictions(self, model, type='tuned'):
 
-        subdir = '/' + type + '_models/'
-        model_name, model = load_model(model, out_path=self.outputs, type=type)
+    def oos_predictions(self, model, kind='tuned'):
+        # Load model
+        subdir = '/' + kind + '_models/'
+        model_name, model = load_model(model, out_path=self.outputs, type=kind)
 
         if model_name == 'autogluon':
             oos = model.get_oof_pred()
         else:
-            oos = cross_val_predict(model, self.x, self.y, cv=self.kfold)
-        oos = pd.DataFrame([list(self.merged['name']), list(self.y), oos]).T
+            oos = cross_val_predict(model, self.ds.x, self.ds.y, cv=self.kfold)
+        oos = pd.DataFrame([list(self.ds.merged['name']), list(self.ds.y), oos]).T
         oos.columns = ['name', 'true', 'predicted']
-        oos['weight'] = self.weights
+        oos['weight'] = self.ds.weights
         oos.to_csv(self.outputs + subdir + model_name + '/oos_predictions.csv', index=False)
         return oos
 
-    def population_predictions(self, model, tuned=True, n_chunks=100):
+    def population_predictions(self, model, kind='tuned', n_chunks=100):
+        # Load model
+        subdir = '/' + kind + '_models/'
+        model_name, model = load_model(model, out_path=self.outputs, type=kind)
 
-        subdir = '/tuned_models/' if tuned else '/untuned_models/'
-        model_name, model = load_model(model, out_path=self.outputs, tuned=tuned)
-        
-        columns = pd.read_csv(self.features_fname, nrows=1).columns
+        columns = pd.read_csv(self.cfg.path.features, nrows=1).columns
 
-        chunksize = int(len(pd.read_csv(self.features_fname, usecols=['name']))/n_chunks)
+        chunksize = int(len(pd.read_csv(self.cfg.path.features, usecols=['name'])) / n_chunks)
 
         results = []
         for chunk in range(n_chunks):
-            x = pd.read_csv(self.features_fname, skiprows=1 + chunk*chunksize, nrows=chunksize, header=None)
+            x = pd.read_csv(self.cfg.path.features, skiprows=1 + chunk * chunksize, nrows=chunksize, header=None)
             x.columns = columns
             results_chunk = x[['name']].copy()
-            results_chunk['predicted'] = model.predict(x[self.x.columns])
+            results_chunk['predicted'] = model.predict(x[self.ds.x.columns])
             results.append(results_chunk)
         results = pd.concat(results)
 
         results.to_csv(self.outputs + subdir + model_name + '/population_predictions.csv', index=False)
         return results
 
-    def scatter_plot(self, model_name, type='tuned'):
+    def scatter_plot(self, model_name, kind='tuned'):
 
-        subdir = '/' + type + '_models/'
+        subdir = '/' + kind + '_models/'
         oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
-        oos['weight'] = 100*((oos['weight'] - oos['weight'].min())/(oos['weight'].max() - oos['weight'].min()))
+        oos['weight'] = 100 * ((oos['weight'] - oos['weight'].min()) / (oos['weight'].max() - oos['weight'].min()))
         oos_repeat = pd.DataFrame(np.repeat(oos.values, oos['weight'], axis=0), columns=oos.columns).astype(oos.dtypes)
         corr = np.corrcoef(oos_repeat['true'], oos_repeat['predicted'])[0][1]
 
@@ -308,29 +288,29 @@ class Learner:
         plt.show()
 
     def feature_importances_plot(self, model_name, tuned=True, n_features=20):
-        
+
         subdir = '/tuned_models/' if tuned else '/untuned_models/'
         importances = pd.read_csv(self.outputs + subdir + model_name + '/feature_importances.csv')
 
         importances = importances.sort_values('Importance', ascending=False)
         importances = importances[:n_features].sort_values('Importance', ascending=True)
 
-        importances['color'] = importances['Feature']\
-            .apply(lambda x: 'indianred' if x.split('_')[0] in ['cdr', 'international'] 
-                else 'mediumseagreen' if x.split('_')[0] == 'location'
-                else 'darkorange' if x.split('_')[0] == 'mobiledata'
-                else 'dodgerblue' if x.split('_')[0] == 'mobilemoney'
-                else 'orchid' if x.split('_')[0] == 'recharges'
-                else 'grey')
+        importances['color'] = importances['Feature'] \
+            .apply(lambda x: 'indianred' if x.split('_')[0] in ['cdr', 'international']
+                   else 'mediumseagreen' if x.split('_')[0] == 'location'
+                   else 'darkorange' if x.split('_')[0] == 'mobiledata'
+                   else 'dodgerblue' if x.split('_')[0] == 'mobilemoney'
+                   else 'orchid' if x.split('_')[0] == 'recharges'
+                   else 'grey')
 
-        importances['Feature'] = importances['Feature']\
-        .apply(lambda x: ' '.join(x.split('_')[1:])\
-                .replace('percent', '%')\
-                .replace('callandtext', '')\
-                .replace('weekday', 'WD')\
-                .replace('weekend', 'WE')\
-                .replace('allday', '')\
-                .replace('allweek', ''))
+        importances['Feature'] = importances['Feature'] \
+            .apply(lambda x: ' '.join(x.split('_')[1:])
+                   .replace('percent', '%')
+                   .replace('callandtext', '')
+                   .replace('weekday', 'WD')
+                   .replace('weekend', 'WE')
+                   .replace('allday', '')
+                   .replace('allweek', ''))
 
         fig, ax = plt.subplots(1, figsize=(20, 10))
 
@@ -343,11 +323,11 @@ class Learner:
         plt.savefig(self.outputs + subdir + model_name + '/feature_importances.png', dpi=300)
         plt.show()
 
-    def targeting_table(self, model_name, type='tuned'):
+    def targeting_table(self, model_name, kind='tuned'):
 
-        subdir = '/' + type + '_models/'
+        subdir = '/' + kind + '_models/'
         oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
-        oos['weight'] = 100*(oos['weight'] - oos['weight'].min())/(oos['weight'].max() - oos['weight'].min())
+        oos['weight'] = 100 * (oos['weight'] - oos['weight'].min()) / (oos['weight'].max() - oos['weight'].min())
         oos_repeat = pd.DataFrame(np.repeat(oos.values, oos['weight'], axis=0), columns=oos.columns).astype(oos.dtypes)
 
         grid = np.linspace(0, 90, 10)[1:]
@@ -358,9 +338,9 @@ class Learner:
         table['Pearson'] = np.corrcoef(oos_repeat['true'], oos_repeat['predicted'])[0][1]
         table['Spearman'] = spearmanr(oos_repeat['true'], oos_repeat['predicted'])[0]
         table['AUC'] = auc_overall(oos_repeat['true'], oos_repeat['predicted'])
-        table['Accuracy'] = [('%i' % (g[0]*100)) + '%' for g in metric_grid]
-        table['Precision'] = [('%i' % (g[1]*100)) + '%' for g in metric_grid]
-        table['Recall'] = [('%i' % (g[2]*100)) + '%' for g in metric_grid]
+        table['Accuracy'] = [('%i' % (g[0] * 100)) + '%' for g in metric_grid]
+        table['Precision'] = [('%i' % (g[1] * 100)) + '%' for g in metric_grid]
+        table['Recall'] = [('%i' % (g[2] * 100)) + '%' for g in metric_grid]
 
         table = table.round(2)
         table.to_csv(self.outputs + subdir + model_name + '/targeting_table.csv', index=False)
