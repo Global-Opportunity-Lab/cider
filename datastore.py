@@ -428,6 +428,29 @@ class OptDataStore(DataStore):
         self.user_consent = generate_user_consent_list(data, user_id_col=user_col_name,
                                                        opt_in=self.cfg.params.opt_in_default)
 
+        # Check if a user consent file has been provided, and if so set consent flags appropriately
+        if self.file_names.user_consent is not None:
+            user_consent_df = pd.read_csv(self.data + self.file_names.user_consent)
+            if 'user_id' not in user_consent_df.columns:
+                raise ValueError("The user consent table should have a 'user_id' column")
+            # If there's just a user id column, set those user ids' consent to the opposite of opt_in_default
+            if len(user_consent_df.columns) == 1:
+                user_ids = list(user_consent_df['user_id'])
+                if self.cfg.params.opt_in_default:
+                    self.opt_out(user_ids=user_ids)
+                else:
+                    self.opt_in(user_ids=user_ids)
+            elif len(user_consent_df.columns) == 2:
+                if 'include' not in user_consent_df.columns or user_consent_df['include'].dtype != bool:
+                    raise ValueError("The consent column should be called 'include' and have True/False values")
+                user_ids_in = list(user_consent_df[user_consent_df['include'] == True]['user_id'])
+                user_ids_out = list(user_consent_df[user_consent_df['include'] == False]['user_id'])
+                self.opt_in(user_ids=user_ids_in)
+                self.opt_out(user_ids=user_ids_out)
+            else:
+                raise ValueError("The user consent table should have at most two columns, one for the user id and "
+                                 "another for the consent flag")
+
     def opt_in(self, user_ids: List[str]) -> None:
         """
         Update the user consent table based on list of user ids that have opted in
