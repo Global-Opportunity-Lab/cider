@@ -12,7 +12,10 @@ from pyspark.sql.utils import AnalysisException
 
 class Featurizer:
 
-    def __init__(self, datastore: DataStore, clean_folders=False):
+    def __init__(self,
+                 datastore: DataStore,
+                 dataframes: Optional[Dict[str, Union[PandasDataFrame, SparkDataFrame]]] = None,
+                 clean_folders: bool = False):
         self.cfg = datastore.cfg
         self.ds = datastore
         self.outputs = datastore.outputs + 'featurizer/'
@@ -27,8 +30,20 @@ class Featurizer:
                          'location': None, 'mobiledata': None, 'mobilemoney': None}
 
         # Spark setup
+        # TODO(lucio): Initialize spark separately ....
         spark = get_spark_session(self.cfg)
         self.spark = spark
+
+        # Create default dicts to avoid key errors
+        dataframes = dataframes if dataframes else defaultdict(lambda: None)
+        data_type_map = {DataType.CDR: dataframes['cdr'],
+                         DataType.RECHARGES: dataframes['recharges'],
+                         DataType.MOBILEDATA: dataframes['mobiledata'],
+                         DataType.MOBILEMONEY: dataframes['mobilemoney'],
+                         DataType.ANTENNAS: dataframes['antennas'],
+                         DataType.SHAPEFILES: None}
+        # Load data into datastore
+        self.ds.load_data(data_type_map=data_type_map)
 
     def diagnostic_statistics(self, write=True):
 

@@ -1,54 +1,34 @@
 from abc import ABC, abstractmethod
 from box import Box
 from collections import defaultdict
+from enum import Enum
+import inspect
 from helpers.io_utils import *
-from helpers.opt_utils import *
+from helpers.opt_utils import generate_user_consent_list
 from pandas import DataFrame as PandasDataFrame
+from pyspark.sql import DataFrame as SparkDataFrame
 import pyspark.sql.functions as F
 from pyspark.sql.functions import col, count, lit
-from typing import Dict, Union
+from typing import Dict, List, Optional, Union
 import yaml
+
+
+class DataType(Enum):
+    CDR = 0
+    ANTENNAS = 1
+    RECHARGES = 2
+    MOBILEDATA = 3
+    MOBILEMONEY = 4
+    SHAPEFILES = 5
+    HOMEGROUNDTRUTH = 6
+    POVERTYSCORES = 7
+    FEATURES = 8
+    LABELS = 9
 
 
 class InitializerInterface(ABC):
     @abstractmethod
-    def load_cdr(self, dataframe):
-        pass
-
-    @abstractmethod
-    def load_antennas(self, dataframe):
-        pass
-
-    @abstractmethod
-    def load_recharges(self, dataframe):
-        pass
-
-    @abstractmethod
-    def load_mobiledata(self, dataframe):
-        pass
-
-    @abstractmethod
-    def load_mobilemoney(self, dataframe):
-        pass
-
-    @abstractmethod
-    def load_shapefiles(self):
-        pass
-
-    @abstractmethod
-    def load_home_ground_truth(self):
-        pass
-
-    @abstractmethod
-    def load_poverty_scores(self):
-        pass
-
-    @abstractmethod
-    def load_features(self):
-        pass
-
-    @abstractmethod
-    def load_labels(self):
+    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]):
         pass
 
 
@@ -70,6 +50,7 @@ class DataStore(InitializerInterface):
         self.geo = self.cfg.col_names.geo
 
         # Spark setup
+        # TODO(lucio): Initialize spark separately ....
         spark = get_spark_session(cfg)
         self.spark = spark
 
@@ -93,7 +74,7 @@ class DataStore(InitializerInterface):
         self.y = None
         self.weights = None
 
-    def load_cdr(self, dataframe: Union[SparkDataFrame, PandasDataFrame] = None) -> None:
+    def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load cdr data: use file path specified in config as default, or spark/pandas df
         Args:
@@ -105,13 +86,13 @@ class DataStore(InitializerInterface):
             cdr = load_cdr(self.cfg, fpath, df=dataframe)
             self.cdr = cdr
 
-    def load_antennas(self, dataframe: Union[SparkDataFrame, PandasDataFrame] = None) -> None:
+    def _load_antennas(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         fpath = self.data + self.file_names.antennas if self.file_names.antennas is not None else None
         if fpath or dataframe is not None:
             print('Loading antennas...')
             self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
 
-    def load_recharges(self, dataframe: Union[SparkDataFrame, PandasDataFrame] = None) -> None:
+    def _load_recharges(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load recharges data: use file path specified in config as default, or spark/pandas df
         Args:
@@ -122,7 +103,7 @@ class DataStore(InitializerInterface):
             print('Loading recharges...')
             self.recharges = load_recharges(self.cfg, fpath, df=dataframe)
 
-    def load_mobiledata(self, dataframe: Union[SparkDataFrame, PandasDataFrame] = None) -> None:
+    def _load_mobiledata(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load mobile data: use file path specified in config as default, or spark/pandas df
         Args:
@@ -133,7 +114,7 @@ class DataStore(InitializerInterface):
             print('Loading mobile data...')
             self.mobiledata = load_mobiledata(self.cfg, fpath, df=dataframe)
 
-    def load_mobilemoney(self, dataframe: Union[SparkDataFrame, PandasDataFrame] = None) -> None:
+    def _load_mobilemoney(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load mobile money data: use file path specified in config as default, or spark/pandas df
         Args:
@@ -144,7 +125,7 @@ class DataStore(InitializerInterface):
             print('Loading mobile data...')
             self.mobilemoney = load_mobilemoney(self.cfg, fpath, df=dataframe)
 
-    def load_shapefiles(self) -> None:
+    def _load_shapefiles(self) -> None:
         """
         Iterate through shapefiles specified in config and load them in self.shapefiles dictionary
         """
@@ -153,7 +134,7 @@ class DataStore(InitializerInterface):
         for shapefile_fname in shapefiles.keys():
             self.shapefiles[shapefile_fname] = load_shapefile(self.data + shapefiles[shapefile_fname])
 
-    def load_home_ground_truth(self) -> None:
+    def _load_home_ground_truth(self) -> None:
         """
         Load ground truth data for home locations
         """
@@ -162,14 +143,14 @@ class DataStore(InitializerInterface):
         else:
             print('No ground truth data for home locations has been specified.')
 
-    def load_poverty_scores(self) -> None:
+    def _load_poverty_scores(self) -> None:
         """
         Load poverty scores (e.g. those produced by the ML module)
         """
         if self.file_names.poverty_scores is not None:
             self.poverty_scores = pd.read_csv(self.data + self.file_names.poverty_scores)
 
-    def load_features(self) -> None:
+    def _load_features(self) -> None:
         """
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
@@ -177,7 +158,7 @@ class DataStore(InitializerInterface):
         if 'name' not in self.features.columns:
             raise ValueError('Features dataframe must include name column')
 
-    def load_labels(self) -> None:
+    def _load_labels(self) -> None:
         """
         Load labels to train ML model on
         """
@@ -208,9 +189,35 @@ class DataStore(InitializerInterface):
         self.x = self.merged.drop(['name', 'label', 'weight'], axis=1)
         self.y = self.merged['label']
         # Make the smallest weight 1
-        self.weights = self.merged['weight']/self.merged['weight'].min()
+        self.weights = self.merged['weight'] / self.merged['weight'].min()
 
-    def load_data(self, module: str, dataframes:  Dict[str, Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
+    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]):
+        """
+        Load all datasets defined by data_type_map
+        Args:
+            data_type_map: mapping between DataType(s) and dataframes, if provided. If None look at config file
+        """
+        # Define mapping between data types and loading functions
+        data_type_to_fn_map = {DataType.CDR: self._load_cdr,
+                               DataType.ANTENNAS: self._load_antennas,
+                               DataType.RECHARGES: self._load_recharges,
+                               DataType.MOBILEDATA: self._load_mobiledata,
+                               DataType.MOBILEMONEY: self._load_mobilemoney,
+                               DataType.SHAPEFILES: self._load_shapefiles,
+                               DataType.HOMEGROUNDTRUTH: self._load_home_ground_truth,
+                               DataType.POVERTYSCORES: self._load_poverty_scores,
+                               DataType.FEATURES: self._load_features,
+                               DataType.LABELS: self._load_labels}
+
+        # Iterate through provided dtypes and load respective datasets
+        for key, value in data_type_map.items():
+            fn = data_type_to_fn_map[key]
+            if 'dataframe' in inspect.getfullargspec(fn).args:
+                fn(dataframe=value)
+            else:
+                fn()
+
+    def load_data_old(self, module: str, dataframes: Dict[str, Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load and process all datasets required by a module
         Args:
@@ -226,7 +233,7 @@ class DataStore(InitializerInterface):
         antennas_df = dataframes['antennas']
 
         if module == 'featurizer':
-            self.load_cdr(dataframe=cdr_df)
+            self._load_cdr(dataframe=cdr_df)
             self.load_recharges(dataframe=recharges_df)
             self.load_mobiledata(dataframe=mobiledata_df)
             self.load_mobilemoney(dataframe=mobilemoney_df)
@@ -460,7 +467,7 @@ class OptDataStore(DataStore):
         user_col_name = self.user_consent.columns[0]
         self.user_consent = (self.user_consent
                              .withColumn('include', F.when(col(user_col_name).isin(user_ids), True)
-                                                     .otherwise(col('include'))))
+                                         .otherwise(col('include'))))
 
     def opt_out(self, user_ids: List[str]):
         """
@@ -471,4 +478,4 @@ class OptDataStore(DataStore):
         user_col_name = self.user_consent.columns[0]
         self.user_consent = (self.user_consent
                              .withColumn('include', F.when(col(user_col_name).isin(user_ids), False)
-                                                     .otherwise(col('include'))))
+                                         .otherwise(col('include'))))
