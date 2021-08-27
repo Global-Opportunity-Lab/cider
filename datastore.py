@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from box import Box
 from collections import defaultdict
+from geopandas import GeoDataFrame
 from enum import Enum
 import inspect
 from helpers.io_utils import *
@@ -63,13 +64,13 @@ class DataStore(InitializerInterface):
         self.mobiledata = None
         self.mobilemoney = None
         self.antennas = None
-        self.shapefiles = {}
+        self.shapefiles: Union[Dict[str, GeoDataFrame]] = {}
         self.ground_truth = None
         self.poverty_scores = None
         # ml datasets
-        self.features = None
-        self.labels = None
-        self.merged = None
+        self.features: Optional[SparkDataFrame] = None
+        self.labels: Optional[SparkDataFrame] = None
+        self.merged: Optional[PandasDataFrame] = None
         self.x = None
         self.y = None
         self.weights = None
