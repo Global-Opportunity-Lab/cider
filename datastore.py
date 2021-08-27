@@ -74,6 +74,18 @@ class DataStore(InitializerInterface):
         self.y = None
         self.weights = None
 
+        # Define mapping between data types and loading methods
+        self.data_type_to_fn_map = {DataType.CDR: self._load_cdr,
+                                    DataType.ANTENNAS: self._load_antennas,
+                                    DataType.RECHARGES: self._load_recharges,
+                                    DataType.MOBILEDATA: self._load_mobiledata,
+                                    DataType.MOBILEMONEY: self._load_mobilemoney,
+                                    DataType.SHAPEFILES: self._load_shapefiles,
+                                    DataType.HOMEGROUNDTRUTH: self._load_home_ground_truth,
+                                    DataType.POVERTYSCORES: self._load_poverty_scores,
+                                    DataType.FEATURES: self._load_features,
+                                    DataType.LABELS: self._load_labels}
+
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load cdr data: use file path specified in config as default, or spark/pandas df
@@ -197,21 +209,9 @@ class DataStore(InitializerInterface):
         Args:
             data_type_map: mapping between DataType(s) and dataframes, if provided. If None look at config file
         """
-        # Define mapping between data types and loading functions
-        data_type_to_fn_map = {DataType.CDR: self._load_cdr,
-                               DataType.ANTENNAS: self._load_antennas,
-                               DataType.RECHARGES: self._load_recharges,
-                               DataType.MOBILEDATA: self._load_mobiledata,
-                               DataType.MOBILEMONEY: self._load_mobilemoney,
-                               DataType.SHAPEFILES: self._load_shapefiles,
-                               DataType.HOMEGROUNDTRUTH: self._load_home_ground_truth,
-                               DataType.POVERTYSCORES: self._load_poverty_scores,
-                               DataType.FEATURES: self._load_features,
-                               DataType.LABELS: self._load_labels}
-
         # Iterate through provided dtypes and load respective datasets
         for key, value in data_type_map.items():
-            fn = data_type_to_fn_map[key]
+            fn = self.data_type_to_fn_map[key]
             if 'dataframe' in inspect.getfullargspec(fn).args:
                 fn(dataframe=value)
             else:
