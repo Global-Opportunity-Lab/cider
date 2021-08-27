@@ -10,7 +10,10 @@ from shapely.geometry import mapping
 
 class HomeLocator:
 
-    def __init__(self, datastore: DataStore, clean_folders=False):
+    def __init__(self,
+                 datastore: DataStore,
+                 dataframes: Optional[Dict[str, Union[PandasDataFrame, SparkDataFrame]]] = None,
+                 clean_folders=False):
         self.cfg = datastore.cfg
         self.ds = datastore
         self.outputs = datastore.outputs + 'homelocation/'
@@ -30,6 +33,58 @@ class HomeLocator:
         # Spark setup
         spark = get_spark_session(self.cfg)
         self.spark = spark
+
+        # Load data into datastore
+        dataframes = dataframes if dataframes else defaultdict(lambda: None)
+        data_type_map = {DataType.CDR: dataframes['cdr'],
+                         DataType.ANTENNAS: dataframes['antennas'],
+                         DataType.SHAPEFILES: None}
+        self.ds.load_data(data_type_map=data_type_map)
+
+        # Clean and merge CDR data
+        outgoing = (self.ds.cdr
+                    .select(['caller_id', 'caller_antenna', 'timestamp', 'day'])
+                    .withColumnRenamed('caller_id', 'subscriber_id')
+                    .withColumnRenamed('caller_antenna', 'antenna_id'))
+        incoming = (self.ds.cdr
+                    .select(['recipient_id', 'recipient_antenna', 'timestamp', 'day'])
+                    .withColumnRenamed('recipient_id', 'subscriber_id')
+                    .withColumnRenamed('recipient_antenna', 'antenna_id'))
+        self.ds.cdr = (outgoing
+                       .select(incoming.columns)
+                       .union(incoming)
+                       .na.drop()
+                       .withColumn('hour', hour('timestamp')))
+
+        # Filter CDR to only desired hours
+        if self.ds.filter_hours is not None:
+            self.ds.cdr = self.ds.cdr.where(col('hour').isin(self.filter_hours))
+
+        # Get tower ID for each transaction
+        if self.geo == 'tower_id':
+            self.ds.cdr = (self.ds.cdr
+                           .join(self.ds.antennas
+                                 .select(['antenna_id', 'tower_id']).na.drop(), on='antenna_id', how='inner'))
+
+        # Get polygon for each transaction based on antenna latitude and longitudes
+        elif self.geo in self.ds.shapefiles.keys():
+            antennas = self.ds.antennas.na.drop().toPandas()
+            antennas = gpd.GeoDataFrame(antennas,
+                                        geometry=gpd.points_from_xy(antennas['longitude'],
+                                                                    antennas['latitude']))
+            antennas.crs = {"init": "epsg:4326"}
+            antennas = gpd.sjoin(antennas, self.ds.shapefiles[self.geo], op='within', how='left')[
+                ['antenna_id', 'region']].rename({'region': self.geo}, axis=1)
+            antennas = self.spark.createDataFrame(antennas).na.drop()
+            length_before = self.ds.cdr.count()
+            self.ds.cdr = self.ds.cdr.join(antennas, on='antenna_id', how='inner')
+            length_after = self.ds.cdr.count()
+            if length_before != length_after:
+                print('Warning: %i (%.2f percent of) transactions not located in a polygon' %
+                      (length_before - length_after, 100 * (length_before - length_after) / length_before))
+
+        elif self.geo != 'antenna_id':
+            raise ValueError('Invalid geography, must be antenna_id, tower_id, or shapefile name')
 
     def get_home_locations(self, algo='count_transactions'):
 

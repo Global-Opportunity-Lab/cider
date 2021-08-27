@@ -98,6 +98,12 @@ class Learner:
 
         self.grids = self.ds.cfg.hyperparams
 
+        # Load data into datastore
+        data_type_map = {DataType.FEATURES: None,
+                         DataType.LABELS: None}
+        self.ds.load_data(data_type_map=data_type_map)
+        self.ds.merge()
+
     def untuned_model(self, model_name):
 
         make_dir(self.outputs + '/untuned_models/' + model_name)
