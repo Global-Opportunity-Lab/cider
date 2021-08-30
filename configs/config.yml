@@ -3,42 +3,32 @@ spark:
   files:
     max_partition_bytes: 67108864
   driver:
-    memory: "50g"
+    memory: "8g"
     max_result_size: "2g"
   loglevel: "ERROR"
 
 
 path:
+  data: "/Users/luciomelito/Documents/GD/cider/synthetic_data/"
+  features: '/Users/luciomelito/Documents/GD/cider/outputs/featurizer/datasets/features.csv'
+  file_names:
+    antennas: 'antennas.csv'
+    cdr: 'cdr.csv'
+    home_ground_truth: 'home_locations.csv'
+    labels: 'labels.csv'
+    mobiledata: 'mobiledata.csv'
+    mobilemoney: 'mobilemoney.csv'
+    population: 'population_tgo_2019-07-01.tif'
+    poverty_scores: null
+    recharges: 'recharges.csv'
+    rwi: '/TGO_relative_wealth_index.csv'
+    shapefiles:
+      regions: 'regions.geojson'
+      cantons: 'cantons.geojson'
+      prefectures: 'prefectures.geojson'
+    user_consent: null
+  outputs: "/Users/luciomelito/Documents/GD/cider/outputs/"
   wd: "/Users/luciomelito/Documents/GD/cider/"
-  featurizer:
-    data: "/Users/luciomelito/Documents/GD/cider/synthetic_data"
-    outputs: "/Users/luciomelito/Documents/GD/cider/outputs/featurizer"
-    file_names:
-      cdr: '/cdr.csv'
-      antennas: '/antennas.csv'
-      recharges: '/recharges.csv'
-      mobiledata: '/mobiledata.csv'
-      mobilemoney: '/mobilemoney.csv'
-      shapefiles:
-        'regions': '/regions.geojson'
-        'prefectures': '/prefectures.geojson'
-  ml:
-    outputs: "/Users/luciomelito/Documents/GD/cider/outputs/machinelearning"
-    features: '/Users/luciomelito/Documents/GD/cider/outputs/featurizer/datasets/features.csv'
-    labels: "/Users/luciomelito/Documents/GD/cider/synthetic_data/labels.csv"
-  home_location:
-    data: "/Users/luciomelito/Documents/GD/cider/synthetic_data"
-    outputs: "/Users/luciomelito/Documents/GD/cider/outputs/homelocation"
-    file_names:
-      cdr: '/cdr.csv'
-      antennas: '/antennas.csv'
-      shapefiles:
-        regions: '/regions.geojson'
-        cantons: '/cantons.geojson'
-        prefectures: '/prefectures.geojson'
-      poverty_scores: null
-      groundtruth: '/home_locations.csv'
-      population: '/population_tgo_2019-07-01.tif'
 
 
 col_names:
@@ -78,6 +68,10 @@ col_names:
 
 
 params:
+  cdr:
+    weekend: [1, 7]
+    start_of_day: 7
+    end_of_day: 19
   home_location:
     filter_hours: null
   automl:
@@ -90,6 +84,7 @@ params:
       eval_metric: 'r2'
       label: 'label'
       sample_weight: 'weight'
+  opt_in_default: false
 
 
 hyperparams:
