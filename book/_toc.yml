@@ -1,0 +1,28 @@
+# Table of contents
+# Learn more at https://jupyterbook.org/customize/toc.html
+
+format: jb-book
+root: intro
+parts:
+  - caption: Quickstart
+    chapters:
+    - file: quickstart/installation
+    - file: quickstart/poverty_survey
+#      sections:
+#      - file: path/to/part1/chapter2/section1
+
+  - caption: Standardized data formats
+    chapters:
+    - file: data_formats/placeholder
+#    - file: path/to/part2/chapter2
+#      sections:
+#      - file: path/to/part2/chapter2/section1
+#  - caption: Dependencies
+#      chapters:
+#    - file: path/to/part2/chapter1
+#    - file: path/to/part2/chapter2
+#      sections:
+#        - file: path/to/part2/chapter2/section1
+#  - caption: Reference
+#      chapters:
+#      - file: path/to/part2/chapter1
