@@ -11,7 +11,7 @@ kernelspec:
 ---
 
 ## Poverty Outcome Generation from Survey Data
-Set up the configuration file and load some survey data (see {doc}`standardized data formats <../data_formats/placeholder>` for file schema). 
+Set up the configuration file and load some survey data (see {doc}`standardized data formats <../data_formats/survey_data>`) for file schema). 
 
 ```
 config.yml
