@@ -287,7 +287,6 @@ class Featurizer:
         antennas = antennas[antennas.is_valid]
         for shapefile_name in self.ds.shapefiles.keys():
             shapefile = self.ds.shapefiles[shapefile_name].rename({'region': shapefile_name}, axis=1)
-            shapefile[shapefile_name] = shapefile[shapefile_name].astype(str)
             antennas = gpd.sjoin(antennas, shapefile, op='within', how='left').drop('index_right', axis=1)
             antennas[shapefile_name] = antennas[shapefile_name].fillna('Unknown')
         antennas = self.spark.createDataFrame(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''))
