@@ -23,7 +23,7 @@ class Featurizer:
         # Prepare working directories
         make_dir(self.outputs, clean_folders)
         make_dir(self.outputs + '/outputs/')
-        make_dir(self.outputs + '/maps/')
+        make_dir(self.outputs + '/plots/')
         make_dir(self.outputs + '/tables/')
 
         self.features = {'cdr': None, 'international': None, 'recharges': None,
@@ -498,7 +498,7 @@ class Featurizer:
         if self.features['international'] is not None:
             features = ['international_all__recipient_id__count', 'international_all__recipient_id__nunique',
                         'international_call__duration__sum']
-            names = ['International Transactions', 'International Contaacts', 'Total International Call Time']
+            names = ['International Transactions', 'International Contacts', 'Total International Call Time']
             distributions_plot(self.features['international'], features, names, color='darkorange')
             plt.savefig(self.outputs + '/plots/international.png', dpi=300)
             plt.show()
