@@ -9,6 +9,8 @@ parts:
     - file: quickstart/installation
     - file: quickstart/poverty_survey
     - file: quickstart/documentation_featurizer
+    - file: quickstart/documentation_ml
+    - file: quickstart/documentation_home_location
   - caption: Standardized data formats
     chapters:
     - file: data_formats/cdr

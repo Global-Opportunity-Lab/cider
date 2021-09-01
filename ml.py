@@ -1,5 +1,5 @@
-from autogluon.tabular import TabularPredictor
-import autosklearn.regression
+# from autogluon.tabular import TabularPredictor
+# import autosklearn.regression
 from box import Box
 from helpers.io_utils import load_model
 from helpers.utils import *
@@ -263,7 +263,7 @@ class Learner:
         return results
 
     def scatter_plot(self, model_name, kind='tuned'):
-
+        # Load model
         subdir = '/' + kind + '_models/'
         oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
         oos['weight'] = 100 * ((oos['weight'] - oos['weight'].min()) / (oos['weight'].max() - oos['weight'].min()))
@@ -293,9 +293,9 @@ class Learner:
         plt.savefig(self.outputs + subdir + model_name + '/scatterplot.png', dpi=300)
         plt.show()
 
-    def feature_importances_plot(self, model_name, tuned=True, n_features=20):
-
-        subdir = '/tuned_models/' if tuned else '/untuned_models/'
+    def feature_importances_plot(self, model_name, kind='tuned', n_features=20):
+        # Load model
+        subdir = '/' + kind + '_models/'
         importances = pd.read_csv(self.outputs + subdir + model_name + '/feature_importances.csv')
 
         importances = importances.sort_values('Importance', ascending=False)

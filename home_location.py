@@ -38,7 +38,9 @@ class HomeLocator:
         dataframes = dataframes if dataframes else defaultdict(lambda: None)
         data_type_map = {DataType.CDR: dataframes['cdr'],
                          DataType.ANTENNAS: dataframes['antennas'],
-                         DataType.SHAPEFILES: None}
+                         DataType.SHAPEFILES: None,
+                         DataType.HOMEGROUNDTRUTH: None,
+                         DataType.POVERTYSCORES: None}
         self.ds.load_data(data_type_map=data_type_map)
 
         # Clean and merge CDR data
@@ -98,7 +100,7 @@ class HomeLocator:
         elif algo == 'count_days':
             grouped = self.ds.cdr.groupby([self.user_id, self.geo]).agg(countDistinct('day').alias('count_days'))
             window = Window.partitionBy(self.user_id).orderBy(desc_nulls_last('count_days'))
-            grouped = grouped.withColumn(self.user_id, 'order', row_number().over(window))\
+            grouped = grouped.withColumn('order', row_number().over(window))\
                 .where(col('order') == 1)\
                 .select([self.user_id, self.geo, 'count_days'])
 
