@@ -75,7 +75,7 @@ class HomeLocator:
             antennas.crs = {"init": "epsg:4326"}
             antennas = gpd.sjoin(antennas, self.ds.shapefiles[self.geo], op='within', how='left')[
                 ['antenna_id', 'region']].rename({'region': self.geo}, axis=1)
-            antennas = self.spark.createDataFrame(antennas).na.drop()
+            antennas = self.spark.createDataFrame(antennas.dropna())
             length_before = self.ds.cdr.count()
             self.ds.cdr = self.ds.cdr.join(antennas, on='antenna_id', how='inner')
             length_after = self.ds.cdr.count()
