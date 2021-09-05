@@ -46,6 +46,9 @@ class DataStore(InitializerInterface):
         file_names = cfg.path.file_names
         self.file_names = file_names
 
+        # Create directories
+        make_dir(self.outputs + '/datasets/')
+
         # Parameters
         self.filter_hours = self.cfg.params.home_location.filter_hours
         self.geo = self.cfg.col_names.geo
@@ -254,7 +257,7 @@ class DataStore(InitializerInterface):
         # Get list of spammers
         self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(
             lambda r: r[0]).collect()
-        pd.DataFrame(self.spammers).to_csv(self.outputs + '/datasets/spammers.csv', index=False)
+        pd.DataFrame(self.spammers).to_csv(self.outputs + 'datasets/spammers.csv', index=False)
         print('Number of spammers identified: %i' % len(self.spammers))
 
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
@@ -276,11 +279,11 @@ class DataStore(InitializerInterface):
             raise ValueError('CDR must be loaded to identify and remove outlier days.')
 
         # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
-        if not os.path.isfile(self.outputs + '/datasets/CDR_transactionsbyday.csv'):
-            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.outputs + '/datasets/CDR_transactionsbyday.csv')
+        if not os.path.isfile(self.outputs + 'datasets/CDR_transactionsbyday.csv'):
+            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.outputs + 'datasets/CDR_transactionsbyday.csv')
 
         # Read in timeseries of subscribers by day
-        timeseries = pd.read_csv(self.outputs + '/datasets/CDR_transactionsbyday.csv')
+        timeseries = pd.read_csv(self.outputs + 'datasets/CDR_transactionsbyday.csv')
 
         # Calculate timeseries of all transaction (voice + SMS together)
         timeseries = timeseries.groupby('day', as_index=False).agg('sum')
@@ -291,7 +294,7 @@ class DataStore(InitializerInterface):
 
         # Obtain list of outlier days
         outliers = timeseries[(timeseries['count'] < bottomrange) | (timeseries['count'] > toprange)]
-        outliers.to_csv(self.outputs + '/datasets/outlier_days.csv', index=False)
+        outliers.to_csv(self.outputs + 'datasets/outlier_days.csv', index=False)
         outliers = list(outliers['day'])
         print('Outliers removed: ' + ', '.join([outlier.split('T')[0] for outlier in outliers]))
 

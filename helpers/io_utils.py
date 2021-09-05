@@ -1,4 +1,4 @@
-from autogluon.tabular import TabularPredictor
+#from autogluon.tabular import TabularPredictor
 from helpers.utils import *
 import geopandas as gpd
 from joblib import load
@@ -174,12 +174,14 @@ def load_mobilemoney(cfg, fname=None, df=None, verify=True):
 
 
 def load_shapefile(fname):
-	shapefile = gpd.read_file(fname) 
+	shapefile = gpd.read_file(fname)
 
 	# Verify that columns are correct
 	required_cols = ['region', 'geometry']
-	error_msg = 'Shapefile format incorrect. Shapefile must include the following columns: ' +  ', '.join(required_cols)
+	error_msg = 'Shapefile format incorrect. Shapefile must include the following columns: ' + ', '.join(required_cols)
 	check_cols(shapefile, required_cols, error_msg)
+
+	shapefile['region'] = shapefile['region'].astype(str)
 
 	return shapefile
 
