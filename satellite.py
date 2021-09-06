@@ -69,7 +69,7 @@ class SatellitePredictor:
                 raise ValueError("The RWI data has not been loaded.")
             scores = self.rwi
             scores = scores.rename(columns={'rwi': 'score'})
-            scores['polygon'] = scores.apply(quadkey_to_polygon, axis=1)
+            scores['polygon'] = scores['quadkey'].map(quadkey_to_polygon)
         else:
             raise NotImplementedError("'{scores}' scores are not supported yet.")
 

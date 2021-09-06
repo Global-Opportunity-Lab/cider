@@ -1,208 +1,329 @@
-#from autogluon.tabular import TabularPredictor
-from helpers.utils import *
+# from autogluon.tabular import TabularPredictor
+from box import Box
 import geopandas as gpd
+from geopandas import GeoDataFrame
+from helpers.utils import get_spark_session, make_dir
 from joblib import load
+import os
+from pandas import DataFrame as PandasDataFrame
+from pyspark.sql import DataFrame as SparkDataFrame
+from pyspark.sql.functions import date_trunc, to_timestamp
+from typing import Dict, List, Optional, Union
 
 
-def load_generic(cfg, fname=None, df=None):
-	spark = get_spark_session(cfg)
+def load_generic(cfg: Box,
+                 fname: str = None,
+                 df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> SparkDataFrame:
+    """
+    Args:
+        cfg: box object containing config data
+        fname: path to file or folder with files
+        df: pandas or spark df, if already loaded
 
-	# Load from file
-	if fname is not None:
-		# Load data if in a single file
-		if '.csv' in fname:
-			df = spark.read.csv(fname, header=True)
+    Returns: loaded spark df
+    """
+    spark = get_spark_session(cfg)
 
-		# Load data if in chunks
-		else:
-			df = spark.read.csv(fname + '/*.csv', header=True)
-	
-	# Load from pandas dataframe
-	elif df is not None:
-		df = spark.createDataFrame(df)
-	
-	# Issue with filename/dataframe provided
-	else:
-		print('No filename or pandas dataframe provided.')
-		return ''
-	
-	return df
+    # Load from file
+    if fname is not None:
+        # Load data if in a single file
+        if '.csv' in fname:
+            df = spark.read.csv(fname, header=True)
 
+        # Load data if in chunks
+        else:
+            df = spark.read.csv(fname + '/*.csv', header=True)
 
-def check_cols(df, required_cols, error_msg):
-	if not set(required_cols).intersection(set(df.columns)) == set(required_cols):
-		raise ValueError(error_msg)
+    # Load from pandas dataframe
+    elif df is not None:
+        df = spark.createDataFrame(df)
 
+    # Issue with filename/dataframe provided
+    else:
+        raise ValueError('No filename or pandas dataframe provided.')
 
-def check_colvalues(df, colname, colvalues, error_msg):
-	if set(df.select(colname).distinct().rdd.map(lambda r: r[0]).collect()).union(set(colvalues)) != set(colvalues):
-		raise ValueError(error_msg)
-
-
-def standardize_col_names(df, col_names):
-	col_mapping = {v: k for k, v in col_names.items()}
-
-	for col in df.columns:
-		df = df.withColumnRenamed(col, col_mapping[col])
-
-	return df
-	
-
-def load_cdr(cfg, fname=None, df=None, verify=True):
-	# load data as generic df and standardize column_names
-	if fname is not None:
-		cdr = load_generic(cfg, fname=fname, df=df)
-	else:
-		cdr = df
-	cdr = standardize_col_names(cdr, cfg.col_names.cdr)
-
-	if verify:
-	
-		# Check that required columns are present
-		required_cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'duration']
-		error_msg = 'CDR format incorrect. CDR must include the following columns: ' + ', '.join(required_cols)
-		check_cols(cdr, required_cols, error_msg)
-
-		# Check txn_type column
-		error_msg = 'CDR format incorrect. Column txn_type can only include call and text.'
-		check_colvalues(cdr, 'txn_type', ['call', 'text'], error_msg)
-		
-		# Clean international column
-		error_msg = 'CDR format incorrect. Column international can only include domestic, international, and other.'
-		check_colvalues(cdr, 'international', ['domestic', 'international', 'other'], error_msg)
-	
-	# Clean timestamp column
-	cdr = cdr.withColumn('timestamp', to_timestamp(cdr['timestamp'], 'yyyy-MM-dd HH:mm:ss'))\
-		.withColumn('day', date_trunc('day', col('timestamp')))
-		
-	# Clean duration column
-	cdr = cdr.withColumn('duration', col('duration').cast('float'))
-	
-	return cdr
+    return df
 
 
-def load_antennas(cfg, fname=None, df=None, verify=True):
-	# load data as generic df and standardize column_names
-	if fname is not None:
-		antennas = load_generic(cfg, fname=fname, df=df)
-	else:
-		antennas = df
-	antennas = standardize_col_names(antennas, cfg.col_names.antennas)
+def check_cols(df: Union[GeoDataFrame, PandasDataFrame, SparkDataFrame],
+               required_cols: List[str],
+               error_msg: str) -> None:
+    """
+    Check that the df has all required columns
 
-	if verify:
-
-		required_cols = ['antenna_id', 'latitude', 'longitude']
-		error_msg = 'Antenna format incorrect. Antenna dataset must include the following columns: ' + ', '.join(required_cols)
-		check_cols(antennas, required_cols, error_msg)
-
-		antennas = antennas.withColumn('latitude', col('latitude').cast('float')).withColumn('longitude', col('longitude').cast('float'))
-		print('Warning: %i antennas missing location' % (antennas.count() - antennas.select(['latitude', 'longitude']).na.drop().count()))
-	
-	return antennas
+    Args:
+        df: spark df
+        required_cols: columns that are required
+        error_msg: error message to print if some columns are missing
+    """
+    if not set(required_cols).intersection(set(df.columns)) == set(required_cols):
+        raise ValueError(error_msg)
 
 
-def load_recharges(cfg, fname=None, df=None, verify=True):
-	# load data as generic df and standardize column_names
-	if fname is not None:
-		recharges = load_generic(cfg, fname=fname, df=df)
-	else:
-		recharges = df
-	recharges = standardize_col_names(recharges, cfg.col_names.recharges)
-		
-	# Clean timestamp column
-	recharges = recharges.withColumn('timestamp', to_timestamp(recharges['timestamp'], 'yyyy-MM-dd HH:mm:ss'))\
-		.withColumn('day', date_trunc('day', col('timestamp')))
-		
-	# Clean duration column
-	recharges = recharges.withColumn('amount', col('amount').cast('float'))
-		
-	return recharges
+def check_colvalues(df: SparkDataFrame, colname: str, colvalues: list, error_msg: str) -> None:
+    """
+    Check that a column has all required values
+
+    Args:
+        df: spark df
+        colname: column to check
+        colvalues: requires values
+        error_msg: error message to print if values don't match
+    """
+    if set(df.select(colname).distinct().rdd.map(lambda r: r[0]).collect()).union(set(colvalues)) != set(colvalues):
+        raise ValueError(error_msg)
 
 
-def load_mobiledata(cfg, fname=None, df=None, verify=True):
-	# load data as generic df and standardize column_names
-	if fname is not None:
-		mobiledata = load_generic(cfg, fname=fname, df=df)
-	else:
-		mobiledata = df
-	mobiledata = standardize_col_names(mobiledata, cfg.col_names.mobiledata)
-		
-	# Clean timestamp column
-	mobiledata = mobiledata.withColumn('timestamp', to_timestamp(mobiledata['timestamp'], 'yyyy-MM-dd HH:mm:ss'))\
-		.withColumn('day', date_trunc('day', col('timestamp')))
-	
-	# Clean duration column
-	mobiledata = mobiledata.withColumn('volume', col('volume').cast('float'))
-	
-	return mobiledata
+def standardize_col_names(df: SparkDataFrame, col_names: Dict[str, str]) -> SparkDataFrame:
+    """
+    Rename columns, as specified in config file, to standard format
+
+    Args:
+        df: spark df
+        col_names: mapping between standard column names and existing ones
+
+    Returns: spark df with standardized column names
+
+    """
+    col_mapping = {v: k for k, v in col_names.items()}
+
+    for col in df.columns:
+        df = df.withColumnRenamed(col, col_mapping[col])
+
+    return df
 
 
-def load_mobilemoney(cfg, fname=None, df=None, verify=True):
-	# load data as generic df and standardize column_names
-	if fname is not None:
-		mobilemoney = load_generic(cfg, fname=fname, df=df)
-	else:
-		mobilemoney = df
-	mobilemoney = standardize_col_names(mobilemoney, cfg.col_names.mobilemoney)
+def load_cdr(cfg: Box,
+             fname: str = None,
+             df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
+             verify: bool = True) -> SparkDataFrame:
+    """
+    Load CDR data into spark df
 
-	if verify:
-	
-		# Check that required columns are present
-		required_cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'amount']
-		error_msg = 'Mobile money format incorrect. Mobile money records must include the following columns: ' + \
-			', '.join(required_cols)
-		check_cols(mobilemoney, required_cols, error_msg)
-		
-		# Check txn_type column
-		txn_types = ['cashin', 'cashout', 'p2p', 'billpay', 'other']
-		error_msg = 'Mobile money format incorrect. Column txn_type can only include ' + ', '.join(txn_types)
-		check_colvalues(mobilemoney, 'txn_type', txn_types, error_msg)
+    Args:
+        cfg: box object containing config data
+        fname: path to file or folder with files
+        df: pandas or spark df, if already loaded
+        verify: whether to check if right columns and values are present
 
-	# Clean timestamp column
-	mobilemoney = mobilemoney.withColumn('timestamp', to_timestamp(mobilemoney['timestamp'], 'yyyy-MM-dd HH:mm:ss'))\
-		.withColumn('day', date_trunc('day', col('timestamp')))
-	
-	# Clean duration column
-	mobilemoney = mobilemoney.withColumn('amount', col('amount').cast('float'))
+    Returns: spark df
+    """
+    # load data as generic df and standardize column_names
+    if fname is not None:
+        cdr = load_generic(cfg, fname=fname, df=df)
+    else:
+        cdr = df
+    cdr = standardize_col_names(cdr, cfg.col_names.cdr)
 
-	# Clean balance columns
-	for c in mobilemoney.columns:
-		if 'balance' in c:
-			mobilemoney = mobilemoney.withColumn(c, col(c).cast('float'))
-	
-	return mobilemoney
+    if verify:
+        # Check that required columns are present
+        required_cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'duration']
+        error_msg = 'CDR format incorrect. CDR must include the following columns: ' + ', '.join(required_cols)
+        check_cols(cdr, required_cols, error_msg)
+
+        # Check txn_type column
+        error_msg = 'CDR format incorrect. Column txn_type can only include call and text.'
+        check_colvalues(cdr, 'txn_type', ['call', 'text'], error_msg)
+
+        # Clean international column
+        error_msg = 'CDR format incorrect. Column international can only include domestic, international, and other.'
+        check_colvalues(cdr, 'international', ['domestic', 'international', 'other'], error_msg)
+
+    # Clean timestamp column
+    cdr = cdr.withColumn('timestamp', to_timestamp(cdr['timestamp'], 'yyyy-MM-dd HH:mm:ss')) \
+        .withColumn('day', date_trunc('day', col('timestamp')))
+
+    # Clean duration column
+    cdr = cdr.withColumn('duration', col('duration').cast('float'))
+
+    return cdr
 
 
-def load_shapefile(fname):
-	shapefile = gpd.read_file(fname)
+def load_antennas(cfg: Box,
+                  fname: str = None,
+                  df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
+                  verify: bool = True) -> SparkDataFrame:
+    """
+    Load antennas' dataset, and print % of antennas that are missing coordinates
 
-	# Verify that columns are correct
-	required_cols = ['region', 'geometry']
-	error_msg = 'Shapefile format incorrect. Shapefile must include the following columns: ' + ', '.join(required_cols)
-	check_cols(shapefile, required_cols, error_msg)
+    Args:
+        cfg: box object containing config data
+        fname: path to file
+        df: pandas or spark df, if already loaded
+        verify: whether to check if right columns and values are present
 
-	shapefile['region'] = shapefile['region'].astype(str)
+    Returns: spark df
+    """
+    # load data as generic df and standardize column_names
+    if fname is not None:
+        antennas = load_generic(cfg, fname=fname, df=df)
+    else:
+        antennas = df
+    antennas = standardize_col_names(antennas, cfg.col_names.antennas)
 
-	return shapefile
+    if verify:
+        required_cols = ['antenna_id', 'latitude', 'longitude']
+        error_msg = 'Antenna format incorrect. Antenna dataset must include the following columns: ' + ', '.join(
+            required_cols)
+        check_cols(antennas, required_cols, error_msg)
+
+        antennas = antennas.withColumn('latitude', col('latitude').cast('float')).withColumn('longitude',
+                                                                                             col('longitude').cast(
+                                                                                                 'float'))
+        print('Warning: %i antennas missing location' % (
+                antennas.count() - antennas.select(['latitude', 'longitude']).na.drop().count()))
+
+    return antennas
+
+
+def load_recharges(cfg: Box,
+                   fname: str = None,
+                   df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> SparkDataFrame:
+    """
+    Load recharges' dataset
+
+    Args:
+        cfg: box object containing config data
+        fname: path to file or folder with files
+        df: pandas or spark df, if already loaded
+
+    Returns: spark df
+    """
+    # load data as generic df and standardize column_names
+    if fname is not None:
+        recharges = load_generic(cfg, fname=fname, df=df)
+    else:
+        recharges = df
+    recharges = standardize_col_names(recharges, cfg.col_names.recharges)
+
+    # Clean timestamp column
+    recharges = recharges.withColumn('timestamp', to_timestamp(recharges['timestamp'], 'yyyy-MM-dd HH:mm:ss')) \
+        .withColumn('day', date_trunc('day', col('timestamp')))
+
+    # Clean duration column
+    recharges = recharges.withColumn('amount', col('amount').cast('float'))
+
+    return recharges
+
+
+def load_mobiledata(cfg: Box,
+                    fname: str = None,
+                    df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> SparkDataFrame:
+    """
+    Load mobile data dataset
+
+    Args:
+        cfg: box object containing config data
+        fname: path to file or folder with files
+        df: pandas or spark df, if already loaded
+
+    Returns: spark df
+    """
+    # load data as generic df and standardize column_names
+    if fname is not None:
+        mobiledata = load_generic(cfg, fname=fname, df=df)
+    else:
+        mobiledata = df
+    mobiledata = standardize_col_names(mobiledata, cfg.col_names.mobiledata)
+
+    # Clean timestamp column
+    mobiledata = mobiledata.withColumn('timestamp', to_timestamp(mobiledata['timestamp'], 'yyyy-MM-dd HH:mm:ss')) \
+        .withColumn('day', date_trunc('day', col('timestamp')))
+
+    # Clean duration column
+    mobiledata = mobiledata.withColumn('volume', col('volume').cast('float'))
+
+    return mobiledata
+
+
+def load_mobilemoney(cfg: Box,
+                     fname: str = None,
+                     df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
+                     verify: bool = True) -> SparkDataFrame:
+    """
+    Load mobile money dataset
+
+    Args:
+        cfg: box object containing config data
+        fname: path to file or folder with files
+        df: pandas or spark df, if already loaded
+        verify: whether to check if right columns and values are present
+
+    Returns: spark df
+    """
+    # load data as generic df and standardize column_names
+    if fname is not None:
+        mobilemoney = load_generic(cfg, fname=fname, df=df)
+    else:
+        mobilemoney = df
+    mobilemoney = standardize_col_names(mobilemoney, cfg.col_names.mobilemoney)
+
+    if verify:
+        # Check that required columns are present
+        required_cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'amount']
+        error_msg = 'Mobile money format incorrect. Mobile money records must include the following columns: ' + \
+                    ', '.join(required_cols)
+        check_cols(mobilemoney, required_cols, error_msg)
+
+        # Check txn_type column
+        txn_types = ['cashin', 'cashout', 'p2p', 'billpay', 'other']
+        error_msg = 'Mobile money format incorrect. Column txn_type can only include ' + ', '.join(txn_types)
+        check_colvalues(mobilemoney, 'txn_type', txn_types, error_msg)
+
+    # Clean timestamp column
+    mobilemoney = mobilemoney.withColumn('timestamp', to_timestamp(mobilemoney['timestamp'], 'yyyy-MM-dd HH:mm:ss')) \
+        .withColumn('day', date_trunc('day', col('timestamp')))
+
+    # Clean duration column
+    mobilemoney = mobilemoney.withColumn('amount', col('amount').cast('float'))
+
+    # Clean balance columns
+    for c in mobilemoney.columns:
+        if 'balance' in c:
+            mobilemoney = mobilemoney.withColumn(c, col(c).cast('float'))
+
+    return mobilemoney
+
+
+def load_shapefile(fname: str) -> GeoDataFrame:
+    """
+    Load shapefile and make sure it has the right columns
+
+    Args:
+        fname: path to file, which can be .shp or .geojson
+
+    Returns: GeoDataFrame
+
+    """
+    shapefile = gpd.read_file(fname)
+
+    # Verify that columns are correct
+    required_cols = ['region', 'geometry']
+    error_msg = 'Shapefile format incorrect. Shapefile must include the following columns: ' + ', '.join(required_cols)
+    check_cols(shapefile, required_cols, error_msg)
+
+    shapefile['region'] = shapefile['region'].astype(str)
+
+    return shapefile
 
 
 def load_model(model, out_path, type='tuned'):
-	subdir = '/' + type + '_models/'
+    subdir = '/' + type + '_models/'
 
-	if os.path.isfile(out_path + subdir + model + '/model'):
-		model_name = model
-		model = load(out_path + subdir + model + '/model')
-	elif os.path.isdir(out_path + subdir + model + '/model'):
-		model_name = model
-		model = TabularPredictor.load(out_path + subdir + model + '/model')
-	elif os.path.isfile(model):
-		model_name = model.split('/')[-1]
-		model = load(model)
-		make_dir(out_path + subdir + model_name)
-	else:
-		raise ValueError("The 'model' argument should be a path or a recognized model name")
+    if os.path.isfile(out_path + subdir + model + '/model'):
+        model_name = model
+        model = load(out_path + subdir + model + '/model')
+    elif os.path.isdir(out_path + subdir + model + '/model'):
+        model_name = model
+        model = TabularPredictor.load(out_path + subdir + model + '/model')
+    elif os.path.isfile(model):
+        model_name = model.split('/')[-1]
+        model = load(model)
+        make_dir(out_path + subdir + model_name)
+    else:
+        raise ValueError("The 'model' argument should be a path or a recognized model name")
 
-	if type == 'tuned':
-		model = model.best_estimator_
+    if type == 'tuned':
+        model = model.best_estimator_
 
-	return model_name, model
+    return model_name, model

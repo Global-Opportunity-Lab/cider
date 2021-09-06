@@ -1,30 +1,24 @@
-from helpers.utils import *
-
-import pandas as pd
+from helpers.utils import strictly_increasing
 import numpy as np
-from joblib import dump, load
-from skmisc.loess import loess
-
+from numpy import array
+import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin, clone
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-
-
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, MinMaxScaler
-from sklearn.feature_selection import VarianceThreshold
-from sklearn.impute import SimpleImputer
-
-from sklearn.linear_model import LinearRegression, Lasso, Ridge
-from sklearn.ensemble import RandomForestRegressor
-from lightgbm import LGBMRegressor
-
 from sklearn.metrics import confusion_matrix, auc, r2_score
-from scipy.stats import spearmanr
-from sklearn.model_selection import cross_validate, KFold, GridSearchCV, cross_val_predict, cross_val_score
+from typing import Tuple
 
 
-def metrics(a1, a2, p):
-    
+def metrics(a1: array, a2: array, p: float) -> Tuple[float, float, float, float, float]:
+    """
+    Compute classification metrics at a certain threshold, i.e. turn regression into classification by considering the
+    bottom p% of targets as belonging to the positive class
+
+    Args:
+        a1: vector of true values
+        a2: vector of predictived values
+        p: classification threshold
+
+    Returns: tuple with accuracy, precision, recall, true positive rate, false positive rate
+    """
     if p == 0 or p == 100:
         raise ValueError('Pecentage targeting must be between 0 and 100 (exclusive).')
 
@@ -45,9 +39,20 @@ def metrics(a1, a2, p):
     recall = tp/(tp + fn)
     tpr = recall
     fpr = fp/(fp + tn)
+
     return accuracy, precision, recall, tpr, fpr
 
-def auc_overall(a1, a2):
+
+def auc_overall(a1: array, a2: array) -> float:
+    """
+    Compute AUC score by turning regression problem into classification using 'metrics' function
+
+    Args:
+        a1: vector of true values
+        a2: vector of predictived values
+
+    Returns: AUC score
+    """
     grid = np.linspace(1, 100, 99)[:-1]
     metrics_grid = [metrics(a1, a2, p) for p in grid]
     tprs, fprs = [g[3] for g in metrics_grid], [g[4] for g in metrics_grid]
@@ -67,9 +72,10 @@ def auc_overall(a1, a2):
 
     return auc(fprs, tprs)
 
+
 class DropMissing(TransformerMixin, BaseEstimator):
 
-    def __init__(self, threshold=None):
+    def __init__(self, threshold: float = None) -> None:
         self.threshold = threshold
 
     def fit(self, X, y=None):

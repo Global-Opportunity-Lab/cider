@@ -1,21 +1,20 @@
-import sys
-import os
+from box import Box
 import numpy as np
-import datetime
-import json
+import os
 import pandas as pd
-import shutil
-from multiprocessing import Pool
-import pyspark
+from pandas import DataFrame as PandasDataFrame
+from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.types import *
 from pyspark.sql.functions import *
-from pyspark.sql import SparkSession, Window
+from pyspark.sql import SparkSession
+import shutil
+from typing import List, Union
 
 
-def get_spark_session(cfg):
-    '''
+def get_spark_session(cfg: Box) -> SparkSession:
+    """
     Gets or creates spark session, with context and logging preferences set
-    '''
+    """
     # Build spark session
     spark = SparkSession \
         .builder \
@@ -28,10 +27,10 @@ def get_spark_session(cfg):
     return spark
 
 
-def save_df(df, outfname, sep=','):
-    ''' 
+def save_df(df: SparkDataFrame, outfname: str, sep: str = ',') -> None:
+    """
     Saves spark dataframe to csv file, using work-around to deal with spark's automatic partitioning and naming
-    '''
+    """
     outfolder = outfname[:-4]
     df.repartition(1).write.csv(path=outfolder, mode="overwrite", header="true", sep=sep)
     # Work around to deal with spark automatic naming
@@ -40,14 +39,27 @@ def save_df(df, outfname, sep=','):
     shutil.rmtree(outfolder)
 
 
-def save_parquet(df, outfname):
-    '''
+def save_parquet(df: SparkDataFrame, outfname: str) -> None:
+    """
     Save spark dataframe to parquet file
-    '''
+    """
     df.write.mode('overwrite').parquet(outfname)
 
 
-def filter_dates_dataframe(df, start_date, end_date, colname='timestamp'):
+def filter_dates_dataframe(df: SparkDataFrame,
+                           start_date: str, end_date: str, colname: str = 'timestamp') -> SparkDataFrame:
+    """
+    Filter dataframe rows whose timestamp is outside [start_date, end_date)
+
+    Args:
+        df: spark df
+        start_date: initial date to keep
+        end_date: first date to exclude
+        colname: name of timestamp column
+
+    Returns: filtered spark df
+
+    """
     if colname not in df.columns:
         raise ValueError('Cannot filter dates because missing timestamp column')
     df = df.where(col(colname) >= pd.to_datetime(start_date))
@@ -55,13 +67,20 @@ def filter_dates_dataframe(df, start_date, end_date, colname='timestamp'):
     return df
 
 
-def make_dir(fname, remove=False):
+def make_dir(fname: str, remove: bool = False) -> None:
+    """
+    Create new directory
+
+    Args:
+        fname: directory path
+        remove: whether to remove directory if already present
+    """
     if os.path.isdir(fname) and remove:
         shutil.rmtree(fname)
     os.makedirs(fname, exist_ok=True)
 
 
-def flatten_lst(lst):
+def flatten_lst(lst: List[List]) -> List:
     return [item for sublist in lst for item in sublist]
 
 
@@ -77,7 +96,17 @@ def flatten_folder(args):
     return unmatched
 
 
-def cdr_bandicoot_format(cdr, antennas, cfg):
+def cdr_bandicoot_format(cdr: SparkDataFrame, antennas: SparkDataFrame, cfg: Box) -> SparkDataFrame:
+    """
+    Convert CDR df into format that can be used by bandicoot
+
+    Args:
+        cdr: spark df with CDRs
+        antennas: antenna dataframe
+        cfg: box object with cdr column names
+
+    Returns: spark df in bandicoot format
+    """
 
     cols = list(cfg.keys())
 
@@ -106,40 +135,79 @@ def cdr_bandicoot_format(cdr, antennas, cfg):
         .withColumn('datetime', date_format(col('datetime'), 'yyyy-MM-dd HH:mm:ss'))
     
     if antennas is not None:
-        cdr_bandicoot = cdr_bandicoot.join(antennas.select(['antenna_id', 'latitude', 'longitude']), on='antenna_id', how='left')
+        cdr_bandicoot = cdr_bandicoot.join(antennas.select(['antenna_id', 'latitude', 'longitude']),
+                                           on='antenna_id', how='left')
     
     cdr_bandicoot = cdr_bandicoot.na.fill('')
     
     return cdr_bandicoot
 
 
-def long_join_pandas(dfs, on, how):
-    
+def long_join_pandas(dfs: List[PandasDataFrame], on: str, how: str) -> PandasDataFrame:
+    """
+    Join list of pandas dfs
+
+    Args:
+        dfs: list of pandas df
+        on: column on which to join
+        how: type of join
+
+    Returns: single joined pandas df
+    """
     df = dfs[0]
     for i in range(1, len(dfs)):
         df = df.merge(dfs[i], on=on, how=how)
     return df
 
 
-def long_join_pyspark(dfs, on, how):
-    
+def long_join_pyspark(dfs: List[SparkDataFrame], on: str, how: str) -> SparkDataFrame:
+    """
+    Join list of spark dfs
+
+    Args:
+        dfs: list of spark df
+        on: column on which to join
+        how: type of join
+
+    Returns: single joined spark df
+    """
     df = dfs[0]
     for i in range(1, len(dfs)):
         df = df.join(dfs[i], on=on, how=how)
     return df
 
 
-def strictly_increasing(L):
+def strictly_increasing(L: List[float]) -> bool:
+    # Check that the list's values are strictly increasing
     return all(x < y for x, y in zip(L, L[1:]))
 
 
-def check_columns_exist(data, columns, data_name=''):
+def check_columns_exist(data: Union[PandasDataFrame, SparkDataFrame],
+                        columns: List[str],
+                        data_name: str = '') -> None:
+    """
+    Check that list of columns is present in df
+
+    Args:
+        data: df
+        columns: columns to check
+        data_name: name of dataset to print out
+    """
     for c in columns:
         if c not in data.columns:
             raise ValueError('Column ' + c + ' not in data ' + data_name + '.')
 
 
-def check_column_types(data, continuous, categorical, binary):
+def check_column_types(data: PandasDataFrame, continuous: List[str], categorical: List[str], binary: List[str]) -> None:
+    """
+    Try to identify issues with column types and values
+
+    Args:
+        data: pandas df
+        continuous: continuous columns to check
+        categorical: categorical columns to check
+        binary: binary columns to check
+    """
     for c in continuous:
         n_unique = len(data[c].unique())
         if n_unique < 20:
@@ -149,7 +217,7 @@ def check_column_types(data, continuous, categorical, binary):
         if n_unique > 20:
             print('Warning: Column ' + c + ' is of categorical type but has more than 20 (%i) unique values.' % n_unique)
     for c in binary:
-        if set(data[c].dropna().astype('int')) != set([0, 1]):
+        if set(data[c].dropna().astype('int')) != {0, 1}:
             raise ValueError('Column ' + c + ' is labeled as binary but does not contain only 0 and 1.')
 
 
