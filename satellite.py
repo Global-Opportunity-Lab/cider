@@ -1,11 +1,14 @@
 from box import Box
 import geopandas as gpd
 import glob
-from helpers.io_utils import *
-from helpers.plot_utils import *
-from helpers.satellite_utils import *
-from helpers.utils import *
+from helpers.io_utils import load_antennas, load_shapefile
+from helpers.plot_utils import voronoi_tessellation
+from helpers.satellite_utils import quadkey_to_polygon
+from helpers.utils import get_spark_session, make_dir
+import matplotlib.pyplot as plt
 import numpy as np
+import os
+import pandas as pd
 import rasterio
 from rasterio.mask import mask
 from rasterio.merge import merge
@@ -15,7 +18,7 @@ import yaml
 
 class SatellitePredictor:
 
-    def __init__(self, cfg_dir: str, dataframes: dict = None, clean_folders: bool = False):
+    def __init__(self, cfg_dir: str, dataframes: dict = None, clean_folders: bool = False) -> None:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
@@ -62,7 +65,14 @@ class SatellitePredictor:
         for shapefile_fname in shapefiles.keys():
             self.shapefiles[shapefile_fname] = load_shapefile(data + shapefiles[shapefile_fname])
 
-    def aggregate_scores(self, dataset: str = 'rwi'):
+    def aggregate_scores(self, dataset: str = 'rwi') -> None:
+        """
+        Aggregate poverty scores contained in a raster dataset, like the Relative Wealth Index, to a certain geographic
+        level, taking into account population density levels
+
+        Args:
+            dataset: which poverty scores to use - only 'rwi' for now
+        """
         # Check data is loaded and preprocess it
         if dataset == 'rwi':
             if self.rwi is None:
