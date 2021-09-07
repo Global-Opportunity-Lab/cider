@@ -9,6 +9,7 @@ from lightgbm import LGBMRegressor
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from pandas import DataFrame as PandasDataFrame
 from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestRegressor
@@ -17,13 +18,14 @@ from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_validate, cross_val_predict, GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler
+from typing import List, Tuple, Union
 from wpca import WPCA
 import yaml
 
 
 class SurveyOutcomeGenerator:
 
-    def __init__(self, cfg_dir, dataframe=None, clean_folders=False):
+    def __init__(self, cfg_dir: str, dataframe: PandasDataFrame = None, clean_folders: bool = False) -> None:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
@@ -57,8 +59,16 @@ class SurveyOutcomeGenerator:
         # Prepare working directory
         make_dir(outputs, clean_folders)
 
-    def asset_index(self, cols, use_weights=True):
+    def asset_index(self, cols: List[str], use_weights: bool = True) -> PandasDataFrame:
+        """
+        Derive asset index - first component of (weighted) PCA - from specified set of columns
 
+        Args:
+            cols: columns (i.e. survey questions) to use to derive the index
+            use_weights: whether to compute a weighted PCA
+
+        Returns: pandas df containing asset index of surveyed users
+        """
         # Prepare working directory
         out_subdir = self.outputs + '/asset_index'
         make_dir(out_subdir, True)
@@ -110,8 +120,23 @@ class SurveyOutcomeGenerator:
 
         return asset_index
 
-    def fit_pmt(self, outcome, cols, model_name='linear', kfold=5, use_weights=True, scale=False, winsorize=False):
+    def fit_pmt(self, outcome: str, cols: List[str], model_name: str = 'linear', kfold: int = 5,
+                use_weights: bool = True, scale: bool = False, winsorize: bool = False) -> PandasDataFrame:
+        """
+        Train a model to predict an outcome variable using a set of survey questions - this will be our PMT
+        Also provide metrics on modelling performance
 
+        Args:
+            outcome: target variable
+            cols: independent variables
+            model_name: ML model to use - can be one of ['linear', 'lasso', 'ridge', 'randomforest', 'gradientboosting']
+            kfold: number of cross-validation folds to use
+            use_weights: whether to use survey weights
+            scale: whether to standard scale inputs
+            winsorize: whether to winsorize (.005, .995) inputs
+
+        Returns: pandas df of outcome variable, in-sample predictions, and out-of-sample predictions
+        """
         # Prepare working directory
         out_subdir = self.outputs + '/pmt_' + model_name
         make_dir(out_subdir, True)
@@ -127,7 +152,8 @@ class SurveyOutcomeGenerator:
         dropped = n_obs - len(data)
         if dropped > 0:
             print(
-                'Warning: Dropping %i observations with missing values in continuous or binary columns or the outcome (%i percent of all observations)' %
+                'Warning: Dropping %i observations with missing values in continuous or binary columns or the outcome '
+                '(%i percent of all observations)' %
                 (dropped, 100 * dropped / n_obs))
 
         # Define preprocessing pipelines
@@ -202,7 +228,20 @@ class SurveyOutcomeGenerator:
         print('R2 score: %.2f' % r2)
         return predictions
 
-    def pretrained_pmt(self, other_data, cols, model_name, dataset_name='other_data'):
+    def pretrained_pmt(self, other_data: Union[str, PandasDataFrame], cols: List[str],
+                       model_name: str, dataset_name: str = 'other_data') -> PandasDataFrame:
+        """
+        Use a pre-trained PMT model to predict the outcome variable in another dataset - check that the latter has the
+        same columns and data types of the original survey that was used to train the PMT
+
+        Args:
+            other_data: new dataset to get predictions for
+            cols: input columns
+            model_name: PMT model to use
+            dataset_name: name of new dataset
+
+        Returns: pandas df of user id and predicted outcome variable
+        """
 
         # Prepare working directory
         out_subdir = self.outputs + '/pmt_' + model_name + '/' + dataset_name
@@ -225,22 +264,20 @@ class SurveyOutcomeGenerator:
         other_data = other_data.dropna(subset=list(set(cols).intersection(set(self.continuous + self.binary))))
         dropped = n_obs - len(other_data)
         if dropped > 0:
-            print(
-                'Warning: Dropping %i observations with missing values in continuous or binary columns (%i percent of all observations)' %
-                (dropped, 100 * dropped / n_obs))
+            print('Warning: Dropping %i observations with missing values in continuous or binary columns '
+                  '(%i percent of all observations)' % (dropped, 100 * dropped / n_obs))
 
         # Check that ranges are the same as training data
         for c in set(cols).intersection(set(self.categorical)):
             set_dif = set(other_data[c].dropna()).difference(set(original_data[c].dropna()))
             if len(set_dif) > 0:
-                print('Warning: There are values in categorical column ' + c + \
-                      ' that are not present in training data; they will not be positive for any dummy column. Values: ' + \
-                      ','.join([str(x) for x in set_dif]))
+                print('Warning: There are values in categorical column ' + c +
+                      ' that are not present in training data; they will not be positive for any dummy column. '
+                      'Values: ' + ','.join([str(x) for x in set_dif]))
         for c in set(cols).intersection(set(self.continuous)):
-            if np.round(other_data[c].min(), 2) < np.round(original_data[c].min(), 2) or np.round(other_data[c].max(),
-                                                                                                  2) > np.round(
-                original_data[c].max(), 2):
-                print('Warning: There are values in continuous column ' + c + \
+            if np.round(other_data[c].min(), 2) < np.round(original_data[c].min(), 2) or \
+                    np.round(other_data[c].max(), 2) > np.round(original_data[c].max(), 2):
+                print('Warning: There are values in continuous column ' + c +
                       ' that are outside of the range in the training data; the original standardization will apply.')
 
         # Load and apply model, save predictions
@@ -251,8 +288,28 @@ class SurveyOutcomeGenerator:
         predictions.to_csv(out_subdir + '/predictions.csv', index=False)
         return predictions
 
-    def select_features(self, outcome, cols, n_features, method='correlation', model_name='', kfold=5, use_weights=True,
-                        plot=True):
+    def select_features(self, outcome: str, cols: List[str], n_features: int, method: str = 'correlation',
+                        model_name: str = '', kfold: int = 5, use_weights: bool = True,
+                        plot: bool = True) -> Tuple[List[str], PandasDataFrame]:
+        """
+        Select the top-N features that are most useful to predict the outcome variable
+
+        Args:
+            outcome: target variable
+            cols: independent variables
+            n_features: number of features to select
+            method: method to use to select the top-N features - it can be:
+                'correlation': return top N features most correlated with the outcome
+                'lasso': use LASSO regressions for a grid of penalties to select features, use the one which has the
+                 closest to n_features features
+                OTHER STRING: forward selection with a machine learning model
+            model_name: name to use when saving outputs
+            kfold: number of cross-validation folds to use
+            use_weights: whether to use survey weights
+            plot: whether to plot performance metrics
+
+        Returns: top-N features selected, pandas df of scores
+        """
 
         # Prepare working directory
         out_subdir = self.outputs + 'feature_selection'
@@ -276,7 +333,8 @@ class SurveyOutcomeGenerator:
             correlations.to_csv(out_subdir + '/correlations.csv')
             return list(correlations[:n_features]['column']), correlations.reset_index()
 
-        # LASSO: Use LASSO regressions for a grid of penalties to select features, use the one which has the closest to n_features features
+        # LASSO: Use LASSO regressions for a grid of penalties to select features, use the one which has the closest
+        # to n_features features
         elif method == 'lasso':
 
             # Drop observations with null values
@@ -286,7 +344,8 @@ class SurveyOutcomeGenerator:
             dropped = n_obs - len(data)
             if dropped > 0:
                 print(
-                    'Warning: Dropping %i observations with missing values in continuous or binary columns or the outcome (%i percent of all observations)' %
+                    'Warning: Dropping %i observations with missing values in continuous or binary columns or the '
+                    'outcome (%i percent of all observations)' %
                     (dropped, 100 * dropped / n_obs))
 
             # Define preprocessing pipelines
@@ -357,9 +416,9 @@ class SurveyOutcomeGenerator:
             data = data.dropna(subset=[outcome] + list(set(cols).intersection(set(self.continuous + self.binary))))
             dropped = n_obs - len(data)
             if dropped > 0:
-                print(
-                    'Warning: Dropping %i observations with missing values in continuous or binary columns or the outcome (%i percent of all observations)' %
-                    (dropped, 100 * dropped / n_obs))
+                print('Warning: Dropping %i observations with missing values in continuous or binary columns or the '
+                      'outcome (%i percent of all observations)' %
+                      (dropped, 100 * dropped / n_obs))
 
             # Stepwise forward selection
             used_cols, unused_cols, train_scores, test_scores = [], cols, [], []
