@@ -64,19 +64,19 @@ class DataStore(InitializerInterface):
         # Possible datasets to opt in/out of
         self.datasets = ['cdr', 'recharges', 'mobiledata', 'mobilemoney', 'features']
         # featurizer/home location datasets
-        self.cdr: Optional[SparkDataFrame] = None
-        self.cdr_bandicoot: Optional[SparkDataFrame] = None
-        self.recharges: Optional[SparkDataFrame] = None
-        self.mobiledata: Optional[SparkDataFrame] = None
-        self.mobilemoney: Optional[SparkDataFrame] = None
-        self.antennas: Optional[SparkDataFrame] = None
+        self.cdr: SparkDataFrame
+        self.cdr_bandicoot: SparkDataFrame
+        self.recharges: SparkDataFrame
+        self.mobiledata: SparkDataFrame
+        self.mobilemoney: SparkDataFrame
+        self.antennas: SparkDataFrame
         self.shapefiles: Union[Dict[str, GeoDataFrame]] = {}
-        self.ground_truth: Optional[PandasDataFrame] = None
-        self.poverty_scores: Optional[PandasDataFrame] = None
+        self.ground_truth: PandasDataFrame
+        self.poverty_scores: PandasDataFrame
         # ml datasets
-        self.features: Optional[SparkDataFrame] = None
-        self.labels: Optional[SparkDataFrame] = None
-        self.merged: Optional[PandasDataFrame] = None
+        self.features: SparkDataFrame
+        self.labels: SparkDataFrame
+        self.merged: PandasDataFrame
         self.x = None
         self.y = None
         self.weights = None
@@ -194,6 +194,8 @@ class DataStore(InitializerInterface):
         """
         Merge features and labels, split into x and y dataframes
         """
+        if self.features is None or self.labels is None:
+            raise ValueError("Features and/or labels have not been loaded!")
         print('Number of observations with features: %i (%i unique)' %
               (self.features.count(), self.features.select('name').distinct().count()))
         print('Number of observations with labels: %i (%i unique)' %
@@ -212,7 +214,7 @@ class DataStore(InitializerInterface):
 
     def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
         """
-        Load all datasets defined by data_type_map
+        Load all datasets defined by data_type_map; raise an error if any of them failed to load
         Args:
             data_type_map: mapping between DataType(s) and dataframes, if provided. If None look at config file
         """
@@ -223,6 +225,15 @@ class DataStore(InitializerInterface):
                 fn(dataframe=value)
             else:
                 fn()
+
+        # Check if any datasets failed to load, raise an error if true
+        failed_load = []
+        for key in data_type_map:
+            dataset = key.name.lower()
+            if getattr(self, dataset) is None:
+                failed_load.append(dataset)
+        if failed_load:
+            raise ValueError(f"The following datasets failed to load: {', '.join(failed_load)}")
 
     def filter_dates(self, start_date: str, end_date: str) -> None:
         """
