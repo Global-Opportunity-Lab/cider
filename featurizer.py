@@ -258,10 +258,10 @@ class Featurizer:
         print('Calculating CDR features...')
 
         cdr_features = all_spark(self.ds.cdr, self.ds.antennas, cfg=self.cfg.params.cdr)
-        cdr_features = long_join_pyspark(cdr_features, on='caller_id', how='outer')
-        cdr_features = cdr_features.withColumnRenamed('caller_id', 'name')
+        cdr_features_df = long_join_pyspark(cdr_features, on='caller_id', how='outer')
+        cdr_features_df = cdr_features_df.withColumnRenamed('caller_id', 'name')
 
-        save_df(cdr_features, self.outputs + '/datasets/cdr_features_spark/all.csv')
+        save_df(cdr_features_df, self.outputs + '/datasets/cdr_features_spark/all.csv')
         self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/cdr_features_spark/all.csv', header=True)
 
     def international_features(self) -> None:
@@ -293,10 +293,10 @@ class Featurizer:
                 feats.append(grouped)
 
         # Combine all aggregations together, write to file
-        feats = long_join_pandas(feats, on='caller_id', how='outer').rename({'caller_id': 'name'}, axis=1)
-        feats['name'] = feats.index
-        feats.columns = [c if c == 'name' else 'international_' + c for c in feats.columns]
-        feats.to_csv(self.outputs + '/datasets/international_feats.csv', index=False)
+        feats_df= long_join_pandas(feats, on='caller_id', how='outer').rename({'caller_id': 'name'}, axis=1)
+        feats_df['name'] = feats_df.index
+        feats_df.columns = [c if c == 'name' else 'international_' + c for c in feats_df.columns]
+        feats_df.to_csv(self.outputs + '/datasets/international_feats.csv', index=False)
         self.features['international'] = self.spark.read.csv(self.outputs + '/datasets/international_feats.csv',
                                                              header=True)
 
@@ -634,9 +634,9 @@ class Featurizer:
                         slice = users.select(['name', features[a]]).toPandas()
                         slice['slice_name'] = slice_name
                         boxplot.append(slice)
-                boxplot = pd.concat(boxplot)
-                boxplot[features[a]] = boxplot[features[a]].astype('float')
-                sns.boxplot(data=boxplot, x=features[a], y='slice_name', ax=ax[a], palette="Set2", orient='h')
+                boxplot_df = pd.concat(boxplot)
+                boxplot_df[features[a]] = boxplot_df[features[a]].astype('float')
+                sns.boxplot(data=boxplot_df, x=features[a], y='slice_name', ax=ax[a], palette="Set2", orient='h')
                 ax[a].set_xlabel('Feature')
                 ax[a].set_ylabel(names[a])
                 ax[a].set_title(names[a], fontsize='large')
