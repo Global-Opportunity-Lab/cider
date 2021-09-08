@@ -1,5 +1,5 @@
-from pyquadkey2.quadkey import QuadKey
-from shapely.geometry import Polygon
+from pyquadkey2.quadkey import QuadKey  # type: ignore[import]
+from shapely.geometry import Polygon  # type: ignore[import]
 
 
 def quadkey_to_polygon(x: str) -> Polygon:

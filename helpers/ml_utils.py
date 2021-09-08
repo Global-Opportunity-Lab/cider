@@ -1,13 +1,13 @@
 from helpers.utils import strictly_increasing
 import numpy as np
-from numpy import array
-import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin, clone
-from sklearn.metrics import confusion_matrix, auc, r2_score
-from typing import Tuple
+from numpy import ndarray
+import pandas as pd  # type: ignore[import]
+from sklearn.base import BaseEstimator, TransformerMixin, clone  # type: ignore[import]
+from sklearn.metrics import confusion_matrix, auc, r2_score  # type: ignore[import]
+from typing import Optional, Tuple
 
 
-def metrics(a1: array, a2: array, p: float) -> Tuple[float, float, float, float, float]:
+def metrics(a1: ndarray, a2: ndarray, p: float) -> Tuple[float, float, float, float, float]:
     """
     Compute classification metrics at a certain threshold, i.e. turn regression into classification by considering the
     bottom p% of targets as belonging to the positive class
@@ -43,7 +43,7 @@ def metrics(a1: array, a2: array, p: float) -> Tuple[float, float, float, float,
     return accuracy, precision, recall, tpr, fpr
 
 
-def auc_overall(a1: array, a2: array) -> float:
+def auc_overall(a1: ndarray, a2: ndarray) -> float:
     """
     Compute AUC score by turning regression problem into classification using 'metrics' function
 
@@ -75,7 +75,7 @@ def auc_overall(a1: array, a2: array) -> float:
 
 class DropMissing(TransformerMixin, BaseEstimator):
 
-    def __init__(self, threshold: float = None) -> None:
+    def __init__(self, threshold: Optional[float] = None) -> None:
         self.threshold = threshold
 
     def fit(self, X, y=None):

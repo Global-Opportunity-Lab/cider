@@ -1,6 +1,6 @@
 from functools import reduce
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import lit
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pyspark.sql.functions import lit  # type: ignore[import]
 from typing import List
 
 

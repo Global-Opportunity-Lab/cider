@@ -1,19 +1,19 @@
 # TODO: Implement weights for ground truth
 from collections import defaultdict
 from datastore import DataStore, DataType
-import geopandas as gpd
+import geopandas as gpd  # type: ignore[import]
 from helpers.utils import get_spark_session, make_dir
 from helpers.plot_utils import voronoi_tessellation
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import countDistinct, hour
-from pyspark.sql.window import Window
-import rasterio
-from rasterio.mask import mask
-from shapely.geometry import mapping
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pyspark.sql.functions import col, count, countDistinct, desc_nulls_last, hour, row_number   # type: ignore[import]
+from pyspark.sql.window import Window  # type: ignore[import]
+import rasterio  # type: ignore[import]
+from rasterio.mask import mask  # type: ignore[import]
+from shapely.geometry import mapping  # type: ignore[import]
 from typing import Dict, Optional, Union
 
 
@@ -30,8 +30,8 @@ class HomeLocator:
         # Initialize values
         self.user_id = 'subscriber_id'
         self.geo = self.cfg.col_names.geo
-        self.home_locations = {}
-        self.accuracy_tables = {}
+        self.home_locations: Dict[str, PandasDataFrame] = {}
+        self.accuracy_tables: Dict[str, PandasDataFrame] = {}
 
         # Prepare working directories
         make_dir(self.outputs, clean_folders)

@@ -1,25 +1,25 @@
 # TODO: parallelize lasso and forward selection
-from box import Box
+from box import Box  # type: ignore[import]
 from helpers.utils import check_columns_exist, check_column_types, make_dir, weighted_corr
 from helpers.plot_utils import clean_plot
 from helpers.ml_utils import Winsorizer
-from joblib import load
+from joblib import load  # type: ignore[import]
 from json import dump
-from lightgbm import LGBMRegressor
-import matplotlib.pyplot as plt
+from lightgbm import LGBMRegressor  # type: ignore[import]
+import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
-from sklearn.compose import ColumnTransformer
-from sklearn.decomposition import PCA
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import Lasso, LinearRegression, Ridge
-from sklearn.metrics import r2_score
-from sklearn.model_selection import cross_validate, cross_val_predict, GridSearchCV
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler
+from sklearn.compose import ColumnTransformer  # type: ignore[import]
+from sklearn.decomposition import PCA  # type: ignore[import]
+from sklearn.ensemble import RandomForestRegressor  # type: ignore[import]
+from sklearn.linear_model import Lasso, LinearRegression, Ridge  # type: ignore[import]
+from sklearn.metrics import r2_score  # type: ignore[import]
+from sklearn.model_selection import cross_validate, cross_val_predict, GridSearchCV  # type: ignore[import]
+from sklearn.pipeline import Pipeline  # type: ignore[import]
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler  # type: ignore[import]
 from typing import List, Tuple, Union
-from wpca import WPCA
+from wpca import WPCA  # type: ignore[import]
 import yaml
 
 
@@ -326,12 +326,12 @@ class SurveyOutcomeGenerator:
                                                       subset['weight'].values.flatten()))
                 else:
                     correlations.append(np.corrcoef(subset[outcome], subset[c])[0][1])
-            correlations = pd.DataFrame([cols, correlations]).T
-            correlations.columns = ['column', 'correlation']
-            correlations['abs_value_correlation'] = np.abs(correlations['correlation'])
-            correlations = correlations.sort_values('abs_value_correlation', ascending=False)
-            correlations.to_csv(out_subdir + '/correlations.csv')
-            return list(correlations[:n_features]['column']), correlations.reset_index()
+            correlations_df = pd.DataFrame([cols, correlations]).T
+            correlations_df.columns = ['column', 'correlation']
+            correlations_df['abs_value_correlation'] = np.abs(correlations_df['correlation'])
+            correlations_df = correlations_df.sort_values('abs_value_correlation', ascending=False)
+            correlations_df.to_csv(out_subdir + '/correlations.csv')
+            return list(correlations_df[:n_features]['column']), correlations_df.reset_index()
 
         # LASSO: Use LASSO regressions for a grid of penalties to select features, use the one which has the closest
         # to n_features features
@@ -421,7 +421,8 @@ class SurveyOutcomeGenerator:
                       (dropped, 100 * dropped / n_obs))
 
             # Stepwise forward selection
-            used_cols, unused_cols, train_scores, test_scores = [], cols, [], []
+            used_cols: List[str] = []
+            unused_cols, train_scores, test_scores = cols, [], []
             if use_weights:
                 weights = data['weight']
             else:

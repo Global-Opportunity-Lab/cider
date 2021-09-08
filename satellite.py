@@ -1,24 +1,29 @@
-from box import Box
-import geopandas as gpd
+from box import Box  # type: ignore[import]
+import geopandas as gpd  # type: ignore[import]
 import glob
 from helpers.io_utils import load_antennas, load_shapefile
 from helpers.plot_utils import voronoi_tessellation
 from helpers.satellite_utils import quadkey_to_polygon
 from helpers.utils import get_spark_session, make_dir
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import os
-import pandas as pd
-import rasterio
-from rasterio.mask import mask
-from rasterio.merge import merge
-from shapely.geometry import mapping
+import pandas as pd  # type: ignore[import]
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+import rasterio  # type: ignore[import]
+from rasterio.mask import mask  # type: ignore[import]
+from rasterio.merge import merge  # type: ignore[import]
+from shapely.geometry import mapping  # type: ignore[import]
+from typing import Dict, Optional
 import yaml
 
 
 class SatellitePredictor:
 
-    def __init__(self, cfg_dir: str, dataframes: dict = None, clean_folders: bool = False) -> None:
+    def __init__(self,
+                 cfg_dir: str,
+                 dataframes: Optional[Dict[str, SparkDataFrame]] = None,
+                 clean_folders: bool = False) -> None:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:

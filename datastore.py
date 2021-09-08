@@ -1,16 +1,19 @@
 from abc import ABC, abstractmethod
-from box import Box
+from box import Box  # type: ignore[import]
 from collections import defaultdict
-from geopandas import GeoDataFrame
+from geopandas import GeoDataFrame  # type: ignore[import]
 from enum import Enum
 import inspect
-from helpers.io_utils import *
+from helpers.io_utils import load_antennas, load_shapefile, load_cdr, load_mobilemoney, load_mobiledata, load_recharges
 from helpers.opt_utils import generate_user_consent_list
+from helpers.utils import get_spark_session, filter_dates_dataframe, make_dir, save_df
+import os
+import pandas as pd  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-import pyspark.sql.functions as F
-from pyspark.sql.functions import col, count, lit
-from typing import Dict, List, Optional, Union
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+import pyspark.sql.functions as F  # type: ignore[import]
+from pyspark.sql.functions import col, count, countDistinct, lit
+from typing import Callable, Dict, List, Optional, Union
 import yaml
 
 
@@ -29,7 +32,7 @@ class DataType(Enum):
 
 class InitializerInterface(ABC):
     @abstractmethod
-    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]):
+    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
         pass
 
 
@@ -61,15 +64,15 @@ class DataStore(InitializerInterface):
         # Possible datasets to opt in/out of
         self.datasets = ['cdr', 'recharges', 'mobiledata', 'mobilemoney', 'features']
         # featurizer/home location datasets
-        self.cdr = None
-        self.cdr_bandicoot = None
-        self.recharges = None
-        self.mobiledata = None
-        self.mobilemoney = None
-        self.antennas = None
+        self.cdr: Optional[SparkDataFrame] = None
+        self.cdr_bandicoot: Optional[SparkDataFrame] = None
+        self.recharges: Optional[SparkDataFrame] = None
+        self.mobiledata: Optional[SparkDataFrame] = None
+        self.mobilemoney: Optional[SparkDataFrame] = None
+        self.antennas: Optional[SparkDataFrame] = None
         self.shapefiles: Union[Dict[str, GeoDataFrame]] = {}
-        self.ground_truth = None
-        self.poverty_scores = None
+        self.ground_truth: Optional[PandasDataFrame] = None
+        self.poverty_scores: Optional[PandasDataFrame] = None
         # ml datasets
         self.features: Optional[SparkDataFrame] = None
         self.labels: Optional[SparkDataFrame] = None
@@ -79,16 +82,16 @@ class DataStore(InitializerInterface):
         self.weights = None
 
         # Define mapping between data types and loading methods
-        self.data_type_to_fn_map = {DataType.CDR: self._load_cdr,
-                                    DataType.ANTENNAS: self._load_antennas,
-                                    DataType.RECHARGES: self._load_recharges,
-                                    DataType.MOBILEDATA: self._load_mobiledata,
-                                    DataType.MOBILEMONEY: self._load_mobilemoney,
-                                    DataType.SHAPEFILES: self._load_shapefiles,
-                                    DataType.HOMEGROUNDTRUTH: self._load_home_ground_truth,
-                                    DataType.POVERTYSCORES: self._load_poverty_scores,
-                                    DataType.FEATURES: self._load_features,
-                                    DataType.LABELS: self._load_labels}
+        self.data_type_to_fn_map: Dict[DataType, Callable] = {DataType.CDR: self._load_cdr,
+                                                              DataType.ANTENNAS: self._load_antennas,
+                                                              DataType.RECHARGES: self._load_recharges,
+                                                              DataType.MOBILEDATA: self._load_mobiledata,
+                                                              DataType.MOBILEMONEY: self._load_mobilemoney,
+                                                              DataType.SHAPEFILES: self._load_shapefiles,
+                                                              DataType.HOMEGROUNDTRUTH: self._load_home_ground_truth,
+                                                              DataType.POVERTYSCORES: self._load_poverty_scores,
+                                                              DataType.FEATURES: self._load_features,
+                                                              DataType.LABELS: self._load_labels}
 
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -207,7 +210,7 @@ class DataStore(InitializerInterface):
         # Make the smallest weight 1
         self.weights = self.merged['weight'] / self.merged['weight'].min()
 
-    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]):
+    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
         """
         Load all datasets defined by data_type_map
         Args:
@@ -242,7 +245,7 @@ class DataStore(InitializerInterface):
             if dataset is not None:
                 setattr(self, dataset_name, dataset.distinct())
 
-    def remove_spammers(self, spammer_threshold=100):
+    def remove_spammers(self, spammer_threshold: float = 100) -> SparkDataFrame:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
         if self.cdr is None:
             raise ValueError('CDR must be loaded to identify and remove spammers.')
@@ -273,7 +276,7 @@ class DataStore(InitializerInterface):
 
         return self.spammers
 
-    def filter_outlier_days(self, num_sds=2):
+    def filter_outlier_days(self, num_sds: float = 2) -> List:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
         if self.cdr is None:
             raise ValueError('CDR must be loaded to identify and remove outlier days.')
@@ -315,7 +318,7 @@ class OptDataStore(DataStore):
         self._user_consent = None
 
     @property
-    def user_consent(self):
+    def user_consent(self) -> SparkDataFrame:
         return self._user_consent
 
     @user_consent.setter
@@ -393,7 +396,7 @@ class OptDataStore(DataStore):
                              .withColumn('include', F.when(col(user_col_name).isin(user_ids), True)
                                          .otherwise(col('include'))))
 
-    def opt_out(self, user_ids: List[str]):
+    def opt_out(self, user_ids: List[str]) -> None:
         """
         Update the user consent table based on list of user ids that have opted out
         Args:

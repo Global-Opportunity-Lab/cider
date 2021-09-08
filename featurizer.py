@@ -1,24 +1,25 @@
 from collections import defaultdict
-import bandicoot as bc
+import bandicoot as bc  # type: ignore[import]
 from datastore import DataStore, DataType
-import geopandas as gpd
+import geopandas as gpd  # type: ignore[import]
 from helpers.utils import cdr_bandicoot_format, flatten_folder, flatten_lst, long_join_pyspark, long_join_pandas, \
     make_dir, save_df, save_parquet
 from helpers.features import all_spark
 from helpers.io_utils import get_spark_session
 from helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
 import json
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # type: ignore[import]
 from multiprocessing import Pool
 import os
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.types import *
-from pyspark.sql.functions import array, col, countDistinct, explode, lit, first
-from pyspark.sql.utils import AnalysisException
-import seaborn as sns
-from typing import Dict, List, Optional, Union
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pyspark.sql.types import StringType  # type: ignore[import]
+from pyspark.sql.functions import array, col, count, countDistinct, explode, first, lit  # type: ignore[import]
+from pyspark.sql.functions import max, mean, min, stddev, sum
+from pyspark.sql.utils import AnalysisException  # type: ignore[import]
+import seaborn as sns  # type: ignore[import]
+from typing import Any, Dict, List, Optional, Union
 
 
 class Featurizer:
@@ -37,8 +38,8 @@ class Featurizer:
         make_dir(self.outputs + '/plots/')
         make_dir(self.outputs + '/tables/')
 
-        self.features = {'cdr': None, 'international': None, 'recharges': None,
-                         'location': None, 'mobiledata': None, 'mobilemoney': None}
+        self.features: Dict[str, Optional[SparkDataFrame]] = {'cdr': None, 'international': None, 'recharges': None,
+                                                              'location': None, 'mobiledata': None, 'mobilemoney': None}
 
         # Spark setup
         # TODO(lucio): Initialize spark separately ....
@@ -65,7 +66,7 @@ class Featurizer:
 
         Returns: dict of dicts containing summary stats - {'CDR': {'Transactions': 2.3, ...}, ...}
         """
-        statistics = {}
+        statistics: Dict[str, Dict[str, int]] = {}
 
         for name, df in [('CDR', self.ds.cdr),
                          ('Recharges', self.ds.recharges),
@@ -219,13 +220,13 @@ class Featurizer:
                 print('Warning: lost %i subscribers in file shuffling' % len(unmatched))
 
             # Calculate bandicoot features
-            def get_bc(sub):
+            def get_bc(sub: Any) -> Any:
                 return bc.utils.all(bc.read_csv(str(sub), recs_folder, describe=True), summary='extended',
                                     split_week=True,
                                     split_day=True, groupby=None)
 
             # Write out bandicoot feature files
-            def write_bc(index, iterator):
+            def write_bc(index: Any, iterator: Any) -> Any:
                 bc.to_csv(list(iterator), bc_folder + '/' + str(index) + '.csv')
                 return ['index: ' + str(index)]
 

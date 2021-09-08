@@ -1,18 +1,18 @@
 # from autogluon.tabular import TabularPredictor
-from box import Box
-import geopandas as gpd
+from box import Box  # type: ignore[import]
+import geopandas as gpd  # type: ignore[import]
 from geopandas import GeoDataFrame
 from helpers.utils import get_spark_session, make_dir
-from joblib import load
+from joblib import load  # type: ignore[import]
 import os
-from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import date_trunc, to_timestamp
+from pandas import DataFrame as PandasDataFrame  # type: ignore[import]
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pyspark.sql.functions import col, date_trunc, to_timestamp  # type: ignore[import]
 from typing import Dict, List, Optional, Union
 
 
 def load_generic(cfg: Box,
-                 fname: str = None,
+                 fname: Optional[str] = None,
                  df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> SparkDataFrame:
     """
     Args:
@@ -94,7 +94,7 @@ def standardize_col_names(df: SparkDataFrame, col_names: Dict[str, str]) -> Spar
 
 
 def load_cdr(cfg: Box,
-             fname: str = None,
+             fname: Optional[str] = None,
              df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
              verify: bool = True) -> SparkDataFrame:
     """
@@ -140,7 +140,7 @@ def load_cdr(cfg: Box,
 
 
 def load_antennas(cfg: Box,
-                  fname: str = None,
+                  fname: Optional[str] = None,
                   df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
                   verify: bool = True) -> SparkDataFrame:
     """
@@ -177,7 +177,7 @@ def load_antennas(cfg: Box,
 
 
 def load_recharges(cfg: Box,
-                   fname: str = None,
+                   fname: Optional[str] = None,
                    df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> SparkDataFrame:
     """
     Load recharges' dataset
@@ -207,7 +207,7 @@ def load_recharges(cfg: Box,
 
 
 def load_mobiledata(cfg: Box,
-                    fname: str = None,
+                    fname: Optional[str] = None,
                     df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> SparkDataFrame:
     """
     Load mobile data dataset
@@ -237,7 +237,7 @@ def load_mobiledata(cfg: Box,
 
 
 def load_mobilemoney(cfg: Box,
-                     fname: str = None,
+                     fname: Optional[str] = None,
                      df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
                      verify: bool = True) -> SparkDataFrame:
     """

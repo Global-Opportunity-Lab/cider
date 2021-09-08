@@ -1,14 +1,15 @@
-from box import Box
+from box import Box  # type: ignore[import]
 import numpy as np
+from numpy import ndarray
 import os
-import pandas as pd
+import pandas as pd  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.types import *
-from pyspark.sql.functions import *
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pyspark.sql.types import IntegerType, StringType  # type: ignore[import]
+from pyspark.sql.functions import col, date_format, lit  # type: ignore[import]
 from pyspark.sql import SparkSession
 import shutil
-from typing import List, Union
+from typing import List, Tuple, Union
 
 
 def get_spark_session(cfg: Box) -> SparkSession:
@@ -84,9 +85,9 @@ def flatten_lst(lst: List[List]) -> List:
     return [item for sublist in lst for item in sublist]
 
 
-def flatten_folder(args):
+def flatten_folder(args: Tuple) -> List[str]:
     ids, recs_folder = args
-    unmatched = []
+    unmatched: List[str] = []
     for p in ids:
         try:
             fname = 'name=' + p
@@ -222,13 +223,13 @@ def check_column_types(data: PandasDataFrame, continuous: List[str], categorical
 
 
 # Source: https://stackoverflow.com/questions/38641691/weighted-correlation-coefficient-with-pandas
-def weighted_mean(x, w):
+def weighted_mean(x: ndarray, w: ndarray) -> float:
     return np.sum(x * w) / np.sum(w)
 
 
-def weighted_cov(x, y, w):
+def weighted_cov(x: ndarray, y: ndarray, w: ndarray) -> float:
     return np.sum(w * (x - weighted_mean(x, w)) * (y - weighted_mean(y, w))) / np.sum(w)
 
 
-def weighted_corr(x, y, w):
+def weighted_corr(x: ndarray, y: ndarray, w: ndarray) -> float:
     return weighted_cov(x, y, w) / np.sqrt(weighted_cov(x, x, w) * weighted_cov(y, y, w))
