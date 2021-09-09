@@ -1,21 +1,29 @@
-from box import Box
-import geopandas as gpd
+from box import Box  # type: ignore[import]
+import geopandas as gpd  # type: ignore[import]
 import glob
-from helpers.io_utils import *
-from helpers.plot_utils import *
-from helpers.satellite_utils import *
-from helpers.utils import *
+from helpers.io_utils import load_antennas, load_shapefile
+from helpers.plot_utils import voronoi_tessellation
+from helpers.satellite_utils import quadkey_to_polygon
+from helpers.utils import get_spark_session, make_dir
+import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
-import rasterio
-from rasterio.mask import mask
-from rasterio.merge import merge
-from shapely.geometry import mapping
+import os
+import pandas as pd  # type: ignore[import]
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+import rasterio  # type: ignore[import]
+from rasterio.mask import mask  # type: ignore[import]
+from rasterio.merge import merge  # type: ignore[import]
+from shapely.geometry import mapping  # type: ignore[import]
+from typing import Dict, Optional
 import yaml
 
 
 class SatellitePredictor:
 
-    def __init__(self, cfg_dir: str, dataframes: dict = None, clean_folders: bool = False):
+    def __init__(self,
+                 cfg_dir: str,
+                 dataframes: Optional[Dict[str, SparkDataFrame]] = None,
+                 clean_folders: bool = False) -> None:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
@@ -62,14 +70,21 @@ class SatellitePredictor:
         for shapefile_fname in shapefiles.keys():
             self.shapefiles[shapefile_fname] = load_shapefile(data + shapefiles[shapefile_fname])
 
-    def aggregate_scores(self, dataset: str = 'rwi'):
+    def aggregate_scores(self, dataset: str = 'rwi') -> None:
+        """
+        Aggregate poverty scores contained in a raster dataset, like the Relative Wealth Index, to a certain geographic
+        level, taking into account population density levels
+
+        Args:
+            dataset: which poverty scores to use - only 'rwi' for now
+        """
         # Check data is loaded and preprocess it
         if dataset == 'rwi':
             if self.rwi is None:
                 raise ValueError("The RWI data has not been loaded.")
             scores = self.rwi
             scores = scores.rename(columns={'rwi': 'score'})
-            scores['polygon'] = scores.apply(quadkey_to_polygon, axis=1)
+            scores['polygon'] = scores['quadkey'].map(quadkey_to_polygon)
         else:
             raise NotImplementedError("'{scores}' scores are not supported yet.")
 

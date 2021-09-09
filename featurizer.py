@@ -1,13 +1,25 @@
-import bandicoot as bc
-import yaml
-import sys
-
-from helpers.utils import *
-from helpers.features import *
-from helpers.io_utils import *
-from helpers.plot_utils import *
-from datastore import *
-from pyspark.sql.utils import AnalysisException
+from collections import defaultdict
+import bandicoot as bc  # type: ignore[import]
+from datastore import DataStore, DataType
+import geopandas as gpd  # type: ignore[import]
+from helpers.utils import cdr_bandicoot_format, flatten_folder, flatten_lst, long_join_pyspark, long_join_pandas, \
+    make_dir, save_df, save_parquet
+from helpers.features import all_spark
+from helpers.io_utils import get_spark_session
+from helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
+import json
+import matplotlib.pyplot as plt  # type: ignore[import]
+from multiprocessing import Pool
+import os
+import pandas as pd  # type: ignore[import]
+from pandas import DataFrame as PandasDataFrame
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pyspark.sql.types import StringType  # type: ignore[import]
+from pyspark.sql.functions import array, col, count, countDistinct, explode, first, lit  # type: ignore[import]
+from pyspark.sql.functions import max, mean, min, stddev, sum
+from pyspark.sql.utils import AnalysisException  # type: ignore[import]
+import seaborn as sns  # type: ignore[import]
+from typing import Any, Dict, List, Optional, Union
 
 
 class Featurizer:
@@ -26,8 +38,8 @@ class Featurizer:
         make_dir(self.outputs + '/plots/')
         make_dir(self.outputs + '/tables/')
 
-        self.features = {'cdr': None, 'international': None, 'recharges': None,
-                         'location': None, 'mobiledata': None, 'mobilemoney': None}
+        self.features: Dict[str, Optional[SparkDataFrame]] = {'cdr': None, 'international': None, 'recharges': None,
+                                                              'location': None, 'mobiledata': None, 'mobilemoney': None}
 
         # Spark setup
         # TODO(lucio): Initialize spark separately ....
@@ -45,9 +57,16 @@ class Featurizer:
         # Load data into datastore
         self.ds.load_data(data_type_map=data_type_map)
 
-    def diagnostic_statistics(self, write=True):
+    def diagnostic_statistics(self, write: bool = True) -> Dict[str, Dict[str, int]]:
+        """
+        Compute summary statistics of datasets
 
-        statistics = {}
+        Args:
+            write: whether to write json to disk
+
+        Returns: dict of dicts containing summary stats - {'CDR': {'Transactions': 2.3, ...}, ...}
+        """
+        statistics: Dict[str, Dict[str, int]] = {}
 
         for name, df in [('CDR', self.ds.cdr),
                          ('Recharges', self.ds.recharges),
@@ -78,8 +97,13 @@ class Featurizer:
 
         return statistics
 
-    def diagnostic_plots(self, plot=True):
+    def diagnostic_plots(self, plot: bool = True) -> None:
+        """
+        Compute time series of transactions, save to disk, and plot if requested
 
+        Args:
+            plot: whether to plot graphs
+        """
         for name, df in [('CDR', self.ds.cdr),
                          ('Recharges', self.ds.recharges),
                          ('Mobile Data', self.ds.mobiledata),
@@ -94,8 +118,10 @@ class Featurizer:
                         self.outputs + '/datasets/' + name.replace(' ', '') + '_transactionsbyday.csv')
 
                 # Save timeseries of subscribers by day
-                save_df(df.groupby(['txn_type', 'day']).agg(countDistinct('caller_id')).withColumnRenamed(
-                    'count(caller_id)', 'count'), \
+                save_df(df
+                        .groupby(['txn_type', 'day'])
+                        .agg(countDistinct('caller_id'))
+                        .withColumnRenamed('count(caller_id)', 'count'),
                         self.outputs + '/datasets/' + name.replace(' ', '') + '_subscribersbyday.csv')
 
                 if plot:
@@ -133,8 +159,14 @@ class Featurizer:
                     clean_plot(ax)
                     plt.savefig(self.outputs + '/plots/' + name.replace(' ', '') + '_subscribersbyday.png', dpi=300)
 
-    def cdr_features(self, bc_chunksize=500000, bc_processes=55):
+    def cdr_features(self, bc_chunksize: int = 500000, bc_processes: int = 55) -> None:
+        """
+        Compute CDR features using bandicoot library and save to disk
 
+        Args:
+            bc_chunksize: number of users per chunk
+            bc_processes: number of processes to run in parallel
+        """
         # Check that CDR is present to calculate international features
         if self.ds.cdr is None:
             raise ValueError('CDR file must be loaded to calculate CDR features.')
@@ -188,13 +220,13 @@ class Featurizer:
                 print('Warning: lost %i subscribers in file shuffling' % len(unmatched))
 
             # Calculate bandicoot features
-            def get_bc(sub):
+            def get_bc(sub: Any) -> Any:
                 return bc.utils.all(bc.read_csv(str(sub), recs_folder, describe=True), summary='extended',
-                                    split_week=True, \
+                                    split_week=True,
                                     split_day=True, groupby=None)
 
             # Write out bandicoot feature files
-            def write_bc(index, iterator):
+            def write_bc(index: Any, iterator: Any) -> Any:
                 bc.to_csv(list(iterator), bc_folder + '/' + str(index) + '.csv')
                 return ['index: ' + str(index)]
 
@@ -216,22 +248,23 @@ class Featurizer:
         save_df(cdr_features, self.outputs + '/datasets/bandicoot_features/all.csv')
         self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/bandicoot_features/all.csv', header=True)
 
-    def cdr_features_spark(self):
-
+    def cdr_features_spark(self) -> None:
+        """
+        Compute CDR features using spark and save to disk
+        """
         # Check that CDR is present to calculate international features
         if self.ds.cdr is None:
             raise ValueError('CDR file must be loaded to calculate CDR features.')
         print('Calculating CDR features...')
 
         cdr_features = all_spark(self.ds.cdr, self.ds.antennas, cfg=self.cfg.params.cdr)
-        cdr_features = long_join_pyspark(cdr_features, on='caller_id', how='outer')
-        cdr_features = cdr_features.withColumnRenamed('caller_id', 'name')
+        cdr_features_df = long_join_pyspark(cdr_features, on='caller_id', how='outer')
+        cdr_features_df = cdr_features_df.withColumnRenamed('caller_id', 'name')
 
-        save_df(cdr_features, self.outputs + '/datasets/cdr_features_spark/all.csv')
+        save_df(cdr_features_df, self.outputs + '/datasets/cdr_features_spark/all.csv')
         self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/cdr_features_spark/all.csv', header=True)
 
-    def international_features(self):
-
+    def international_features(self) -> None:
         # Check that CDR is present to calculate international features
         if self.ds.cdr is None:
             raise ValueError('CDR file must be loaded to calculate international features.')
@@ -260,14 +293,14 @@ class Featurizer:
                 feats.append(grouped)
 
         # Combine all aggregations together, write to file
-        feats = long_join_pandas(feats, on='caller_id', how='outer').rename({'caller_id': 'name'}, axis=1)
-        feats['name'] = feats.index
-        feats.columns = [c if c == 'name' else 'international_' + c for c in feats.columns]
-        feats.to_csv(self.outputs + '/datasets/international_feats.csv', index=False)
+        feats_df= long_join_pandas(feats, on='caller_id', how='outer').rename({'caller_id': 'name'}, axis=1)
+        feats_df['name'] = feats_df.index
+        feats_df.columns = [c if c == 'name' else 'international_' + c for c in feats_df.columns]
+        feats_df.to_csv(self.outputs + '/datasets/international_feats.csv', index=False)
         self.features['international'] = self.spark.read.csv(self.outputs + '/datasets/international_feats.csv',
                                                              header=True)
 
-    def location_features(self):
+    def location_features(self) -> None:
 
         # Check that antennas and CDR are present to calculate spatial features
         if self.ds.cdr is None:
@@ -334,7 +367,7 @@ class Featurizer:
         feats.to_csv(self.outputs + '/datasets/location_features.csv', index=False)
         self.features['location'] = self.spark.read.csv(self.outputs + '/datasets/location_features.csv', header=True)
 
-    def mobiledata_features(self):
+    def mobiledata_features(self) -> None:
 
         # Check that mobile internet data is loaded
         if self.ds.mobiledata is None:
@@ -356,7 +389,7 @@ class Featurizer:
         self.features['mobiledata'] = feats
         save_df(feats, self.outputs + '/datasets/mobiledata_features.csv')
 
-    def mobilemoney_features(self):
+    def mobilemoney_features(self) -> None:
 
         # Check that mobile money is loaded
         if self.ds.mobilemoney is None:
@@ -439,7 +472,7 @@ class Featurizer:
         self.features['mobilemoney'] = self.spark.read.csv(self.outputs + '/datasets/mobilemoney_feats.csv',
                                                            header=True)
 
-    def recharges_features(self):
+    def recharges_features(self) -> None:
 
         if self.ds.recharges is None:
             raise ValueError('Recharges file must be loaded to calculate recharges features.')
@@ -457,7 +490,10 @@ class Featurizer:
         save_df(feats, self.outputs + '/datasets/recharges_feats.csv')
         self.features['recharges'] = self.spark.read.csv(self.outputs + '/datasets/recharges_feats.csv', header=True)
 
-    def load_features(self):
+    def load_features(self) -> None:
+        """
+        Load features from disk if already computed
+        """
         data_path = self.outputs + '/datasets/'
 
         features = ['cdr', 'cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
@@ -471,7 +507,13 @@ class Featurizer:
                 except AnalysisException:
                     print(f"Could not locate or read data for '{dataset}'")
 
-    def all_features(self, read_from_disk=False):
+    def all_features(self, read_from_disk: bool = False) -> None:
+        """
+        Join all feature datasets together, save to disk and assign to attribute
+
+        Args:
+            read_from_disk: whether to load features from disk
+        """
         if read_from_disk:
             self.load_features()
 
@@ -480,7 +522,13 @@ class Featurizer:
         save_df(all_features, self.outputs + '/datasets/features.csv')
         self.features['all'] = self.spark.read.csv(self.outputs + '/datasets/features.csv', header=True)
 
-    def feature_plots(self, read_from_disk=False):
+    def feature_plots(self, read_from_disk: bool = False) -> None:
+        """
+        Plot the distribution of a select number of features
+
+        Args:
+            read_from_disk: whether to load features from disk
+        """
         if read_from_disk:
             self.load_features()
 
@@ -586,9 +634,9 @@ class Featurizer:
                         slice = users.select(['name', features[a]]).toPandas()
                         slice['slice_name'] = slice_name
                         boxplot.append(slice)
-                boxplot = pd.concat(boxplot)
-                boxplot[features[a]] = boxplot[features[a]].astype('float')
-                sns.boxplot(data=boxplot, x=features[a], y='slice_name', ax=ax[a], palette="Set2", orient='h')
+                boxplot_df = pd.concat(boxplot)
+                boxplot_df[features[a]] = boxplot_df[features[a]].astype('float')
+                sns.boxplot(data=boxplot_df, x=features[a], y='slice_name', ax=ax[a], palette="Set2", orient='h')
                 ax[a].set_xlabel('Feature')
                 ax[a].set_ylabel(names[a])
                 ax[a].set_title(names[a], fontsize='large')

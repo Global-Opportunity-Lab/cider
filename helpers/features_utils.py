@@ -1,7 +1,7 @@
-from pyspark.sql import DataFrame as SparkDataFrame
-import pyspark.sql.functions as F
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+import pyspark.sql.functions as F  # type: ignore[import]
 from pyspark.sql.functions import col, lit
-from pyspark.sql.window import Window
+from pyspark.sql.window import Window  # type: ignore[import]
 from typing import List
 
 

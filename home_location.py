@@ -1,11 +1,20 @@
 # TODO: Implement weights for ground truth
-
-from helpers.utils import *
-from helpers.plot_utils import *
-from datastore import *
-import rasterio
-from rasterio.mask import mask
-from shapely.geometry import mapping
+from collections import defaultdict
+from datastore import DataStore, DataType
+import geopandas as gpd  # type: ignore[import]
+from helpers.utils import get_spark_session, make_dir
+from helpers.plot_utils import voronoi_tessellation
+import matplotlib.pyplot as plt  # type: ignore[import]
+import numpy as np
+import pandas as pd  # type: ignore[import]
+from pandas import DataFrame as PandasDataFrame
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pyspark.sql.functions import col, count, countDistinct, desc_nulls_last, hour, row_number   # type: ignore[import]
+from pyspark.sql.window import Window  # type: ignore[import]
+import rasterio  # type: ignore[import]
+from rasterio.mask import mask  # type: ignore[import]
+from shapely.geometry import mapping  # type: ignore[import]
+from typing import Dict, Optional, Union
 
 
 class HomeLocator:
@@ -13,7 +22,7 @@ class HomeLocator:
     def __init__(self,
                  datastore: DataStore,
                  dataframes: Optional[Dict[str, Union[PandasDataFrame, SparkDataFrame]]] = None,
-                 clean_folders=False):
+                 clean_folders: bool = False):
         self.cfg = datastore.cfg
         self.ds = datastore
         self.outputs = datastore.outputs + 'homelocation/'
@@ -21,8 +30,8 @@ class HomeLocator:
         # Initialize values
         self.user_id = 'subscriber_id'
         self.geo = self.cfg.col_names.geo
-        self.home_locations = {}
-        self.accuracy_tables = {}
+        self.home_locations: Dict[str, PandasDataFrame] = {}
+        self.accuracy_tables: Dict[str, PandasDataFrame] = {}
 
         # Prepare working directories
         make_dir(self.outputs, clean_folders)
@@ -60,7 +69,7 @@ class HomeLocator:
 
         # Filter CDR to only desired hours
         if self.ds.filter_hours is not None:
-            self.ds.cdr = self.ds.cdr.where(col('hour').isin(self.filter_hours))
+            self.ds.cdr = self.ds.cdr.where(col('hour').isin(self.ds.filter_hours))
 
         # Get tower ID for each transaction
         if self.geo == 'tower_id':
@@ -88,7 +97,15 @@ class HomeLocator:
         elif self.geo != 'antenna_id':
             raise ValueError('Invalid geography, must be antenna_id, tower_id, or shapefile name')
 
-    def get_home_locations(self, algo='count_transactions'):
+    def get_home_locations(self, algo: str = 'count_transactions') -> PandasDataFrame:
+        """
+        Infer home locations of users based on their CDR transactions
+
+        Args:
+            algo: algorithm to use, to be chosen from ['count_transactions', 'count_days', count_modal_days]
+
+        Returns: pandas df with inferred home location for each user
+        """
 
         if algo == 'count_transactions':
             grouped = self.ds.cdr.groupby([self.user_id, self.geo]).agg(count('timestamp').alias('count_transactions'))
@@ -117,27 +134,39 @@ class HomeLocator:
                 .select([self.user_id, self.geo, 'count_modal_days'])
 
         else:
-            raise ValueError('Home location algorithm not recognized. Must be one of count_transactions, count_days, or count_modal_days')
+            raise ValueError('Home location algorithm not recognized. Must be one of count_transactions, count_days, '
+                             'or count_modal_days')
 
         grouped = grouped.toPandas()
         grouped.to_csv(self.outputs + '/outputs/' + self.geo + '_' + algo + '.csv', index=False)
         self.home_locations[algo] = grouped
         return grouped
 
-    def accuracy(self, algo='count_transactions', table=True, map=True):
+    def accuracy(self, algo: str = 'count_transactions') -> PandasDataFrame:
+        """
+        Use ground truth data on users' homes to compute accuracy metrics for the inferred home locations
+
+        Args:
+            algo: use home locations inferred using algo
+
+        Returns: accuracy table (accuracy, precision, recall) as pandas df
+        """
 
         if self.ds.ground_truth is None:
             raise ValueError('Ground truth dataset must be loaded to calculate accuracy statistics.')
         
         # Inner join ground truth data and inferred home locations
-        merged = self.home_locations[algo].rename({self.geo: self.geo + '_inferred'}, axis=1)\
-            .merge(self.ds.ground_truth.rename({self.geo: self.geo + '_groundtruth'}, axis=1), on=self.user_id, how='inner')
-        print('Observations with inferred home location: %i (%i unique)' % (len(self.home_locations[algo]),
-            len(self.home_locations[algo][self.user_id].unique())))
-        print('Observations with ground truth home location: %i (%i unique)' % (len(self.ds.ground_truth), len(self.ds.ground_truth[self.user_id].unique())))
+        merged = (self.home_locations[algo]
+                  .rename({self.geo: self.geo + '_inferred'}, axis=1)
+                  .merge(self.ds.ground_truth.rename({self.geo: self.geo + '_groundtruth'}, axis=1),
+                         on=self.user_id, how='inner'))
+        print('Observations with inferred home location: %i (%i unique)' %
+              (len(self.home_locations[algo]), len(self.home_locations[algo][self.user_id].unique())))
+        print('Observations with ground truth home location: %i (%i unique)' %
+              (len(self.ds.ground_truth), len(self.ds.ground_truth[self.user_id].unique())))
         print('Observations with both: %i (%i unique)' % (len(merged), len(merged[self.user_id].unique())))
 
-        # Correct observatiosn are ones where the groundtruth home location is the same as the inferred home location
+        # Correct observations are ones where the groundtruth home location is the same as the inferred home location
         merged['correct'] = merged[self.geo + '_inferred'] == merged[self.geo + '_groundtruth']
 
         # Calculate overall accuracy (percent of observations correctly located)
@@ -157,7 +186,16 @@ class HomeLocator:
         self.accuracy_tables[algo] = table
         return table
 
-    def map(self, algo='count_transactions', kind='population', voronoi=False):
+    def map(self, algo: str = 'count_transactions', kind: str = 'population', voronoi: bool = False) -> None:
+        """
+        Plot distribution of homes, accuracy of home locations, or average poverty score (predicted using the ML model
+        or otherwise) on a map
+
+        Args:
+            algo: algorithm responsible for the home inference
+            kind: indicator to plot - ['precision', 'recall', 'poverty']
+            voronoi: whether to use voronoi tessellation when plotting at the antenna/tower level
+        """
 
         if self.ds.antennas is None:
             raise ValueError('Antennas must be loaded to construct maps.')
@@ -174,10 +212,13 @@ class HomeLocator:
         # Get population assigned to each antenna/tower/polygon
         population = self.home_locations[algo].groupby(self.geo).agg('count').rename({self.user_id:'population'}, axis=1)
         
-        # For poverty map, get average polygon for subscribers assigned to each antenna/tower/polygon and merge with population data
+        # For poverty map, get average polygon for subscribers assigned to each antenna/tower/polygon and merge with
+        # population data
         if kind == 'poverty':
-            poverty = self.home_locations[algo].merge(self.ds.poverty_scores.rename({'name':self.user_id}, axis=1), on=self.user_id, how='inner')
-            poverty = poverty.groupby(self.geo).agg('mean').rename({'predicted':'poverty'}, axis=1)
+            poverty = (self.home_locations[algo]
+                       .merge(self.ds.poverty_scores.rename({'name': self.user_id}, axis=1),
+                              on=self.user_id, how='inner'))
+            poverty = poverty.groupby(self.geo).agg('mean').rename({'predicted': 'poverty'}, axis=1)
             population = population.merge(poverty, on=self.geo, how='left')
         
         # If accuracy map, merge accuracy data with population data
@@ -223,13 +264,14 @@ class HomeLocator:
         # Create map
         fig, ax = plt.subplots(1, figsize=(10, 10))
 
-        if self.geo in ['antenna_id', 'tower_id'] and voronoi==False:
+        if self.geo in ['antenna_id', 'tower_id'] and voronoi is False:
             
             # If points map and shapefile loaded, plot shapefile as background to map
             if len(self.ds.shapefiles.keys()) > 0:
                 list(self.ds.shapefiles.values())[0].plot(ax=ax, color='lightgrey')
             
-            # Plot points, sized by population and colored by outcome of interest. Plot points with no population/outcome in light grey. 
+            # Plot points, sized by population and colored by outcome of interest. Plot points with no
+            # population/outcome in light grey.
             population.plot(ax=ax, column=kind, markersize=population['population']*10000, legend=True, legend_kwds={'shrink':0.5})
             population[(pd.isnull(population[kind])) | (population['population'] == 0)].plot(ax=ax, color='grey', markersize=10, legend=False)
 
@@ -241,14 +283,22 @@ class HomeLocator:
 
         # Clean and save plot
         ax.axis('off')
-        title = 'Population Map' if kind == 'population' else 'Poverty Map' if kind == 'poverty' else 'Precision Map' if kind == 'precision' \
-             else 'Recall Map'
+        title = 'Population Map' if kind == 'population' else 'Poverty Map' if kind == 'poverty' else 'Precision Map' \
+            if kind == 'precision' else 'Recall Map'
         ax.set_title(title)
         plt.tight_layout()
-        plt.savefig(self.outputs + '/maps/' + self.geo + '_' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.png', dpi=300)
+        plt.savefig(self.outputs + '/maps/' + self.geo + '_' + algo + '_' + kind + '_voronoi' + str(voronoi) + '.png',
+                    dpi=300)
         plt.show()
 
-    def pop_comparison(self, algo='count_transactions'):
+    def pop_comparison(self, algo: str = 'count_transactions') -> None:
+        """
+        Use a population density raster - e.g. FB D4G's high resolution density maps - to compare the distribution of
+        inferred home locations to the population
+
+        Args:
+            algo: algorithm responsible for the home inference
+        """
         # Get population assigned to each antenna/tower/polygon
         if algo in self.home_locations:
             homes = self.home_locations[algo].groupby(self.geo).agg('count')\
