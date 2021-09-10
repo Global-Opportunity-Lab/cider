@@ -1,16 +1,19 @@
 from abc import ABC, abstractmethod
-from box import Box
+from box import Box  # type: ignore[import]
 from collections import defaultdict
-from geopandas import GeoDataFrame
+from geopandas import GeoDataFrame  # type: ignore[import]
 from enum import Enum
 import inspect
-from helpers.io_utils import *
+from helpers.io_utils import load_antennas, load_shapefile, load_cdr, load_mobilemoney, load_mobiledata, load_recharges
 from helpers.opt_utils import generate_user_consent_list
+from helpers.utils import get_spark_session, filter_dates_dataframe, make_dir, save_df
+import os
+import pandas as pd  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-import pyspark.sql.functions as F
-from pyspark.sql.functions import col, count, lit
-from typing import Dict, List, Optional, Union
+from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+import pyspark.sql.functions as F  # type: ignore[import]
+from pyspark.sql.functions import col, count, countDistinct, lit
+from typing import Callable, Dict, List, Optional, Union
 import yaml
 
 
@@ -29,7 +32,7 @@ class DataType(Enum):
 
 class InitializerInterface(ABC):
     @abstractmethod
-    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]):
+    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
         pass
 
 
@@ -46,6 +49,9 @@ class DataStore(InitializerInterface):
         file_names = cfg.path.file_names
         self.file_names = file_names
 
+        # Create directories
+        make_dir(self.outputs + '/datasets/')
+
         # Parameters
         self.filter_hours = self.cfg.params.home_location.filter_hours
         self.geo = self.cfg.col_names.geo
@@ -58,34 +64,34 @@ class DataStore(InitializerInterface):
         # Possible datasets to opt in/out of
         self.datasets = ['cdr', 'recharges', 'mobiledata', 'mobilemoney', 'features']
         # featurizer/home location datasets
-        self.cdr = None
-        self.cdr_bandicoot = None
-        self.recharges = None
-        self.mobiledata = None
-        self.mobilemoney = None
-        self.antennas = None
+        self.cdr: SparkDataFrame
+        self.cdr_bandicoot: SparkDataFrame
+        self.recharges: SparkDataFrame
+        self.mobiledata: SparkDataFrame
+        self.mobilemoney: SparkDataFrame
+        self.antennas: SparkDataFrame
         self.shapefiles: Union[Dict[str, GeoDataFrame]] = {}
-        self.ground_truth = None
-        self.poverty_scores = None
+        self.ground_truth: PandasDataFrame
+        self.poverty_scores: PandasDataFrame
         # ml datasets
-        self.features: Optional[SparkDataFrame] = None
-        self.labels: Optional[SparkDataFrame] = None
-        self.merged: Optional[PandasDataFrame] = None
+        self.features: SparkDataFrame
+        self.labels: SparkDataFrame
+        self.merged: PandasDataFrame
         self.x = None
         self.y = None
         self.weights = None
 
         # Define mapping between data types and loading methods
-        self.data_type_to_fn_map = {DataType.CDR: self._load_cdr,
-                                    DataType.ANTENNAS: self._load_antennas,
-                                    DataType.RECHARGES: self._load_recharges,
-                                    DataType.MOBILEDATA: self._load_mobiledata,
-                                    DataType.MOBILEMONEY: self._load_mobilemoney,
-                                    DataType.SHAPEFILES: self._load_shapefiles,
-                                    DataType.HOMEGROUNDTRUTH: self._load_home_ground_truth,
-                                    DataType.POVERTYSCORES: self._load_poverty_scores,
-                                    DataType.FEATURES: self._load_features,
-                                    DataType.LABELS: self._load_labels}
+        self.data_type_to_fn_map: Dict[DataType, Callable] = {DataType.CDR: self._load_cdr,
+                                                              DataType.ANTENNAS: self._load_antennas,
+                                                              DataType.RECHARGES: self._load_recharges,
+                                                              DataType.MOBILEDATA: self._load_mobiledata,
+                                                              DataType.MOBILEMONEY: self._load_mobilemoney,
+                                                              DataType.SHAPEFILES: self._load_shapefiles,
+                                                              DataType.HOMEGROUNDTRUTH: self._load_home_ground_truth,
+                                                              DataType.POVERTYSCORES: self._load_poverty_scores,
+                                                              DataType.FEATURES: self._load_features,
+                                                              DataType.LABELS: self._load_labels}
 
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -188,6 +194,8 @@ class DataStore(InitializerInterface):
         """
         Merge features and labels, split into x and y dataframes
         """
+        if self.features is None or self.labels is None:
+            raise ValueError("Features and/or labels have not been loaded!")
         print('Number of observations with features: %i (%i unique)' %
               (self.features.count(), self.features.select('name').distinct().count()))
         print('Number of observations with labels: %i (%i unique)' %
@@ -204,9 +212,9 @@ class DataStore(InitializerInterface):
         # Make the smallest weight 1
         self.weights = self.merged['weight'] / self.merged['weight'].min()
 
-    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]):
+    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
         """
-        Load all datasets defined by data_type_map
+        Load all datasets defined by data_type_map; raise an error if any of them failed to load
         Args:
             data_type_map: mapping between DataType(s) and dataframes, if provided. If None look at config file
         """
@@ -217,6 +225,15 @@ class DataStore(InitializerInterface):
                 fn(dataframe=value)
             else:
                 fn()
+
+        # Check if any datasets failed to load, raise an error if true
+        failed_load = []
+        for key in data_type_map:
+            dataset = key.name.lower()
+            if getattr(self, dataset) is None:
+                failed_load.append(dataset)
+        if failed_load:
+            raise ValueError(f"The following datasets failed to load: {', '.join(failed_load)}")
 
     def filter_dates(self, start_date: str, end_date: str) -> None:
         """
@@ -239,7 +256,7 @@ class DataStore(InitializerInterface):
             if dataset is not None:
                 setattr(self, dataset_name, dataset.distinct())
 
-    def remove_spammers(self, spammer_threshold=100):
+    def remove_spammers(self, spammer_threshold: float = 100) -> SparkDataFrame:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
         if self.cdr is None:
             raise ValueError('CDR must be loaded to identify and remove spammers.')
@@ -254,7 +271,7 @@ class DataStore(InitializerInterface):
         # Get list of spammers
         self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(
             lambda r: r[0]).collect()
-        pd.DataFrame(self.spammers).to_csv(self.outputs + '/datasets/spammers.csv', index=False)
+        pd.DataFrame(self.spammers).to_csv(self.outputs + 'datasets/spammers.csv', index=False)
         print('Number of spammers identified: %i' % len(self.spammers))
 
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
@@ -270,17 +287,17 @@ class DataStore(InitializerInterface):
 
         return self.spammers
 
-    def filter_outlier_days(self, num_sds=2):
+    def filter_outlier_days(self, num_sds: float = 2) -> List:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
         if self.cdr is None:
             raise ValueError('CDR must be loaded to identify and remove outlier days.')
 
         # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
-        if not os.path.isfile(self.outputs + '/datasets/CDR_transactionsbyday.csv'):
-            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.outputs + '/datasets/CDR_transactionsbyday.csv')
+        if not os.path.isfile(self.outputs + 'datasets/CDR_transactionsbyday.csv'):
+            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.outputs + 'datasets/CDR_transactionsbyday.csv')
 
         # Read in timeseries of subscribers by day
-        timeseries = pd.read_csv(self.outputs + '/datasets/CDR_transactionsbyday.csv')
+        timeseries = pd.read_csv(self.outputs + 'datasets/CDR_transactionsbyday.csv')
 
         # Calculate timeseries of all transaction (voice + SMS together)
         timeseries = timeseries.groupby('day', as_index=False).agg('sum')
@@ -291,7 +308,7 @@ class DataStore(InitializerInterface):
 
         # Obtain list of outlier days
         outliers = timeseries[(timeseries['count'] < bottomrange) | (timeseries['count'] > toprange)]
-        outliers.to_csv(self.outputs + '/datasets/outlier_days.csv', index=False)
+        outliers.to_csv(self.outputs + 'datasets/outlier_days.csv', index=False)
         outliers = list(outliers['day'])
         print('Outliers removed: ' + ', '.join([outlier.split('T')[0] for outlier in outliers]))
 
@@ -312,7 +329,7 @@ class OptDataStore(DataStore):
         self._user_consent = None
 
     @property
-    def user_consent(self):
+    def user_consent(self) -> SparkDataFrame:
         return self._user_consent
 
     @user_consent.setter
@@ -390,7 +407,7 @@ class OptDataStore(DataStore):
                              .withColumn('include', F.when(col(user_col_name).isin(user_ids), True)
                                          .otherwise(col('include'))))
 
-    def opt_out(self, user_ids: List[str]):
+    def opt_out(self, user_ids: List[str]) -> None:
         """
         Update the user consent table based on list of user ids that have opted out
         Args:

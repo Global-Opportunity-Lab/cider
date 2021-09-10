@@ -1,0 +1,27 @@
+# Table of contents
+# Learn more at https://jupyterbook.org/customize/toc.html
+
+format: jb-book
+root: intro
+parts:
+  - caption: Quickstart
+    chapters:
+    - file: quickstart/installation
+    - file: quickstart/config
+    - file: quickstart/poverty_survey
+    - file: quickstart/documentation_featurizer
+    - file: quickstart/documentation_ml
+    - file: quickstart/documentation_home_location
+  - caption: Standardized data formats
+    chapters:
+    - file: data_formats/cdr
+    - file: data_formats/antennas
+    - file: data_formats/recharges
+    - file: data_formats/mobile_data
+    - file: data_formats/mobile_money
+    - file: data_formats/spatial
+    - file: data_formats/features
+    - file: data_formats/poverty_labels
+    - file: data_formats/home_locations
+    - file: data_formats/survey_data
+

@@ -1,16 +1,27 @@
-spark:
-  app_name: "mm"
+# Configuration file
+
+The configuration file - example at `configs/config.yml` - is used to store all relevant configurations, like paths to \
+the datasets and spark parameters. It should be appropriately edited before executing the code. <br>
+
+The first parameters to set are those related to spark:
+
+```
+spark: 
+  app_name: "mm" 
   files:
     max_partition_bytes: 67108864
   driver:
-    memory: "8g"
-    max_result_size: "2g"
+    memory: "8g" // driver memory
+    max_result_size: "2g" // maximum result size when collecting to driver
   loglevel: "ERROR"
+```
 
+Then we set the paths to the folders that store our files, and also specify the file names:
 
+```
 path:
-  data: "/Users/luciomelito/Documents/GD/cider/synthetic_data/"
-  features: '/Users/luciomelito/Documents/GD/cider/outputs/featurizer/datasets/features.csv'
+  data: "/Users/example/Documents/GD/cider/synthetic_data/"
+  features: '/Users/example/Documents/GD/cider/outputs/featurizer/datasets/features.csv'
   file_names:
     antennas: 'antennas.csv'
     cdr: 'cdr.csv'
@@ -27,10 +38,14 @@ path:
       cantons: 'cantons.geojson'
       prefectures: 'prefectures.geojson'
     user_consent: null
-  outputs: "/Users/luciomelito/Documents/GD/cider/outputs/"
-  wd: "/Users/luciomelito/Documents/GD/cider/"
+  outputs: "/Users/example/Documents/GD/cider/outputs/"  // output folder
+  wd: "/Users/example/Documents/GD/cider/"  // working directory
+```
 
+The featurizer module expects certain column and column names, and we can define them in the following section of the 
+config file:
 
+```
 col_names:
   cdr:
     txn_type: "txn_type"
@@ -64,24 +79,20 @@ col_names:
     sender_balance_after: "sender_balance_after"
     recipient_balance_before: "recipient_balance_before"
     recipient_balance_after: "recipient_balance_after"
-  geo: 'cantons'
+  geo: 'tower_id'
+```
 
+We also have to set a few parameters that will affect the behaviour of some modules:
 
-col_types:
-  survey:
-    continuous: [ "con0", "con1", "con2", "con3", "con4", "con5", "con6", "con7", "con8", "con9" ]
-    categorical: [ "cat0", "cat1", "cat2", "cat3", "cat4", "cat5", "cat6", "cat7", "cat8", "cat9" ]
-    binary: [ "bin0", "bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8", "bin9" ]
-
-
+```
 params:
   cdr:
-    weekend: [1, 7]
-    start_of_day: 7
-    end_of_day: 19
+    weekend: [1, 7] // definition of weekend (Sun = 1 to Sat = 7)
+    start_of_day: 7 // hour when day starts (used to define day/night)
+    end_of_day: 19 // hour when night starts (used to define day/night)
   home_location:
-    filter_hours: null
-  automl:
+    filter_hours: null // hours to filter out when inferring home locations
+  automl: // params used by the autoML libraries
     autosklearn:
       time_left: 3600
       n_jobs: 1
@@ -91,9 +102,12 @@ params:
       eval_metric: 'r2'
       label: 'label'
       sample_weight: 'weight'
-  opt_in_default: false
+  opt_in_default: false // if true opt-in is set as default, i.e. all users give their consent unless they opt-out
+```
 
+Finally, we can set the hyper-parameters that will be tested during a grid-search performed by the ML module"
 
+```
 hyperparams:
   'linear':
     'dropmissing__threshold': [0.9, 1]
@@ -123,3 +137,4 @@ hyperparams:
     'model__num_leaves': [ 5, 10, 20 ]
     'model__learning_rate': [ 0.05, 0.075, 0.1 ]
     'model__n_estimators': [ 50, 100, 200 ]
+```
