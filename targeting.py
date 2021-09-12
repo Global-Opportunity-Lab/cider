@@ -35,7 +35,8 @@ class Targeting:
             self.data['weight'] = 1
         else:
             self.weighted_data['weight'] = self.weighted_data['weight']/self.weighted_data['weight'].min()
-        self.weighted_data = pd.DataFrame(np.repeat(self.weighted_data.values, self.weighted_data['weight'], axis=0), columns=self.weighted_data.columns)
+        self.weighted_data = pd.DataFrame(np.repeat(self.weighted_data.values, self.weighted_data['weight'], axis=0), columns=self.weighted_data.columns)\
+            .astype(self.unweighted_data.dtypes)
 
 
     def threshold_to_percentile(self, p, t, data, var, test_percentiles=True):
@@ -61,12 +62,12 @@ class Targeting:
 
     def pearson(self, var1, var2, weighted=False):
         data = self.weighted_data if weighted else self.unweighted_data
-        return np.corrcoef(data[var1], data[var2])[0][1]
+        return np.corrcoef(data[var1].astype('float'), data[var2].astype('float'))[0][1]
     
 
     def spearman (self, var1, var2, weighted=False):
         data = self.weighted_data if weighted else self.unweighted_data
-        return spearmanr(data[var1], data[var2])[0]
+        return spearmanr(data[var1].astype('float'), data[var2].astype('float'))[0]
 
 
     def binary_metrics(self, var1, var2, p1, p2, t1=None, t2=None, weighted=False):
@@ -118,7 +119,7 @@ class Targeting:
         p = self.threshold_to_percentile(p, t, data, var1)
 
         # Stack var1 and var2 together
-        a = np.vstack([data[var1].values.flatten(), data[var2].values.flatten()])
+        a = np.vstack([data[var1].astype('float').values.flatten(), data[var2].astype('float').values.flatten()])
 
         # Order by var1, assign targeting
         num_ones = int((p/100)*len(data))
@@ -295,7 +296,7 @@ class Targeting:
         if p is None:
             ax.set_title('Threshold-Agnostic Precision-Recall Curves')
         else:
-            ax.set_title('Precision-Recall Curves: Threshold=' + str(p) + '%')
+            ax.set_title('Precision-Recall Curves: Threshold=' + str(int(p)) + '%')
         clean_plot(ax)
 
         # Save and show plot
