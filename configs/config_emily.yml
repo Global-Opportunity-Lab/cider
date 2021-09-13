@@ -41,6 +41,16 @@ path:
         'prefectures': '/prefectures.geojson'
       poverty_scores: null
       groundtruth: '/home_locations.csv'
+  targeting:
+    data: "/data/togo_anon/paper/datasets"
+    outputs: "../tests/outputs/targeting"
+    file_names:
+      data: '/cider_survey2018_fairness.csv'
+  fairness:
+    data: "/data/togo_anon/paper/datasets"
+    outputs: "../tests/outputs/fairness"
+    file_names:
+      data: '/cider_survey2018_fairness.csv'
 
 
 col_names:
