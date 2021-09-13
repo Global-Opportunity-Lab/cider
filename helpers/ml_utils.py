@@ -1,7 +1,7 @@
 from helpers.utils import strictly_increasing
 import numpy as np
 from numpy import ndarray
-import pandas as pd  # type: ignore[import]
+import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin, clone  # type: ignore[import]
 from sklearn.metrics import confusion_matrix, auc, r2_score  # type: ignore[import]
 from typing import Optional, Tuple

@@ -8,7 +8,7 @@ from json import dump
 from lightgbm import LGBMRegressor  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
-import pandas as pd  # type: ignore[import]
+import pandas as pd
 from pandas import DataFrame as PandasDataFrame
 from sklearn.compose import ColumnTransformer  # type: ignore[import]
 from sklearn.decomposition import PCA  # type: ignore[import]
@@ -18,14 +18,14 @@ from sklearn.metrics import r2_score  # type: ignore[import]
 from sklearn.model_selection import cross_validate, cross_val_predict, GridSearchCV  # type: ignore[import]
 from sklearn.pipeline import Pipeline  # type: ignore[import]
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler  # type: ignore[import]
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 from wpca import WPCA  # type: ignore[import]
 import yaml
 
 
 class SurveyOutcomeGenerator:
 
-    def __init__(self, cfg_dir: str, dataframe: PandasDataFrame = None, clean_folders: bool = False) -> None:
+    def __init__(self, cfg_dir: str, dataframe: Optional[PandasDataFrame] = None, clean_folders: bool = False) -> None:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
@@ -228,14 +228,14 @@ class SurveyOutcomeGenerator:
         print('R2 score: %.2f' % r2)
         return predictions
 
-    def pretrained_pmt(self, other_data: Union[str, PandasDataFrame], cols: List[str],
+    def pretrained_pmt(self, other_data_in: Union[str, PandasDataFrame], cols: List[str],
                        model_name: str, dataset_name: str = 'other_data') -> PandasDataFrame:
         """
         Use a pre-trained PMT model to predict the outcome variable in another dataset - check that the latter has the
         same columns and data types of the original survey that was used to train the PMT
 
         Args:
-            other_data: new dataset to get predictions for
+            other_data_in: new dataset to get predictions for, either as path or as pandas df
             cols: input columns
             model_name: PMT model to use
             dataset_name: name of new dataset
@@ -248,8 +248,10 @@ class SurveyOutcomeGenerator:
         make_dir(out_subdir, True)
 
         # Load data
-        if isinstance(other_data, str):
-            other_data = pd.read_csv(other_data)
+        if isinstance(other_data_in, str):
+            other_data = pd.read_csv(other_data_in)
+        else:
+            other_data = other_data_in
 
         # Check that all columns are present and check column types
         original_data = pd.read_csv(self.outputs + '/pmt_' + model_name + '/predictions.csv')
@@ -361,7 +363,7 @@ class SurveyOutcomeGenerator:
             alphas = np.linspace(0, 1, 100)[1:]
             train_scores, test_scores, features = [], [], []
             if use_weights:
-                weights = data['weight']
+                weights = data['weight'].values
             else:
                 weights = np.ones(len(data))
             for alpha in alphas:

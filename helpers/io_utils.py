@@ -5,7 +5,7 @@ from geopandas import GeoDataFrame
 from helpers.utils import get_spark_session, make_dir
 from joblib import load  # type: ignore[import]
 import os
-from pandas import DataFrame as PandasDataFrame  # type: ignore[import]
+from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
 from pyspark.sql.functions import col, date_trunc, to_timestamp  # type: ignore[import]
 from typing import Dict, List, Optional, Union

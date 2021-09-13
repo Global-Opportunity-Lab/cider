@@ -6,7 +6,7 @@ from helpers.utils import get_spark_session, make_dir
 from helpers.plot_utils import voronoi_tessellation
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
-import pandas as pd  # type: ignore[import]
+import pandas as pd
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
 from pyspark.sql.functions import col, count, countDistinct, desc_nulls_last, hour, row_number   # type: ignore[import]

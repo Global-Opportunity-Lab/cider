@@ -8,8 +8,8 @@ from helpers.io_utils import load_antennas, load_shapefile, load_cdr, load_mobil
 from helpers.opt_utils import generate_user_consent_list
 from helpers.utils import get_spark_session, filter_dates_dataframe, make_dir, save_df
 import os
-import pandas as pd  # type: ignore[import]
-from pandas import DataFrame as PandasDataFrame
+import pandas as pd
+from pandas import DataFrame as PandasDataFrame, Series
 from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
 import pyspark.sql.functions as F  # type: ignore[import]
 from pyspark.sql.functions import col, count, countDistinct, lit
@@ -77,8 +77,8 @@ class DataStore(InitializerInterface):
         self.features: SparkDataFrame
         self.labels: SparkDataFrame
         self.merged: PandasDataFrame
-        self.x = None
-        self.y = None
+        self.x: PandasDataFrame
+        self.y: Series
         self.weights = None
 
         # Define mapping between data types and loading methods
@@ -320,7 +320,8 @@ class DataStore(InitializerInterface):
                 outlier = pd.to_datetime(outlier)
                 if getattr(self, df_name, None) is not None:
                     setattr(self, df_name, getattr(self, df_name)
-                            .where((col('timestamp') < outlier) | (col('timestamp') >= outlier + pd.Timedelta(days=1))))
+                            .where((col('timestamp') < outlier) |
+                                   (col('timestamp') >= outlier + pd.Timedelta(value=1, unit='days'))))
 
         return outliers
 

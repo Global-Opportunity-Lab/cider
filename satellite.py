@@ -8,7 +8,7 @@ from helpers.utils import get_spark_session, make_dir
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import os
-import pandas as pd  # type: ignore[import]
+import pandas as pd
 from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
 import rasterio  # type: ignore[import]
 from rasterio.mask import mask  # type: ignore[import]

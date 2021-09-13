@@ -2,7 +2,7 @@ from box import Box  # type: ignore[import]
 import numpy as np
 from numpy import ndarray
 import os
-import pandas as pd  # type: ignore[import]
+import pandas as pd
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
 from pyspark.sql.types import IntegerType, StringType  # type: ignore[import]
@@ -10,6 +10,7 @@ from pyspark.sql.functions import col, date_format, lit  # type: ignore[import]
 from pyspark.sql import SparkSession
 import shutil
 from typing import List, Tuple, Union
+from typing_extensions import Literal
 
 
 def get_spark_session(cfg: Box) -> SparkSession:
@@ -64,7 +65,7 @@ def filter_dates_dataframe(df: SparkDataFrame,
     if colname not in df.columns:
         raise ValueError('Cannot filter dates because missing timestamp column')
     df = df.where(col(colname) >= pd.to_datetime(start_date))
-    df = df.where(col(colname) < pd.to_datetime(end_date) + pd.Timedelta(days=1))
+    df = df.where(col(colname) < pd.to_datetime(end_date) + pd.Timedelta(value=1, unit='days'))
     return df
 
 
@@ -144,7 +145,9 @@ def cdr_bandicoot_format(cdr: SparkDataFrame, antennas: SparkDataFrame, cfg: Box
     return cdr_bandicoot
 
 
-def long_join_pandas(dfs: List[PandasDataFrame], on: str, how: str) -> PandasDataFrame:
+def long_join_pandas(dfs: List[PandasDataFrame], on: str,
+                     how: Union[Literal['left'], Literal['right'],
+                                Literal['outer'], Literal['inner']]) -> PandasDataFrame:
     """
     Join list of pandas dfs
 

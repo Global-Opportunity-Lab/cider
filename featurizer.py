@@ -11,7 +11,7 @@ import json
 import matplotlib.pyplot as plt  # type: ignore[import]
 from multiprocessing import Pool
 import os
-import pandas as pd  # type: ignore[import]
+import pandas as pd
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
 from pyspark.sql.types import StringType  # type: ignore[import]
