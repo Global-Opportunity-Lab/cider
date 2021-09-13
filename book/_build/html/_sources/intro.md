@@ -9,8 +9,5 @@ mobile data usage, and mobile money usage. Cider provides three main features:
 labeled with a poverty outcomes, built on scikit-learn. 
 - **Home location inference** to infer home tower or region using CDR with a set of built-in algorithms, built on PySpark 
 and GeoPandas. 
-- **Targeting evaluations** to compare targeting on mobile phone-based poverty predictions to alternative targeting methods.
-- **Fairness evaluations** to use demographic data to ensure that targeting methods, including mobile-phone-based poverty predictions, are not biased against specific sub-groups. 
-
 <br><br>
 Download cider from [github](https://github.com/emilylaiken/cider). 

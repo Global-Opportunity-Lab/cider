@@ -12,6 +12,8 @@ parts:
     - file: quickstart/documentation_featurizer
     - file: quickstart/documentation_ml
     - file: quickstart/documentation_home_location
+    - file: quickstart/documentation_targeting
+    - file: quickstart/documentation_fairness
   - caption: Standardized data formats
     chapters:
     - file: data_formats/cdr
@@ -24,4 +26,5 @@ parts:
     - file: data_formats/poverty_labels
     - file: data_formats/home_locations
     - file: data_formats/survey_data
+    - file: data_formats/targeting_data
 

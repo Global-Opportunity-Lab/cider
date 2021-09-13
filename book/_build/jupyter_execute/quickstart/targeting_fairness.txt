@@ -1,0 +1,12 @@
+outcome_generator = Targeting('/path/to/config/file', clean_folders=True)
+
+targeting.targeting_table('ground_truth', ['proxy1', 'proxy2', 'proxy3', 'proxy4'], 50, 10, weighted=False)
+
+targeting.roc_curves('ground_truth', ['proxy1', 'proxy2', 'proxy3', 'proxy4'], p=None, weighted=False)
+targeting.precision_recall_curves('ground_truth', ['proxy1', 'proxy2', 'proxy3', 'proxy4'], p=50, weighted=False)
+
+targeting.roc_curves('ground_truth', ['proxy1', 'proxy2', 'proxy3', 'proxy4'], p=50, weighted=False)
+targeting.precision_recall_curves('ground_truth', ['proxy1', 'proxy2', 'proxy3', 'proxy4'], p=50, weighted=False)
+
+targeting.utility_curves('ground_truth', ['proxy1', 'proxy2', 'proxy3', 'proxy4'], 0.01, weighted=False)
+targeting.utility_table('ground_truth', ['proxy1', 'proxy2', 'proxy3', 'proxy4'], 0.01, weighted=False)

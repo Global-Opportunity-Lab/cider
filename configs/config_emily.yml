@@ -41,6 +41,16 @@ path:
         'prefectures': '/prefectures.geojson'
       poverty_scores: null
       groundtruth: '/home_locations.csv'
+  targeting:
+    data: "../../synthetic_data"
+    outputs: "../../tests/outputs/targeting"
+    file_names:
+      data: '/targeting.csv'
+  fairness:
+    data: "../../synthetic_data"
+    outputs: "../../tests/outputs/fairness"
+    file_names:
+      data: '/fairness.csv'
 
 
 col_names:

@@ -1,0 +1,477 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Configuration file &#8212; CIDER</title>
+    
+  <link href="../_static/css/theme.css" rel="stylesheet" />
+  <link href="../_static/css/index.c5995385ac14fb8791e8eb36b4908be2.css" rel="stylesheet" />
+
+    
+  <link rel="stylesheet"
+    href="../_static/vendor/fontawesome/5.13.0/css/all.min.css">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="../_static/vendor/fontawesome/5.13.0/webfonts/fa-solid-900.woff2">
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+    href="../_static/vendor/fontawesome/5.13.0/webfonts/fa-brands-400.woff2">
+
+    
+      
+
+    
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/sphinx-book-theme.e8f53015daec13862f6db5e763c41738.css" type="text/css" />
+    <link rel="stylesheet" type="text/css" href="../_static/togglebutton.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/mystnb.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-thebe.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/panels-main.c949a650a448cc0ae9fd3441c0e17fb0.css" />
+    <link rel="stylesheet" type="text/css" href="../_static/panels-variables.06eb56fa6e07937060861dad626602ad.css" />
+    
+  <link rel="preload" as="script" href="../_static/js/index.1c5a1a01449ed65a7b51.js">
+
+    <script id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+    <script src="../_static/jquery.js"></script>
+    <script src="../_static/underscore.js"></script>
+    <script src="../_static/doctools.js"></script>
+    <script src="../_static/togglebutton.js"></script>
+    <script src="../_static/clipboard.min.js"></script>
+    <script src="../_static/copybutton.js"></script>
+    <script >var togglebuttonSelector = '.toggle, .admonition.dropdown, .tag_hide_input div.cell_input, .tag_hide-input div.cell_input, .tag_hide_output div.cell_output, .tag_hide-output div.cell_output, .tag_hide_cell.cell, .tag_hide-cell.cell';</script>
+    <script src="../_static/sphinx-book-theme.12a9622fbb08dcb3a2a40b2c02b83a57.js"></script>
+    <script async="async" src="https://unpkg.com/thebe@0.5.1/lib/index.js"></script>
+    <script >
+        const thebe_selector = ".thebe"
+        const thebe_selector_input = "pre"
+        const thebe_selector_output = ".output"
+    </script>
+    <script async="async" src="../_static/sphinx-thebe.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Poverty Outcome Generation from Survey Data" href="poverty_survey.html" />
+    <link rel="prev" title="Installation" href="installation.html" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="docsearch:language" content="en" />
+    
+  </head>
+  <body data-spy="scroll" data-target="#bd-toc-nav" data-offset="80">
+    
+    <div class="container-fluid" id="banner"></div>
+
+    
+
+    <div class="container-xl">
+      <div class="row">
+          
+<div class="col-12 col-md-3 bd-sidebar site-navigation show" id="site-navigation">
+    
+        <div class="navbar-brand-box">
+    <a class="navbar-brand text-wrap" href="../index.html">
+      
+      
+      <h1 class="site-logo" id="site-title">CIDER</h1>
+      
+    </a>
+</div><form class="bd-search d-flex align-items-center" action="../search.html" method="get">
+  <i class="icon fas fa-search"></i>
+  <input type="search" class="form-control" name="q" id="search-input" placeholder="Search this book..." aria-label="Search this book..." autocomplete="off" >
+</form><nav class="bd-links" id="bd-docs-nav" aria-label="Main">
+    <div class="bd-toc-item active">
+        <ul class="nav bd-sidenav">
+ <li class="toctree-l1">
+  <a class="reference internal" href="../intro.html">
+   Introduction
+  </a>
+ </li>
+</ul>
+<p class="caption">
+ <span class="caption-text">
+  Quickstart
+ </span>
+</p>
+<ul class="current nav bd-sidenav">
+ <li class="toctree-l1">
+  <a class="reference internal" href="installation.html">
+   Installation
+  </a>
+ </li>
+ <li class="toctree-l1 current active">
+  <a class="current reference internal" href="#">
+   Configuration file
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="poverty_survey.html">
+   Poverty Outcome Generation from Survey Data
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="documentation_featurizer.html">
+   Featurizer
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="documentation_ml.html">
+   Machine Learning
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="documentation_home_location.html">
+   Home Location Inference
+  </a>
+ </li>
+</ul>
+<p class="caption">
+ <span class="caption-text">
+  Standardized data formats
+ </span>
+</p>
+<ul class="nav bd-sidenav">
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/cdr.html">
+   CDR (call and text)
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/antennas.html">
+   Antennas
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/recharges.html">
+   Recharges
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/mobile_data.html">
+   Mobile Data Usage
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/mobile_money.html">
+   Mobile Money
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/spatial.html">
+   Spatial Files
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/features.html">
+   Features
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/poverty_labels.html">
+   Poverty Labels
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/home_locations.html">
+   Home Location Labels
+  </a>
+ </li>
+ <li class="toctree-l1">
+  <a class="reference internal" href="../data_formats/survey_data.html">
+   Survey Data
+  </a>
+ </li>
+</ul>
+
+    </div>
+</nav> <!-- To handle the deprecated key -->
+
+<div class="navbar_extra_footer">
+  Powered by <a href="https://jupyterbook.org">Jupyter Book</a>
+</div>
+
+</div>
+
+
+          
+
+
+          
+<main class="col py-md-3 pl-md-4 bd-content overflow-auto" role="main">
+    
+    <div class="topbar container-xl fixed-top">
+    <div class="topbar-contents row">
+        <div class="col-12 col-md-3 bd-topbar-whitespace site-navigation show"></div>
+        <div class="col pl-md-4 topbar-main">
+            
+            <button id="navbar-toggler" class="navbar-toggler ml-0" type="button" data-toggle="collapse"
+                data-toggle="tooltip" data-placement="bottom" data-target=".site-navigation" aria-controls="navbar-menu"
+                aria-expanded="true" aria-label="Toggle navigation" aria-controls="site-navigation"
+                title="Toggle navigation" data-toggle="tooltip" data-placement="left">
+                <i class="fas fa-bars"></i>
+                <i class="fas fa-arrow-left"></i>
+                <i class="fas fa-arrow-up"></i>
+            </button>
+            
+            
+<div class="dropdown-buttons-trigger">
+    <button id="dropdown-buttons-trigger" class="btn btn-secondary topbarbtn" aria-label="Download this page"><i
+            class="fas fa-download"></i></button>
+
+    <div class="dropdown-buttons">
+        <!-- ipynb file if we had a myst markdown file -->
+        
+        <!-- Download raw file -->
+        <a class="dropdown-buttons" href="../_sources/quickstart/config.md"><button type="button"
+                class="btn btn-secondary topbarbtn" title="Download source file" data-toggle="tooltip"
+                data-placement="left">.md</button></a>
+        <!-- Download PDF via print -->
+        <button type="button" id="download-print" class="btn btn-secondary topbarbtn" title="Print to PDF"
+            onClick="window.print()" data-toggle="tooltip" data-placement="left">.pdf</button>
+    </div>
+</div>
+
+            <!-- Source interaction buttons -->
+
+<div class="dropdown-buttons-trigger">
+    <button id="dropdown-buttons-trigger" class="btn btn-secondary topbarbtn"
+        aria-label="Connect with source repository"><i class="fab fa-github"></i></button>
+    <div class="dropdown-buttons sourcebuttons">
+        <a class="repository-button"
+            href="https://github.com/emilylaiken/cider"><button type="button" class="btn btn-secondary topbarbtn"
+                data-toggle="tooltip" data-placement="left" title="Source repository"><i
+                    class="fab fa-github"></i>repository</button></a>
+        <a class="issues-button"
+            href="https://github.com/emilylaiken/cider/issues/new?title=Issue%20on%20page%20%2Fquickstart/config.html&body=Your%20issue%20content%20here."><button
+                type="button" class="btn btn-secondary topbarbtn" data-toggle="tooltip" data-placement="left"
+                title="Open an issue"><i class="fas fa-lightbulb"></i>open issue</button></a>
+        
+    </div>
+</div>
+
+            <!-- Full screen (wrap in <a> to have style consistency -->
+
+<a class="full-screen-button"><button type="button" class="btn btn-secondary topbarbtn" data-toggle="tooltip"
+        data-placement="bottom" onclick="toggleFullScreen()" aria-label="Fullscreen mode"
+        title="Fullscreen mode"><i
+            class="fas fa-expand"></i></button></a>
+
+            <!-- Launch buttons -->
+
+        </div>
+
+        <!-- Table of contents -->
+        <div class="d-none d-md-block col-md-2 bd-toc show">
+            
+        </div>
+    </div>
+</div>
+    <div id="main-content" class="row">
+        <div class="col-12 col-md-9 pl-md-3 pr-md-0">
+        
+              <div>
+                
+  <div class="section" id="configuration-file">
+<h1>Configuration file<a class="headerlink" href="#configuration-file" title="Permalink to this headline">¶</a></h1>
+<p>The configuration file - example at <code class="docutils literal notranslate"><span class="pre">configs/config.yml</span></code> - is used to store all relevant configurations, like paths to <br />
+the datasets and spark parameters. It should be appropriately edited before executing the code. <br></p>
+<p>The first parameters to set are those related to spark:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">spark</span><span class="p">:</span> 
+  <span class="n">app_name</span><span class="p">:</span> <span class="s2">&quot;mm&quot;</span> 
+  <span class="n">files</span><span class="p">:</span>
+    <span class="n">max_partition_bytes</span><span class="p">:</span> <span class="mi">67108864</span>
+  <span class="n">driver</span><span class="p">:</span>
+    <span class="n">memory</span><span class="p">:</span> <span class="s2">&quot;8g&quot;</span> <span class="o">//</span> <span class="n">driver</span> <span class="n">memory</span>
+    <span class="n">max_result_size</span><span class="p">:</span> <span class="s2">&quot;2g&quot;</span> <span class="o">//</span> <span class="n">maximum</span> <span class="n">result</span> <span class="n">size</span> <span class="n">when</span> <span class="n">collecting</span> <span class="n">to</span> <span class="n">driver</span>
+  <span class="n">loglevel</span><span class="p">:</span> <span class="s2">&quot;ERROR&quot;</span>
+</pre></div>
+</div>
+<p>Then we set the paths to the folders that store our files, and also specify the file names:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">path</span><span class="p">:</span>
+  <span class="n">data</span><span class="p">:</span> <span class="s2">&quot;/Users/example/Documents/GD/cider/synthetic_data/&quot;</span>
+  <span class="n">features</span><span class="p">:</span> <span class="s1">&#39;/Users/example/Documents/GD/cider/outputs/featurizer/datasets/features.csv&#39;</span>
+  <span class="n">file_names</span><span class="p">:</span>
+    <span class="n">antennas</span><span class="p">:</span> <span class="s1">&#39;antennas.csv&#39;</span>
+    <span class="n">cdr</span><span class="p">:</span> <span class="s1">&#39;cdr.csv&#39;</span>
+    <span class="n">home_ground_truth</span><span class="p">:</span> <span class="s1">&#39;home_locations.csv&#39;</span>
+    <span class="n">labels</span><span class="p">:</span> <span class="s1">&#39;labels.csv&#39;</span>
+    <span class="n">mobiledata</span><span class="p">:</span> <span class="s1">&#39;mobiledata.csv&#39;</span>
+    <span class="n">mobilemoney</span><span class="p">:</span> <span class="s1">&#39;mobilemoney.csv&#39;</span>
+    <span class="n">population</span><span class="p">:</span> <span class="s1">&#39;population_tgo_2019-07-01.tif&#39;</span>
+    <span class="n">poverty_scores</span><span class="p">:</span> <span class="n">null</span>
+    <span class="n">recharges</span><span class="p">:</span> <span class="s1">&#39;recharges.csv&#39;</span>
+    <span class="n">rwi</span><span class="p">:</span> <span class="s1">&#39;/TGO_relative_wealth_index.csv&#39;</span>
+    <span class="n">shapefiles</span><span class="p">:</span>
+      <span class="n">regions</span><span class="p">:</span> <span class="s1">&#39;regions.geojson&#39;</span>
+      <span class="n">cantons</span><span class="p">:</span> <span class="s1">&#39;cantons.geojson&#39;</span>
+      <span class="n">prefectures</span><span class="p">:</span> <span class="s1">&#39;prefectures.geojson&#39;</span>
+    <span class="n">user_consent</span><span class="p">:</span> <span class="n">null</span>
+  <span class="n">outputs</span><span class="p">:</span> <span class="s2">&quot;/Users/example/Documents/GD/cider/outputs/&quot;</span>  <span class="o">//</span> <span class="n">output</span> <span class="n">folder</span>
+  <span class="n">wd</span><span class="p">:</span> <span class="s2">&quot;/Users/example/Documents/GD/cider/&quot;</span>  <span class="o">//</span> <span class="n">working</span> <span class="n">directory</span>
+</pre></div>
+</div>
+<p>The featurizer module expects certain column and column names, and we can define them in the following section of the
+config file:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">col_names</span><span class="p">:</span>
+  <span class="n">cdr</span><span class="p">:</span>
+    <span class="n">txn_type</span><span class="p">:</span> <span class="s2">&quot;txn_type&quot;</span>
+    <span class="n">caller_id</span><span class="p">:</span> <span class="s2">&quot;caller_id&quot;</span>
+    <span class="n">recipient_id</span><span class="p">:</span> <span class="s2">&quot;recipient_id&quot;</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="s2">&quot;timestamp&quot;</span>
+    <span class="n">duration</span><span class="p">:</span> <span class="s2">&quot;duration&quot;</span>
+    <span class="n">caller_antenna</span><span class="p">:</span> <span class="s2">&quot;caller_antenna&quot;</span>
+    <span class="n">recipient_antenna</span><span class="p">:</span> <span class="s2">&quot;recipient_antenna&quot;</span>
+    <span class="n">international</span><span class="p">:</span> <span class="s2">&quot;international&quot;</span>
+  <span class="n">antennas</span><span class="p">:</span>
+    <span class="n">antenna_id</span><span class="p">:</span> <span class="s2">&quot;antenna_id&quot;</span>
+    <span class="n">tower_id</span><span class="p">:</span> <span class="s2">&quot;tower_id&quot;</span>
+    <span class="n">latitude</span><span class="p">:</span> <span class="s2">&quot;latitude&quot;</span>
+    <span class="n">longitude</span><span class="p">:</span> <span class="s2">&quot;longitude&quot;</span>
+  <span class="n">recharges</span><span class="p">:</span>
+    <span class="n">caller_id</span><span class="p">:</span> <span class="s2">&quot;caller_id&quot;</span>
+    <span class="n">amount</span><span class="p">:</span> <span class="s2">&quot;amount&quot;</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="s2">&quot;timestamp&quot;</span>
+  <span class="n">mobiledata</span><span class="p">:</span>
+    <span class="n">caller_id</span><span class="p">:</span> <span class="s2">&quot;caller_id&quot;</span>
+    <span class="n">volume</span><span class="p">:</span> <span class="s2">&quot;volume&quot;</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="s2">&quot;timestamp&quot;</span>
+  <span class="n">mobilemoney</span><span class="p">:</span>
+    <span class="n">txn_type</span><span class="p">:</span> <span class="s2">&quot;txn_type&quot;</span>
+    <span class="n">caller_id</span><span class="p">:</span> <span class="s2">&quot;caller_id&quot;</span>
+    <span class="n">recipient_id</span><span class="p">:</span> <span class="s2">&quot;recipient_id&quot;</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="s2">&quot;timestamp&quot;</span>
+    <span class="n">amount</span><span class="p">:</span> <span class="s2">&quot;amount&quot;</span>
+    <span class="n">sender_balance_before</span><span class="p">:</span> <span class="s2">&quot;sender_balance_before&quot;</span>
+    <span class="n">sender_balance_after</span><span class="p">:</span> <span class="s2">&quot;sender_balance_after&quot;</span>
+    <span class="n">recipient_balance_before</span><span class="p">:</span> <span class="s2">&quot;recipient_balance_before&quot;</span>
+    <span class="n">recipient_balance_after</span><span class="p">:</span> <span class="s2">&quot;recipient_balance_after&quot;</span>
+  <span class="n">geo</span><span class="p">:</span> <span class="s1">&#39;tower_id&#39;</span>
+</pre></div>
+</div>
+<p>We also have to set a few parameters that will affect the behaviour of some modules:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">params</span><span class="p">:</span>
+  <span class="n">cdr</span><span class="p">:</span>
+    <span class="n">weekend</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">7</span><span class="p">]</span> <span class="o">//</span> <span class="n">definition</span> <span class="n">of</span> <span class="n">weekend</span> <span class="p">(</span><span class="n">Sun</span> <span class="o">=</span> <span class="mi">1</span> <span class="n">to</span> <span class="n">Sat</span> <span class="o">=</span> <span class="mi">7</span><span class="p">)</span>
+    <span class="n">start_of_day</span><span class="p">:</span> <span class="mi">7</span> <span class="o">//</span> <span class="n">hour</span> <span class="n">when</span> <span class="n">day</span> <span class="n">starts</span> <span class="p">(</span><span class="n">used</span> <span class="n">to</span> <span class="n">define</span> <span class="n">day</span><span class="o">/</span><span class="n">night</span><span class="p">)</span>
+    <span class="n">end_of_day</span><span class="p">:</span> <span class="mi">19</span> <span class="o">//</span> <span class="n">hour</span> <span class="n">when</span> <span class="n">night</span> <span class="n">starts</span> <span class="p">(</span><span class="n">used</span> <span class="n">to</span> <span class="n">define</span> <span class="n">day</span><span class="o">/</span><span class="n">night</span><span class="p">)</span>
+  <span class="n">home_location</span><span class="p">:</span>
+    <span class="n">filter_hours</span><span class="p">:</span> <span class="n">null</span> <span class="o">//</span> <span class="n">hours</span> <span class="n">to</span> <span class="nb">filter</span> <span class="n">out</span> <span class="n">when</span> <span class="n">inferring</span> <span class="n">home</span> <span class="n">locations</span>
+  <span class="n">automl</span><span class="p">:</span> <span class="o">//</span> <span class="n">params</span> <span class="n">used</span> <span class="n">by</span> <span class="n">the</span> <span class="n">autoML</span> <span class="n">libraries</span>
+    <span class="n">autosklearn</span><span class="p">:</span>
+      <span class="n">time_left</span><span class="p">:</span> <span class="mi">3600</span>
+      <span class="n">n_jobs</span><span class="p">:</span> <span class="mi">1</span>
+      <span class="n">memory_limit</span><span class="p">:</span> <span class="mi">3072</span>
+    <span class="n">autogluon</span><span class="p">:</span>
+      <span class="n">time_limit</span><span class="p">:</span> <span class="mi">3600</span>
+      <span class="n">eval_metric</span><span class="p">:</span> <span class="s1">&#39;r2&#39;</span>
+      <span class="n">label</span><span class="p">:</span> <span class="s1">&#39;label&#39;</span>
+      <span class="n">sample_weight</span><span class="p">:</span> <span class="s1">&#39;weight&#39;</span>
+  <span class="n">opt_in_default</span><span class="p">:</span> <span class="n">false</span> <span class="o">//</span> <span class="k">if</span> <span class="n">true</span> <span class="n">opt</span><span class="o">-</span><span class="ow">in</span> <span class="ow">is</span> <span class="nb">set</span> <span class="k">as</span> <span class="n">default</span><span class="p">,</span> <span class="n">i</span><span class="o">.</span><span class="n">e</span><span class="o">.</span> <span class="nb">all</span> <span class="n">users</span> <span class="n">give</span> <span class="n">their</span> <span class="n">consent</span> <span class="n">unless</span> <span class="n">they</span> <span class="n">opt</span><span class="o">-</span><span class="n">out</span>
+</pre></div>
+</div>
+<p>Finally, we can set the hyper-parameters that will be tested during a grid-search performed by the ML module”</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>hyperparams:
+  &#39;linear&#39;:
+    &#39;dropmissing__threshold&#39;: [0.9, 1]
+    &#39;droplowvariance__threshold&#39;: [ 0, 0.01 ]
+    &#39;winsorizer__limits&#39;: [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+  &#39;lasso&#39;:
+    &#39;dropmissing__threshold&#39;: [ 0.9, 1 ]
+    &#39;droplowvariance__threshold&#39;: [ 0, 0.01 ]
+    &#39;winsorizer__limits&#39;: [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    &#39;model__alpha&#39;: [ .001, .01, .05, .03, .1 ]
+  &#39;ridge&#39;:
+    &#39;dropmissing__threshold&#39;: [ 0.9, 1 ]
+    &#39;droplowvariance__threshold&#39;: [ 0, 0.01 ]
+    &#39;winsorizer__limits&#39;: [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    &#39;model__alpha&#39;: [ .001, .01, .05, .03, .1 ]
+  &#39;randomforest&#39;:
+    &#39;dropmissing__threshold&#39;: [ 0.9, 1 ]
+    &#39;droplowvariance__threshold&#39;: [ 0, 0.01 ]
+    &#39;winsorizer__limits&#39;: [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    &#39;model__max_depth&#39;: [ 2, 4, 6, 8, 10 ]
+    &#39;model__n_estimators&#39;: [ 50, 100, 200 ]
+  &#39;gradientboosting&#39;:
+    &#39;dropmissing__threshold&#39;: [ 0.99 ]
+    &#39;droplowvariance__threshold&#39;: [ 0.01 ]
+    &#39;winsorizer__limits&#39;: [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    &#39;model__min_data_in_leaf&#39;: [ 10, 20, 50 ]
+    &#39;model__num_leaves&#39;: [ 5, 10, 20 ]
+    &#39;model__learning_rate&#39;: [ 0.05, 0.075, 0.1 ]
+    &#39;model__n_estimators&#39;: [ 50, 100, 200 ]
+</pre></div>
+</div>
+</div>
+
+    <script type="text/x-thebe-config">
+    {
+        requestKernel: true,
+        binderOptions: {
+            repo: "binder-examples/jupyter-stacks-datascience",
+            ref: "master",
+        },
+        codeMirrorConfig: {
+            theme: "abcdef",
+            mode: "python"
+        },
+        kernelOptions: {
+            kernelName: "python3",
+            path: "./quickstart"
+        },
+        predefinedOutput: true
+    }
+    </script>
+    <script>kernelName = 'python3'</script>
+
+              </div>
+              
+        
+            
+
+
+
+<div class='prev-next-bottom'>
+    
+    <div id="prev">
+        <a class="left-prev" href="installation.html" title="previous page">
+            <i class="prevnext-label fas fa-angle-left"></i>
+            <div class="prevnext-info">
+                <p class="prevnext-label">previous</p>
+                <p class="prevnext-title">Installation</p>
+            </div>
+        </a>
+    </div>
+     <div id="next">
+        <a class="right-next" href="poverty_survey.html" title="next page">
+            <div class="prevnext-info">
+                <p class="prevnext-label">next</p>
+                <p class="prevnext-title">Poverty Outcome Generation from Survey Data</p>
+            </div>
+            <i class="prevnext-label fas fa-angle-right"></i>
+        </a>
+     </div>
+
+</div>
+        
+        </div>
+    </div>
+    <footer class="footer mt-5 mt-md-0">
+    <div class="container">
+      <p>
+        
+          By X<br/>
+        
+            &copy; Copyright 2021.<br/>
+      </p>
+    </div>
+  </footer>
+</main>
+
+
+      </div>
+    </div>
+  
+  <script src="../_static/js/index.1c5a1a01449ed65a7b51.js"></script>
+
+  
+  </body>
+</html>
