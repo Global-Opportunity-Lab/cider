@@ -47,8 +47,8 @@ class HomeLocator:
         data_type_map = {DataType.CDR: dataframes['cdr'],
                          DataType.ANTENNAS: dataframes['antennas'],
                          DataType.SHAPEFILES: None,
-                         DataType.HOMEGROUNDTRUTH: None,
-                         DataType.POVERTYSCORES: None}
+                         DataType.HOME_GROUND_TRUTH: None,
+                         DataType.POVERTY_SCORES: None}
         self.ds.load_data(data_type_map=data_type_map)
 
         # Clean and merge CDR data
@@ -154,7 +154,7 @@ class HomeLocator:
         Returns: accuracy table (accuracy, precision, recall) as pandas df
         """
 
-        if self.ds.ground_truth is None:
+        if self.ds.home_ground_truth is None:
             raise ValueError('Ground truth dataset must be loaded to calculate accuracy statistics.')
 
         if (geo, algo) not in self.home_locations:
@@ -163,12 +163,12 @@ class HomeLocator:
         # Inner join ground truth data and inferred home locations
         merged = (self.home_locations[(geo, algo)]
                   .rename({geo: geo + '_inferred'}, axis=1)
-                  .merge(self.ds.ground_truth.rename({geo: geo + '_groundtruth'}, axis=1),
+                  .merge(self.ds.home_ground_truth.rename({geo: geo + '_groundtruth'}, axis=1),
                          on=self.user_id, how='inner'))
         print('Observations with inferred home location: %i (%i unique)' %
               (len(self.home_locations[(geo, algo)]), len(self.home_locations[(geo, algo)][self.user_id].unique())))
         print('Observations with ground truth home location: %i (%i unique)' %
-              (len(self.ds.ground_truth), len(self.ds.ground_truth[self.user_id].unique())))
+              (len(self.ds.home_ground_truth), len(self.ds.home_ground_truth[self.user_id].unique())))
         print('Observations with both: %i (%i unique)' % (len(merged), len(merged[self.user_id].unique())))
 
         # Correct observations are ones where the groundtruth home location is the same as the inferred home location

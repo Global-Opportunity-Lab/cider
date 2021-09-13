@@ -24,8 +24,8 @@ class DataType(Enum):
     MOBILEDATA = 3
     MOBILEMONEY = 4
     SHAPEFILES = 5
-    HOMEGROUNDTRUTH = 6
-    POVERTYSCORES = 7
+    HOME_GROUND_TRUTH = 6
+    POVERTY_SCORES = 7
     FEATURES = 8
     LABELS = 9
 
@@ -71,7 +71,7 @@ class DataStore(InitializerInterface):
         self.mobilemoney: SparkDataFrame
         self.antennas: SparkDataFrame
         self.shapefiles: Union[Dict[str, GeoDataFrame]] = {}
-        self.ground_truth: PandasDataFrame
+        self.home_ground_truth: PandasDataFrame
         self.poverty_scores: PandasDataFrame
         # ml datasets
         self.features: SparkDataFrame
@@ -88,8 +88,8 @@ class DataStore(InitializerInterface):
                                                               DataType.MOBILEDATA: self._load_mobiledata,
                                                               DataType.MOBILEMONEY: self._load_mobilemoney,
                                                               DataType.SHAPEFILES: self._load_shapefiles,
-                                                              DataType.HOMEGROUNDTRUTH: self._load_home_ground_truth,
-                                                              DataType.POVERTYSCORES: self._load_poverty_scores,
+                                                              DataType.HOME_GROUND_TRUTH: self._load_home_ground_truth,
+                                                              DataType.POVERTY_SCORES: self._load_poverty_scores,
                                                               DataType.FEATURES: self._load_features,
                                                               DataType.LABELS: self._load_labels}
 
@@ -158,7 +158,7 @@ class DataStore(InitializerInterface):
         Load ground truth data for home locations
         """
         if self.file_names.home_ground_truth is not None:
-            self.ground_truth = pd.read_csv(self.data + self.file_names.home_ground_truth)
+            self.home_ground_truth = pd.read_csv(self.data + self.file_names.home_ground_truth)
         else:
             print('No ground truth data for home locations has been specified.')
 
@@ -168,6 +168,8 @@ class DataStore(InitializerInterface):
         """
         if self.file_names.poverty_scores is not None:
             self.poverty_scores = pd.read_csv(self.data + self.file_names.poverty_scores)
+        else:
+            self.poverty_scores = pd.DataFrame()
 
     def _load_features(self) -> None:
         """
