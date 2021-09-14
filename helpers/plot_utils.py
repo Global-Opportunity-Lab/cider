@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt  # type: ignore[import]
 import matplotlib.dates as mdates  # type: ignore[import]
 from matplotlib.pyplot import axis
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pyspark.sql import DataFrame as SparkDataFrame
 import seaborn as sns  # type: ignore[import]
 from typing import List
 

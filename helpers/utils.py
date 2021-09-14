@@ -4,9 +4,9 @@ from numpy import ndarray
 import os
 import pandas as pd
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
-from pyspark.sql.types import IntegerType, StringType  # type: ignore[import]
-from pyspark.sql.functions import col, date_format, lit  # type: ignore[import]
+from pyspark.sql import DataFrame as SparkDataFrame
+from pyspark.sql.types import IntegerType, StringType
+from pyspark.sql.functions import col, date_format, lit
 from pyspark.sql import SparkSession
 import shutil
 from typing import List, Tuple, Union

@@ -6,8 +6,8 @@ from helpers.utils import get_spark_session, make_dir
 from joblib import load  # type: ignore[import]
 import os
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
-from pyspark.sql.functions import col, date_trunc, to_timestamp  # type: ignore[import]
+from pyspark.sql import DataFrame as SparkDataFrame
+from pyspark.sql.functions import col, date_trunc, to_timestamp
 from typing import Dict, List, Optional, Union
 
 
@@ -35,12 +35,13 @@ def load_generic(cfg: Box,
             df = spark.read.csv(fname + '/*.csv', header=True)
 
     # Load from pandas dataframe
-    elif df is not None:
-        df = spark.createDataFrame(df)
+    if df is not None:
+        if not isinstance(df, SparkDataFrame):
+            df = spark.createDataFrame(df)
 
     # Issue with filename/dataframe provided
     else:
-        raise ValueError('No filename or pandas dataframe provided.')
+        raise ValueError('No filename or pandas/spark dataframe provided.')
 
     return df
 
@@ -108,11 +109,17 @@ def load_cdr(cfg: Box,
 
     Returns: spark df
     """
+    spark = get_spark_session(cfg)
     # load data as generic df and standardize column_names
     if fname is not None:
         cdr = load_generic(cfg, fname=fname, df=df)
+    elif df is not None:
+        if not isinstance(df, SparkDataFrame):
+            cdr = spark.createDataFrame(df)
+        else:
+            cdr = df
     else:
-        cdr = df
+        raise ValueError('No filename or pandas/spark dataframe provided.')
     cdr = standardize_col_names(cdr, cfg.col_names.cdr)
 
     if verify:
@@ -154,11 +161,17 @@ def load_antennas(cfg: Box,
 
     Returns: spark df
     """
+    spark = get_spark_session(cfg)
     # load data as generic df and standardize column_names
     if fname is not None:
         antennas = load_generic(cfg, fname=fname, df=df)
+    elif df is not None:
+        if not isinstance(df, SparkDataFrame):
+            antennas = spark.createDataFrame(df)
+        else:
+            antennas = df
     else:
-        antennas = df
+        raise ValueError('No filename or pandas/spark dataframe provided.')
     antennas = standardize_col_names(antennas, cfg.col_names.antennas)
 
     if verify:
@@ -189,11 +202,17 @@ def load_recharges(cfg: Box,
 
     Returns: spark df
     """
+    spark = get_spark_session(cfg)
     # load data as generic df and standardize column_names
     if fname is not None:
         recharges = load_generic(cfg, fname=fname, df=df)
+    elif df is not None:
+        if not isinstance(df, SparkDataFrame):
+            recharges = spark.createDataFrame(df)
+        else:
+            recharges = df
     else:
-        recharges = df
+        raise ValueError('No filename or pandas/spark dataframe provided.')
     recharges = standardize_col_names(recharges, cfg.col_names.recharges)
 
     # Clean timestamp column
@@ -219,11 +238,17 @@ def load_mobiledata(cfg: Box,
 
     Returns: spark df
     """
+    spark = get_spark_session(cfg)
     # load data as generic df and standardize column_names
     if fname is not None:
         mobiledata = load_generic(cfg, fname=fname, df=df)
+    elif df is not None:
+        if not isinstance(df, SparkDataFrame):
+            mobiledata = spark.createDataFrame(df)
+        else:
+            mobiledata = df
     else:
-        mobiledata = df
+        raise ValueError('No filename or pandas/spark dataframe provided.')
     mobiledata = standardize_col_names(mobiledata, cfg.col_names.mobiledata)
 
     # Clean timestamp column
@@ -251,11 +276,17 @@ def load_mobilemoney(cfg: Box,
 
     Returns: spark df
     """
+    spark = get_spark_session(cfg)
     # load data as generic df and standardize column_names
     if fname is not None:
         mobilemoney = load_generic(cfg, fname=fname, df=df)
+    elif df is not None:
+        if not isinstance(df, SparkDataFrame):
+            mobilemoney = spark.createDataFrame(df)
+        else:
+            mobilemoney = df
     else:
-        mobilemoney = df
+        raise ValueError('No filename or pandas/spark dataframe provided.')
     mobilemoney = standardize_col_names(mobilemoney, cfg.col_names.mobilemoney)
 
     if verify:

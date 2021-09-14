@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import os
 import pandas as pd
-from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pyspark.sql import DataFrame as SparkDataFrame
 import rasterio  # type: ignore[import]
 from rasterio.mask import mask  # type: ignore[import]
 from rasterio.merge import merge  # type: ignore[import]
@@ -54,7 +54,7 @@ class SatellitePredictor:
         fpath = data + file_names.antennas if file_names.antennas is not None else None
         if file_names.antennas is not None or dataframe is not None:
             print('Loading antennas...')
-            self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
+            self.antennas: Optional[SparkDataFrame] = load_antennas(self.cfg, fpath, df=dataframe)
         else:
             self.antennas = None
 
@@ -90,6 +90,8 @@ class SatellitePredictor:
 
         # Obtain shapefiles for masking of raster data
         if self.geo in ['antenna_id', 'tower_id']:
+            if self.antennas is None:
+                raise ValueError("Antennas have not been loaded!")
             # Get pandas dataframes of antennas/towers
             if self.geo == 'antenna_id':
                 points = self.antennas.toPandas().dropna(subset=['antenna_id', 'latitude', 'longitude'])

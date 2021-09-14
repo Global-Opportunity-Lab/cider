@@ -13,11 +13,10 @@ from multiprocessing import Pool
 import os
 import pandas as pd
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
-from pyspark.sql.types import StringType  # type: ignore[import]
-from pyspark.sql.functions import array, col, count, countDistinct, explode, first, lit  # type: ignore[import]
-from pyspark.sql.functions import max, mean, min, stddev, sum
-from pyspark.sql.utils import AnalysisException  # type: ignore[import]
+from pyspark.sql import DataFrame as SparkDataFrame
+from pyspark.sql.types import StringType
+from pyspark.sql.functions import array, col, count, countDistinct, explode, first, lit, max, mean, min, stddev, sum
+from pyspark.sql.utils import AnalysisException
 import seaborn as sns  # type: ignore[import]
 from typing import Any, Dict, List, Optional, Union
 
@@ -26,7 +25,7 @@ class Featurizer:
 
     def __init__(self,
                  datastore: DataStore,
-                 dataframes: Optional[Dict[str, Union[PandasDataFrame, SparkDataFrame]]] = None,
+                 dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, SparkDataFrame]]]] = None,
                  clean_folders: bool = False):
         self.cfg = datastore.cfg
         self.ds = datastore
@@ -54,8 +53,9 @@ class Featurizer:
                          DataType.MOBILEMONEY: dataframes['mobilemoney'],
                          DataType.ANTENNAS: dataframes['antennas'],
                          DataType.SHAPEFILES: None}
-        # Load data into datastore
+        # Load data into datastore, initialize bandicoot attribute
         self.ds.load_data(data_type_map=data_type_map)
+        self.ds.cdr_bandicoot = None
 
     def diagnostic_statistics(self, write: bool = True) -> Dict[str, Dict[str, int]]:
         """
@@ -173,11 +173,11 @@ class Featurizer:
         print('Calculating CDR features...')
 
         # Convert CDR into bandicoot format
-        self.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
+        self.ds.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
 
         # Get list of unique subscribers, write to file
-        save_df(self.cdr_bandicoot.select('name').distinct(), self.outputs + '/datasets/subscribers.csv')
-        subscribers = self.cdr_bandicoot.select('name').distinct().rdd.map(lambda r: r[0]).collect()
+        save_df(self.ds.cdr_bandicoot.select('name').distinct(), self.outputs + '/datasets/subscribers.csv')
+        subscribers = self.ds.cdr_bandicoot.select('name').distinct().rdd.map(lambda r: r[0]).collect()
 
         # Make adjustments to chunk size and parallelization if necessary
         if bc_chunksize > len(subscribers):
@@ -205,7 +205,7 @@ class Featurizer:
 
             # Get records for this chunk and write out to csv files per person
             nums_spark = self.spark.createDataFrame(chunk, StringType()).withColumnRenamed('value', 'name')
-            matched_chunk = self.cdr_bandicoot.join(nums_spark, on='name', how='inner')
+            matched_chunk = self.ds.cdr_bandicoot.join(nums_spark, on='name', how='inner')
             matched_chunk.repartition('name').write.partitionBy('name').mode('append').format('csv').save(recs_folder,
                                                                                                           header=True)
 
@@ -311,7 +311,7 @@ class Featurizer:
 
         # If CDR is not available in bandicoot format, calculate it
         if self.ds.cdr_bandicoot is None:
-            self.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
+            self.ds.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
 
         # Get dataframe of antennas located within regions
         antennas = pd.read_csv(self.ds.data + self.ds.file_names.antennas)
@@ -325,7 +325,7 @@ class Featurizer:
         antennas = self.spark.createDataFrame(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''))
 
         # Merge CDR to antennas
-        cdr = self.cdr_bandicoot.join(antennas, on='antenna_id', how='left') \
+        cdr = self.ds.cdr_bandicoot.join(antennas, on='antenna_id', how='left') \
             .na.fill({shapefile_name: 'Unknown' for shapefile_name in self.ds.shapefiles.keys()})
 
         # Get counts by region
@@ -509,7 +509,7 @@ class Featurizer:
 
     def all_features(self, read_from_disk: bool = False) -> None:
         """
-        Join all feature datasets together, save to disk and assign to attribute
+        Join all feature datasets together, save to disk, and assign to attribute
 
         Args:
             read_from_disk: whether to load features from disk
@@ -517,10 +517,13 @@ class Featurizer:
         if read_from_disk:
             self.load_features()
 
-        all_features = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
-        all_features = long_join_pyspark(all_features, how='left', on='name')
-        save_df(all_features, self.outputs + '/datasets/features.csv')
-        self.features['all'] = self.spark.read.csv(self.outputs + '/datasets/features.csv', header=True)
+        all_features_list = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
+        if all_features_list:
+            all_features = long_join_pyspark(all_features_list, how='left', on='name')
+            save_df(all_features, self.outputs + '/datasets/features.csv')
+            self.features['all'] = self.spark.read.csv(self.outputs + '/datasets/features.csv', header=True)
+        else:
+            print('No features have been computed yet.')
 
     def feature_plots(self, read_from_disk: bool = False) -> None:
         """
@@ -601,19 +604,19 @@ class Featurizer:
             all_subscribers = self.features['cdr'].select('name')
 
             if self.features['international'] is not None:
-                international_subscribers = self.features['international'].where(
+                international_subscribers: Optional[SparkDataFrame] = self.features['international'].where(
                     col('international_all__recipient_id__count') > 0).select('name')
             else:
                 international_subscribers = None
 
             if self.features['mobiledata'] is not None:
-                mobiledata_subscribers = self.features['mobiledata'].where(
+                mobiledata_subscribers: Optional[SparkDataFrame] = self.features['mobiledata'].where(
                     col('mobiledata_num_transactions') > 0).select('name')
             else:
                 mobiledata_subscribers = None
 
             if self.features['mobilemoney'] is not None:
-                mobilemoney_subscribers = self.features['mobilemoney'].where(
+                mobilemoney_subscribers: Optional[SparkDataFrame] = self.features['mobilemoney'].where(
                     col('mobilemoney_all_all_txns') > 0).select('name')
             else:
                 mobilemoney_subscribers = None
