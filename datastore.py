@@ -8,10 +8,10 @@ from helpers.io_utils import load_antennas, load_shapefile, load_cdr, load_mobil
 from helpers.opt_utils import generate_user_consent_list
 from helpers.utils import get_spark_session, filter_dates_dataframe, make_dir, save_df
 import os
-import pandas as pd  # type: ignore[import]
-from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
-import pyspark.sql.functions as F  # type: ignore[import]
+import pandas as pd
+from pandas import DataFrame as PandasDataFrame, Series
+from pyspark.sql import DataFrame as SparkDataFrame
+import pyspark.sql.functions as F
 from pyspark.sql.functions import col, count, countDistinct, lit
 from typing import Callable, Dict, List, Optional, Union
 import yaml
@@ -62,10 +62,10 @@ class DataStore(InitializerInterface):
         self.spark = spark
 
         # Possible datasets to opt in/out of
-        self.datasets = ['cdr', 'recharges', 'mobiledata', 'mobilemoney', 'features']
+        self.datasets = ['cdr', 'cdr_bandicoot', 'recharges', 'mobiledata', 'mobilemoney', 'features']
         # featurizer/home location datasets
         self.cdr: SparkDataFrame
-        self.cdr_bandicoot: SparkDataFrame
+        self.cdr_bandicoot: Optional[SparkDataFrame]
         self.recharges: SparkDataFrame
         self.mobiledata: SparkDataFrame
         self.mobilemoney: SparkDataFrame
@@ -77,8 +77,8 @@ class DataStore(InitializerInterface):
         self.features: SparkDataFrame
         self.labels: SparkDataFrame
         self.merged: PandasDataFrame
-        self.x = None
-        self.y = None
+        self.x: PandasDataFrame
+        self.y: Series
         self.weights = None
 
         # Define mapping between data types and loading methods
@@ -106,6 +106,11 @@ class DataStore(InitializerInterface):
             self.cdr = cdr
 
     def _load_antennas(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
+        """
+        Load antennas data: use file path specified in config as default, or spark/pandas df
+        Args:
+            dataframe: spark/pandas df to assign if available
+        """
         fpath = self.data + self.file_names.antennas if self.file_names.antennas is not None else None
         if fpath or dataframe is not None:
             print('Loading antennas...')
@@ -258,7 +263,7 @@ class DataStore(InitializerInterface):
             if dataset is not None:
                 setattr(self, dataset_name, dataset.distinct())
 
-    def remove_spammers(self, spammer_threshold: float = 100) -> SparkDataFrame:
+    def remove_spammers(self, spammer_threshold: float = 100) -> List[str]:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
         if self.cdr is None:
             raise ValueError('CDR must be loaded to identify and remove spammers.')
@@ -320,7 +325,8 @@ class DataStore(InitializerInterface):
                 outlier = pd.to_datetime(outlier)
                 if getattr(self, df_name, None) is not None:
                     setattr(self, df_name, getattr(self, df_name)
-                            .where((col('timestamp') < outlier) | (col('timestamp') >= outlier + pd.Timedelta(days=1))))
+                            .where((col('timestamp') < outlier) |
+                                   (col('timestamp') >= outlier + pd.Timedelta(value=1, unit='days'))))
 
         return outliers
 
@@ -328,7 +334,7 @@ class DataStore(InitializerInterface):
 class OptDataStore(DataStore):
     def __init__(self, cfg_dir: str):
         super(OptDataStore, self).__init__(cfg_dir)
-        self._user_consent = None
+        self._user_consent: SparkDataFrame
 
     @property
     def user_consent(self) -> SparkDataFrame:

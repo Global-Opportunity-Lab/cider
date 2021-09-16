@@ -6,11 +6,11 @@ from helpers.utils import get_spark_session, make_dir
 from helpers.plot_utils import voronoi_tessellation
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
-import pandas as pd  # type: ignore[import]
+import pandas as pd
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
-from pyspark.sql.functions import col, count, countDistinct, desc_nulls_last, hour, row_number   # type: ignore[import]
-from pyspark.sql.window import Window  # type: ignore[import]
+from pyspark.sql import DataFrame as SparkDataFrame
+from pyspark.sql.functions import col, count, countDistinct, desc_nulls_last, hour, row_number
+from pyspark.sql.window import Window
 import rasterio  # type: ignore[import]
 from rasterio.mask import mask  # type: ignore[import]
 from shapely.geometry import mapping  # type: ignore[import]
@@ -21,7 +21,7 @@ class HomeLocator:
 
     def __init__(self,
                  datastore: DataStore,
-                 dataframes: Optional[Dict[str, Union[PandasDataFrame, SparkDataFrame]]] = None,
+                 dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, SparkDataFrame]]]] = None,
                  clean_folders: bool = False):
         self.cfg = datastore.cfg
         self.ds = datastore
@@ -89,10 +89,10 @@ class HomeLocator:
 
         # Get polygon for each transaction based on antenna latitude and longitudes
         elif geo in self.ds.shapefiles.keys():
-            antennas = self.ds.antennas.na.drop().toPandas()
-            antennas = gpd.GeoDataFrame(antennas,
-                                        geometry=gpd.points_from_xy(antennas['longitude'],
-                                                                    antennas['latitude']))
+            antennas_df = self.ds.antennas.na.drop().toPandas()
+            antennas = gpd.GeoDataFrame(antennas_df,
+                                        geometry=gpd.points_from_xy(antennas_df['longitude'],
+                                                                    antennas_df['latitude']))
             antennas.crs = {"init": "epsg:4326"}
             antennas = gpd.sjoin(antennas, self.ds.shapefiles[geo], op='within', how='left')[
                 ['antenna_id', 'region']].rename({'region': geo}, axis=1)
@@ -138,10 +138,10 @@ class HomeLocator:
             raise ValueError('Home location algorithm not recognized. Must be one of count_transactions, count_days, '
                              'or count_modal_days')
 
-        grouped = grouped.toPandas()
-        grouped.to_csv(self.outputs + '/outputs/' + geo + '_' + algo + '.csv', index=False)
-        self.home_locations[(geo, algo)] = grouped
-        return grouped
+        grouped_df = grouped.toPandas()
+        grouped_df.to_csv(self.outputs + '/outputs/' + geo + '_' + algo + '.csv', index=False)
+        self.home_locations[(geo, algo)] = grouped_df
+        return grouped_df
 
     def accuracy(self, geo: str, algo: str = 'count_transactions') -> PandasDataFrame:
         """
