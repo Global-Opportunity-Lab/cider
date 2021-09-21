@@ -7,8 +7,8 @@ import matplotlib.dates as mdates  # type: ignore[import]
 from matplotlib.pyplot import axis   # type: ignore[import]
 import matplotlib.ticker as mtick   # type: ignore[import]
 from matplotlib.collections import PatchCollection    # type: ignore[import]
-from pandas import DataFrame as PandasDataFrame  # type: ignore[import]
-from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pandas import DataFrame as PandasDataFrame
+from pyspark.sql import DataFrame as SparkDataFrame
 import seaborn as sns  # type: ignore[import]
 from typing import List
 
