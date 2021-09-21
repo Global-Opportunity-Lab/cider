@@ -26,7 +26,7 @@ class Featurizer:
     def __init__(self,
                  datastore: DataStore,
                  dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, SparkDataFrame]]]] = None,
-                 clean_folders: bool = False):
+                 clean_folders: bool = False) -> None:
         self.cfg = datastore.cfg
         self.ds = datastore
         self.outputs = datastore.outputs + 'featurizer/'

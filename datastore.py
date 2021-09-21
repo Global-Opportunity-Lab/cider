@@ -7,13 +7,14 @@ import inspect
 from helpers.io_utils import load_antennas, load_shapefile, load_cdr, load_mobilemoney, load_mobiledata, load_recharges
 from helpers.opt_utils import generate_user_consent_list
 from helpers.utils import get_spark_session, filter_dates_dataframe, make_dir, save_df
+import numpy as np
 import os
 import pandas as pd
 from pandas import DataFrame as PandasDataFrame, Series
 from pyspark.sql import DataFrame as SparkDataFrame
 import pyspark.sql.functions as F
 from pyspark.sql.functions import col, count, countDistinct, lit
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Mapping, Optional, Union
 import yaml
 
 
@@ -28,6 +29,7 @@ class DataType(Enum):
     POVERTY_SCORES = 7
     FEATURES = 8
     LABELS = 9
+    TARGETING = 10
 
 
 class InitializerInterface(ABC):
@@ -80,6 +82,8 @@ class DataStore(InitializerInterface):
         self.x: PandasDataFrame
         self.y: Series
         self.weights = None
+        # targeting
+        self.targeting: PandasDataFrame
 
         # Define mapping between data types and loading methods
         self.data_type_to_fn_map: Dict[DataType, Callable] = {DataType.CDR: self._load_cdr,
@@ -91,7 +95,8 @@ class DataStore(InitializerInterface):
                                                               DataType.HOME_GROUND_TRUTH: self._load_home_ground_truth,
                                                               DataType.POVERTY_SCORES: self._load_poverty_scores,
                                                               DataType.FEATURES: self._load_features,
-                                                              DataType.LABELS: self._load_labels}
+                                                              DataType.LABELS: self._load_labels,
+                                                              DataType.TARGETING: self._load_targeting}
 
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -197,6 +202,30 @@ class DataStore(InitializerInterface):
             self.labels = self.labels.withColumn('weight', lit(1))
         self.labels = self.labels.select(['name', 'label', 'weight'])
 
+    def _load_targeting(self) -> None:
+        """
+        TO BE FILLED
+        """
+        self.targeting = pd.read_csv(self.data + self.file_names.targeting)
+        self.targeting['random'] = np.random.rand(len(self.data))
+
+        # Unweighted data
+        self.unweighted_targeting = self.targeting.copy()
+        self.unweighted_targeting['weight'] = 1
+
+        # Weighted data
+        self.weighted_targeting = self.targeting.copy()
+        if 'weight' not in self.weighted_targeting.columns:
+            self.data['weight'] = 1
+        else:
+            self.weighted_targeting['weight'] = (self.weighted_targeting['weight']/
+                                                 self.weighted_targeting['weight'].min())
+        self.weighted_data = pd.DataFrame(np.repeat(self.weighted_targeting.values,
+                                                    self.weighted_targeting['weight'],
+                                                    axis=0),
+                                          columns=self.weighted_targeting.columns)\
+            .astype(self.unweighted_targeting.dtypes)
+
     def merge(self) -> None:
         """
         Merge features and labels, split into x and y dataframes
@@ -219,7 +248,7 @@ class DataStore(InitializerInterface):
         # Make the smallest weight 1
         self.weights = self.merged['weight'] / self.merged['weight'].min()
 
-    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
+    def load_data(self, data_type_map: Mapping[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
         """
         Load all datasets defined by data_type_map; raise an error if any of them failed to load
         Args:

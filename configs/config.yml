@@ -27,6 +27,7 @@ path:
       cantons: 'cantons.geojson'
       prefectures: 'prefectures.geojson'
     user_consent: null
+    targeting: 'targeting.csv'
   outputs: "/Users/luciomelito/Documents/GD/cider/outputs/"
   wd: "/Users/luciomelito/Documents/GD/cider/"
 
