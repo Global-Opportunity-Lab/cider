@@ -150,3 +150,8 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# Local copy of the Jupyter book
+book/_build/.doctrees/
+book/_build/html/
+book/_build/jupyter_execute/
