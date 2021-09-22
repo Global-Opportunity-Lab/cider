@@ -14,6 +14,7 @@ path:
   file_names:
     antennas: 'antennas.csv'
     cdr: 'cdr.csv'
+    fairness: 'fairness.csv'
     home_ground_truth: 'home_locations.csv'
     labels: 'labels.csv'
     mobiledata: 'mobiledata.csv'

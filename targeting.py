@@ -18,7 +18,7 @@ class Targeting:
     def __init__(self, datastore: DataStore, clean_folders: bool = False) -> None:
         self.cfg = datastore.cfg
         self.ds = datastore
-        self.outputs = datastore.outputs + 'featurizer/'
+        self.outputs = datastore.outputs + 'targeting/'
 
         # Prepare working directories, set color palette
         make_dir(self.outputs, clean_folders)
