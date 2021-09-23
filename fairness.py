@@ -3,7 +3,6 @@ from helpers.utils import make_dir
 from helpers.plot_utils import clean_plot
 from matplotlib.collections import PatchCollection  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
-from matplotlib import cm
 import numpy as np
 import pandas as pd
 from pandas import DataFrame as PandasDataFrame
@@ -17,7 +16,7 @@ class Fairness:
     def __init__(self, datastore: DataStore, clean_folders: bool = False) -> None:
         self.cfg = datastore.cfg
         self.ds = datastore
-        self.outputs = datastore.outputs + 'targeting/'
+        self.outputs = datastore.outputs + 'fairness/'
 
         # Prepare working directories, set color palette
         make_dir(self.outputs, clean_folders)
@@ -71,7 +70,7 @@ class Fairness:
         return results
 
     def rank_residuals_plot(self, groundtruth: str, proxies: List[str], characteristic: str,
-                            weighted: bool = False, colors: Optional[cm] = None) -> None:
+                            weighted: bool = False, colors: Optional[sns.color_palette] = None) -> None:
 
         data = self.ds.weighted_fairness if weighted else self.ds.unweighted_fairness
 
@@ -215,7 +214,7 @@ class Fairness:
         # Circles
         x, y = np.meshgrid(np.arange(M), np.arange(N))
         radius = 15
-        s = [[] for i in range(len(keys))]
+        s: List[List[float]] = [[] for _ in range(len(keys))]
         for i in range(len(keys)):
             for j in range(len(data[keys[i]])):
                 s[i].append(data[keys[i]][j])
@@ -231,10 +230,9 @@ class Fairness:
         ax.set_title('Demographic Parity: ' + characteristic, pad=85, fontsize='large')
 
         # More circles
-        s = np.array([np.array(row) for row in s])
-        R = s
+        R = np.array([np.array(row) for row in s])
         c = R
-        R = np.log(np.abs(R)) / 10
+        R = np.log(np.abs(R), where=np.abs(R) > 0) / 10
         circles = [plt.Circle((j, i), radius=r) for r, j, i in zip(R.flatten(), x.flatten(), y.flatten())]
         col = PatchCollection(circles, array=c.flatten(), cmap="RdBu_r", edgecolor='grey', linewidth=2)
         col.set_clim(vmin=-20, vmax=20)
@@ -259,8 +257,7 @@ class Fairness:
         ax.spines['bottom'].set_visible(False)
         ax.spines['left'].set_visible(False)
         ax.tick_params(axis='both', which='both', length=0)
-        plt.tight_layout()
 
         # Save and show
-        plt.savefig(self.outputs + '/demographic_parity_plot_' + characteristic + '_' + str(p) + '%.png', index=False)
+        plt.savefig(self.outputs + '/demographic_parity_plot_' + characteristic + '_' + str(p) + '%.png')
         plt.show()
