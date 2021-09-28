@@ -1,0 +1,121 @@
+spark:
+  app_name: "mm"
+  files:
+    max_partition_bytes: 67108864
+  driver:
+    memory: "8g"
+    max_result_size: "2g"
+  loglevel: "ERROR"
+
+
+path:
+  data: "../synthetic_data/"
+  file_names:
+    antennas: '/antennas.csv'
+    cdr: '/cdr.csv'
+    home_ground_truth: '/home_locations.csv'
+    labels: '/labels.csv'
+    mobiledata: '/mobiledata.csv'
+    mobilemoney: '/mobilemoney.csv'
+    poverty_scores: null
+    recharges: '/recharges.csv'
+    shapefiles:
+      regions: '/regions.geojson'
+      prefectures: '/prefectures.geojson'
+    user_consent: null
+  outputs: "../outputs/"
+  wd: "../"
+
+
+col_names:
+  cdr:
+    txn_type: "txn_type"
+    caller_id: "caller_id"
+    recipient_id: "recipient_id"
+    timestamp: "timestamp"
+    duration: "duration"
+    caller_antenna: "caller_antenna"
+    recipient_antenna: "recipient_antenna"
+    international: "international"
+  antennas:
+    antenna_id: "antenna_id"
+    tower_id: "tower_id"
+    latitude: "latitude"
+    longitude: "longitude"
+  recharges:
+    caller_id: "caller_id"
+    amount: "amount"
+    timestamp: "timestamp"
+  mobiledata:
+    caller_id: "caller_id"
+    volume: "volume"
+    timestamp: "timestamp"
+  mobilemoney:
+    txn_type: "txn_type"
+    caller_id: "caller_id"
+    recipient_id: "recipient_id"
+    timestamp: "timestamp"
+    amount: "amount"
+    sender_balance_before: "sender_balance_before"
+    sender_balance_after: "sender_balance_after"
+    recipient_balance_before: "recipient_balance_before"
+    recipient_balance_after: "recipient_balance_after"
+  geo: 'cantons'
+
+
+col_types:
+  survey:
+    continuous: [ "con0", "con1", "con2", "con3", "con4", "con5", "con6", "con7", "con8", "con9" ]
+    categorical: [ "cat0", "cat1", "cat2", "cat3", "cat4", "cat5", "cat6", "cat7", "cat8", "cat9" ]
+    binary: [ "bin0", "bin1", "bin2", "bin3", "bin4", "bin5", "bin6", "bin7", "bin8", "bin9" ]
+
+
+params:
+  cdr:
+    weekend: [1, 7]
+    start_of_day: 7
+    end_of_day: 19
+  home_location:
+    filter_hours: null
+  automl:
+    autosklearn:
+      time_left: 3600
+      n_jobs: 1
+      memory_limit: 3072
+    autogluon:
+      time_limit: 3600
+      eval_metric: 'r2'
+      label: 'label'
+      sample_weight: 'weight'
+  opt_in_default: false
+
+
+hyperparams:
+  'linear':
+    'dropmissing__threshold': [0.9, 1]
+    'droplowvariance__threshold': [ 0, 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+  'lasso':
+    'dropmissing__threshold': [ 0.9, 1 ]
+    'droplowvariance__threshold': [ 0, 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    'model__alpha': [ .001, .01, .05, .03, .1 ]
+  'ridge':
+    'dropmissing__threshold': [ 0.9, 1 ]
+    'droplowvariance__threshold': [ 0, 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    'model__alpha': [ .001, .01, .05, .03, .1 ]
+  'randomforest':
+    'dropmissing__threshold': [ 0.9, 1 ]
+    'droplowvariance__threshold': [ 0, 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    'model__max_depth': [ 2, 4, 6, 8, 10 ]
+    'model__n_estimators': [ 50, 100, 200 ]
+  'gradientboosting':
+    'dropmissing__threshold': [ 0.99 ]
+    'droplowvariance__threshold': [ 0.01 ]
+    'winsorizer__limits': [!!python/tuple [0., 1.], !!python/tuple [0.005, .995]]
+    'model__min_data_in_leaf': [ 10, 20, 50 ]
+    'model__num_leaves': [ 5, 10, 20 ]
+    'model__learning_rate': [ 0.05, 0.075, 0.1 ]
+    'model__n_estimators': [ 50, 100, 200 ]
