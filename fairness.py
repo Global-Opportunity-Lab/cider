@@ -28,6 +28,22 @@ class Fairness:
 
     def rank_residual(self, var1: str, var2: str,
                       characteristic: str, weighted: bool = False) -> Mapping[str, np.ndarray]:
+        """
+        Returns the distribution of normalized rank-residuals across subgroups and targeting methods.
+        The rank-residual is a measure of whether certain groups are consistently ranked higher or lower than they
+        "should" be, as defined by Aiken et al. (2021).
+
+        Args:
+            var1: The name of the column containing data coming from the first targeting method; can also be the ground-
+            truth column.
+            var2: The name of the column containing data coming from the second targeting method.
+            characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
+            of the corresponding column in the targeting dataset.
+            weighted: If True the weighted version of the dataset will be used.
+
+        Returns:
+            A dict mapping the characteristic's subgroups to their distributions of normalized rank-residuals.
+        """
 
         data = self.ds.weighted_fairness if weighted else self.ds.unweighted_fairness
 
@@ -47,6 +63,24 @@ class Fairness:
     def demographic_parity(self, var1: str, var2: str, characteristic: str,
                            p: Union[float, int], weighted: bool = False
                            ) -> Dict[str, Dict[str, float]]:
+        """
+        Compares the proportion of each subgroup living in poverty (below the pth percentile in terms of consumption)
+        to the proportion of each subgroup that is targeted (below the pth percentile in terms of the proxy poverty
+        measure used for targeting) to produce a measure of demographic parity. This is defined as:
+        DP = (TP + FP)/N - (TP + FN)/N
+        where TP stands for true positives, and so forth.
+
+        Args:
+            var1: The name of the column containing data coming from the first targeting method; can also be the ground-
+            truth column.
+            var2: The name of the column containing data coming from the second targeting method.
+            characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
+                of the corresponding column in the targeting dataset.
+            p: The percentile below which users will be considered as poor.
+            weighted: If True the weighted version of the dataset will be used.
+
+        Returns: A dict mapping the characteristic's subgroups to their poverty shares and demographic parities.
+        """
 
         data = self.ds.weighted_fairness if weighted else self.ds.unweighted_fairness
 
@@ -71,6 +105,19 @@ class Fairness:
 
     def rank_residuals_plot(self, groundtruth: str, proxies: List[str], characteristic: str,
                             weighted: bool = False, colors: Optional[sns.color_palette] = None) -> None:
+        """
+        Plots the rank-residuals, as box plots, between a list of proxies and the ground-truth data, disaggregated by
+        a (demographic) characteristic.
+
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
+                of the corresponding column in the targeting dataset.
+            weighted: If True the weighted version of the dataset will be used.
+            colors: The color palette to use when plotting.
+        """
 
         data = self.ds.weighted_fairness if weighted else self.ds.unweighted_fairness
 
@@ -128,6 +175,20 @@ class Fairness:
 
     def rank_residuals_table(self, groundtruth: str, proxies: List[str], characteristic: str,
                              weighted: bool = False) -> PandasDataFrame:
+        """
+        Returns a dataframe with the rank-residuals of all sub-groups part of 'characteristic', and for all proxies
+        specified by 'proxies'. It also performs an ANOVA test.
+
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
+                of the corresponding column in the targeting dataset.
+            weighted: If True the weighted version of the dataset will be used.
+
+        Returns: The pandas dataframe of rank-residuals and ANOVA F-stat and p-value.
+        """
 
         data = self.ds.weighted_fairness if weighted else self.ds.unweighted_fairness
 
@@ -159,6 +220,23 @@ class Fairness:
     def demographic_parity_table(self, groundtruth: str, proxies: List[str], characteristic: str,
                                  p: Union[float, int], weighted: bool = False, format_table: bool = True
                                  ) -> PandasDataFrame:
+        """
+        Returns a dataframe with the demographic parity vales of all sub-groups part of 'characteristic', and for all
+        proxies specified by 'proxies'.
+
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
+                of the corresponding column in the targeting dataset.
+            p: The percentile below which users will be considered as poor.
+            weighted: If True the weighted version of the dataset will be used.
+            format_table: If true, provide only two significant decimal digits.
+
+        Returns: The pandas dataframe with DP values, each group's share of the population, and its share of the target
+        population.
+        """
 
         data = self.ds.weighted_fairness if weighted else self.ds.unweighted_fairness
         data['count'] = 1
@@ -193,6 +271,20 @@ class Fairness:
 
     def demographic_parity_plot(self, groundtruth: str, proxies: List[str], characteristic: str,
                                 p: Union[float, int], weighted: bool = False) -> None:
+        """
+        Plots the demographic parity values, with proxies on the x-axis and subgroups on the y-axis. The magnitude of
+        the value determines the corresponding circle's radius, while its sign the circle's color (red for positive,
+        blue for negative).
+
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
+                of the corresponding column in the targeting dataset.
+            p: The percentile below which users will be considered as poor.
+            weighted: If True the weighted version of the dataset will be used.
+        """
 
         # Get demographic parity table, set up parameters for grid 
         table = self.demographic_parity_table(groundtruth, proxies, characteristic, p, weighted=weighted,
