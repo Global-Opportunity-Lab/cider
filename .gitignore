@@ -92,6 +92,9 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# VSCode
+*.code-workspace
+
 # IPython
 profile_default/
 ipython_config.py
