@@ -110,9 +110,9 @@ class Fairness:
         a (demographic) characteristic.
 
         Args:
-            groundtruth: The name of the groundtruth column in the targeting dataset.
+            groundtruth: The name of the groundtruth column in the fairness dataset.
             proxies: The list of targeting methods to be compared against each other; each name should have a
-                corresponding column in the targeting dataset.
+                corresponding column in the fairness dataset.
             characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
                 of the corresponding column in the targeting dataset.
             weighted: If True the weighted version of the dataset will be used.
@@ -180,9 +180,9 @@ class Fairness:
         specified by 'proxies'. It also performs an ANOVA test.
 
         Args:
-            groundtruth: The name of the groundtruth column in the targeting dataset.
+            groundtruth: The name of the groundtruth column in the fairness dataset.
             proxies: The list of targeting methods to be compared against each other; each name should have a
-                corresponding column in the targeting dataset.
+                corresponding column in the fairness dataset.
             characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
                 of the corresponding column in the targeting dataset.
             weighted: If True the weighted version of the dataset will be used.
@@ -225,9 +225,9 @@ class Fairness:
         proxies specified by 'proxies'.
 
         Args:
-            groundtruth: The name of the groundtruth column in the targeting dataset.
+            groundtruth: The name of the groundtruth column in the fairness dataset.
             proxies: The list of targeting methods to be compared against each other; each name should have a
-                corresponding column in the targeting dataset.
+                corresponding column in the fairness dataset.
             characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
                 of the corresponding column in the targeting dataset.
             p: The percentile below which users will be considered as poor.
@@ -277,9 +277,9 @@ class Fairness:
         blue for negative).
 
         Args:
-            groundtruth: The name of the groundtruth column in the targeting dataset.
+            groundtruth: The name of the groundtruth column in the fairness dataset.
             proxies: The list of targeting methods to be compared against each other; each name should have a
-                corresponding column in the targeting dataset.
+                corresponding column in the fairness dataset.
             characteristic: The (demographic) characteristic by which to disaggregate results - this should be the name
                 of the corresponding column in the targeting dataset.
             p: The percentile below which users will be considered as poor.

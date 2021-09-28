@@ -34,6 +34,19 @@ class Targeting:
                                 data: PandasDataFrame,
                                 var: str,
                                 test_percentiles: bool = True) -> Union[float, int]:
+        """
+        If a percentile is provided, checks if it's between 0 and 100 and if so returns it; if a threshold is provided,
+        returns the fraction of records in the dataset and for column 'var' that are below the threshold.
+
+        Args:
+            p: The percentile.
+            t: The threshold.
+            data: The pandas dataframe containing the data.
+            var: The column with the records to use to compute the percentile.
+            test_percentiles: If true checks that the percentile provided is correct.
+
+        Returns: The percentile corresponding to the input (threshold or percentile) provided.
+        """
 
         # Make sure at least one of t or p is provided
         if p is None and t is None:
@@ -65,7 +78,22 @@ class Targeting:
                        p1: Union[int, float], p2: Optional[Union[int, float]],
                        t1: Optional[Union[int, float]] = None, t2: Optional[Union[int, float]] = None,
                        weighted: bool = False) -> Dict[str, float]:
+        """
+        Computes several classification metrics for two numerical variables, usually a ground-truth one and its
+        prediction; these are first converted into binary variables using the percentiles or thresholds provided.
 
+        Args:
+            var1: The first variable to use in the analysis; it has to be a column in the targeting dataset.
+            var2: The second variable to use in the analysis; it has to be a column in the targeting dataset.
+            p1: Percentile for the first variable.
+            p2: Percentile for the second variable.
+            t1: Threshold for the first variable.
+            t2: Threshold for the second variable.
+            weighted: If True the weighted version of the dataset will be used.
+
+        Returns: A dictionary with results on accuracy, precision, recall, true and false positive rates.
+
+        """
         data = self.ds.weighted_targeting if weighted else self.ds.unweighted_targeting
         results = {}
 
@@ -106,7 +134,18 @@ class Targeting:
     def auc_threshold(self, var1: str, var2: str,
                       p: Optional[Union[int, float]], t: Optional[Union[int, float]] = None,
                       weighted: bool = False) -> Dict[str, List[float]]:
+        """
+        Computes the ROC-AUC score when the numerical variables are turned into binary using a certain threshold.
 
+        Args:
+            var1: The first variable to use in the analysis; it has to be a column in the targeting dataset.
+            var2: The second variable to use in the analysis; it has to be a column in the targeting dataset.
+            p: The percentile to use to convert numerical values into binary.
+            t: The threshold to use to convert numerical values into binary.
+            weighted: If True the weighted version of the dataset will be used.
+
+        Returns: A dict with AUC score and false/true positive rate.
+        """
         data = self.ds.weighted_targeting if weighted else self.ds.unweighted_targeting
         results = {}
 
@@ -133,6 +172,17 @@ class Targeting:
 
     def auc_overall(self, var1: str, var2: str,
                     weighted: bool = False, n_grid: int = 99) -> Dict[str, List[float]]:
+        """
+        Computed the ROC-AUC scores at 'n_grid' equally spaced percentile thresholds.
+
+        Args:
+            var1: The first variable to use in the analysis; it has to be a column in the targeting dataset.
+            var2: The second variable to use in the analysis; it has to be a column in the targeting dataset.
+            weighted: If True the weighted version of the dataset will be used.
+            n_grid: The number of percentiles to compute the AUC scores for.
+
+        Returns: A dict with false/true positive rates and AUC scores for 'n_grid' percentiles between 0 and 100.
+        """
         # Generate grid of thresholds between 0 and 100
         grid = np.linspace(1, 100, n_grid)[:-1]
 
@@ -160,7 +210,22 @@ class Targeting:
                 transfer_size: Union[float, int],
                 p: Optional[Union[int, float]], t: Optional[Union[int, float]] = None,
                 weighted: bool = False, rho: Union[int, float] = 3) -> float:
+        """
+        Computes the constant relative risk-aversion (CRRA) [Hanna & Olken (2018)] utility when P% of the population is
+        targeted and they receive transfers of size 'transfer_size'.
 
+        Args:
+            var1: The first variable to use in the analysis; it has to be a column in the targeting dataset.
+            var2: The second variable to use in the analysis; it has to be a column in the targeting dataset.
+            transfer_size: The size of the cash transfer.
+            p: The percentile to use to convert numerical values into binary.
+            t: The threshold to use to convert numerical values into binary.
+            weighted: If True the weighted version of the dataset will be used.
+            rho: The rho parameter in the constant relative risk-aversion (CRRA) utility function.
+
+        Returns: The utility obtained by targeting that fraction of the population with that transfer size.
+
+        """
         data = self.ds.weighted_targeting if weighted else self.ds.unweighted_targeting
         data = data[[var1, var2]].sort_values(var2, ascending=True)
 
@@ -180,7 +245,21 @@ class Targeting:
     def targeting_table(self, groundtruth: str, proxies: List[str],
                         p1: Optional[Union[int, float]], p2: Optional[Union[int, float]],
                         t1: Optional[Union[int, float]] = None, weighted: bool = False) -> PandasDataFrame:
+        """
+        Produces a table with the following metrics for all targeting methods specified by 'proxies': Pearson and
+        Spearman correlation, threshold-specific and threshold-agnostic AUC, accuracy, precision, and recall.
 
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            p1: The percentile threshold to use for the groundtruth variable.
+            p2: The percentile threshold to use for the proxy variables.
+            t1: The threshold to use for the groundtruth variable.
+            weighted: If True the weighted version of the dataset will be used.
+
+        Returns: The pandas dataframe with all the performance metrics as columns and the proxies as rows.
+        """
         data = self.ds.weighted_targeting if weighted else self.ds.unweighted_targeting
 
         # If thresholds are provided, convert to percentiles
@@ -209,7 +288,19 @@ class Targeting:
     def roc_curves(self, groundtruth: str, proxies: List[str],
                    p: Optional[Union[int, float]] = None, t: Optional[Union[int, float]] = None,
                    weighted: bool = False, colors: Optional[Dict[int, str]] = None) -> None:
+        """
+        Plots the ROC curves for all targeting methods specified by 'proxies', using the percentile or threshold
+        provided.
 
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            p: The percentile to use to convert numerical values into binary.
+            t: The threshold to use to convert numerical values into binary.
+            weighted: If True the weighted version of the dataset will be used.
+            colors: Dict mapping proxy names to the color to use (in the default color palette)
+        """
         data = self.ds.weighted_targeting if weighted else self.ds.unweighted_targeting
         
         # If threshold is provided, convert to percentile
@@ -258,7 +349,20 @@ class Targeting:
                                 p: Optional[Union[int, float]] = None, t: Optional[Union[int, float]] = None,
                                 weighted: bool = False, n_grid: int = 99,
                                 colors: Optional[Dict[int, str]] = None) -> None:
+        """
+        Plots the ROC curves for all targeting methods specified by 'proxies', using the percentile/threshold
+        provided OR a set of 'n_grid' equally spaced percentiles.
 
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            p: The percentile to use to convert numerical values into binary.
+            t: The threshold to use to convert numerical values into binary.
+            weighted: If True the weighted version of the dataset will be used.
+            n_grid: The number of equally-spaced percentiles to compute the metrics for.
+            colors: Color palette to use.
+        """
         data = self.ds.weighted_targeting if weighted else self.ds.unweighted_targeting
 
         # If threshold is provided, convert to percentile
@@ -315,7 +419,18 @@ class Targeting:
     def utility_grid(self, groundtruth: str, proxies: List[str],
                      ubi_transfer_size: Union[int, float], weighted: bool = False, n_grid: int = 99
                      ) -> Tuple[np.ndarray, List[float], Dict[str, List[float]]]:
+        """
+        Computes the utility achieved by all targeting methods specified by 'proxies', when targeting 'n_grid' equally
+        spaced fractions of the population.
 
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            ubi_transfer_size: The size of the cash transfer if the entire population was targeted.
+            weighted: If True the weighted version of the dataset will be used.
+            n_grid: The number of equally-spaced percentiles to compute the metrics for.
+        """
         data = self.ds.weighted_targeting if weighted else self.ds.unweighted_targeting
 
         # Set up grid and results 
@@ -338,7 +453,19 @@ class Targeting:
     def utility_curves(self, groundtruth: str, proxies: List[str],
                        ubi_transfer_size: Union[int, float], weighted: bool = False,
                        n_grid: int = 99, colors: Optional[Dict[int, str]] = None) -> None:
+        """
+        Plots the utility curves of all targeting methods specified by 'proxies', when targeting 'n_grid' equally
+        spaced fractions of the population.
 
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            ubi_transfer_size: The size of the cash transfer if the entire population was targeted.
+            weighted: If True the weighted version of the dataset will be used.
+            n_grid: The number of equally-spaced percentiles to compute the metrics for.
+            colors: Color palette to use.
+        """
         # Get utility grid
         grid, _, utilities = self.utility_grid(groundtruth, proxies, ubi_transfer_size, weighted=weighted,
                                                n_grid=n_grid)
@@ -377,7 +504,20 @@ class Targeting:
     def utility_table(self, groundtruth: str, proxies: List[str],
                       ubi_transfer_size: Union[int, float], weighted: bool = False,
                       n_grid: int = 99) -> PandasDataFrame:
+        """
+        Computes the optimal share of the population targeted, maximum utility, and optimal transfer size of all
+        targeting methods specified by 'proxies', out of 'n_grid' equally spaced fractions of the population.
 
+        Args:
+            groundtruth: The name of the groundtruth column in the targeting dataset.
+            proxies: The list of targeting methods to be compared against each other; each name should have a
+                corresponding column in the targeting dataset.
+            ubi_transfer_size:
+            weighted: If True the weighted version of the dataset will be used.
+            n_grid: The number of equally-spaced percentiles to compute the metrics for.
+
+        Returns: The pandas dataframe with optimal utility metrics for each targeting method.
+        """
         # Get utility grid and transfer size grid
         population_shares, transfer_sizes, utilities = self.utility_grid(groundtruth, proxies, ubi_transfer_size,
                                                                          weighted=weighted, n_grid=n_grid)
