@@ -41,6 +41,16 @@ path:
         'prefectures': '/prefectures.geojson'
       poverty_scores: null
       groundtruth: '/home_locations.csv'
+  targeting:
+    data: "../../synthetic_data"
+    outputs: "../../tests/outputs/targeting"
+    file_names:
+      data: '/targeting.csv'
+  fairness:
+    data: "../../synthetic_data"
+    outputs: "../../tests/outputs/fairness"
+    file_names:
+      data: '/fairness.csv'
 
 
 col_names:
@@ -90,9 +100,15 @@ params:
     filter_hours: null
 
   automl:
-    time_left: 3600
-    n_jobs: 56
-    memory_limit: 10000
+    autosklearn:
+      time_left: 3600
+      n_jobs: 
+      memory_limit: 3072
+    autogluon:
+      time_limit: 3600
+      eval_metric: 'r2'
+      label: 'label'
+      sample_weight: 'weight'
 
 hyperparams:
   'linear':

@@ -5,6 +5,8 @@ from helpers.utils import flatten_lst
 import matplotlib.pyplot as plt  # type: ignore[import]
 import matplotlib.dates as mdates  # type: ignore[import]
 from matplotlib.pyplot import axis
+import matplotlib.ticker as mtick   # type: ignore[import]
+from matplotlib.collections import PatchCollection    # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 import seaborn as sns  # type: ignore[import]
