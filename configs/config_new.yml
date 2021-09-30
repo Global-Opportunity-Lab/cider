@@ -10,25 +10,21 @@ spark:
 
 path:
   data: "../synthetic_data/"
-  # features: '/Users/luciomelito/Documents/GD/cider/outputs/featurizer/datasets/features.csv'
   file_names:
-    antennas: 'antennas.csv'
-    cdr: 'cdr.csv'
-    home_ground_truth: 'home_locations.csv'
-    labels: 'labels.csv'
-    mobiledata: 'mobiledata.csv'
-    mobilemoney: 'mobilemoney.csv'
-    # population: 'population_tgo_2019-07-01.tif'
+    antennas: '/antennas.csv'
+    cdr: '/cdr.csv'
+    home_ground_truth: '/home_locations.csv'
+    labels: '/labels.csv'
+    mobiledata: '/mobiledata.csv'
+    mobilemoney: '/mobilemoney.csv'
     poverty_scores: null
-    recharges: 'recharges.csv'
-    # rwi: '/TGO_relative_wealth_index.csv'
+    recharges: '/recharges.csv'
     shapefiles:
-      regions: 'regions.geojson'
-      cantons: 'cantons.geojson'
-      prefectures: 'prefectures.geojson'
+      regions: '/regions.geojson'
+      prefectures: '/prefectures.geojson'
     user_consent: null
-  outputs: "../tests/outputs/featurizer"
-  wd: ".."
+  outputs: "../outputs/"
+  wd: "../"
 
 
 col_names:

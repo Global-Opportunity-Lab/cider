@@ -63,7 +63,7 @@ dependencies:
   - pyparsing=2.4.7=pyhd3eb1b0_0
   - pyqt=5.9.2=py37h655552a_2
   - pyrsistent=0.17.3=py37haf1e3a3_0
-- python=3.7.7=hf48f09d_4 
+  - python=3.7.7=hf48f09d_4
   - python-dateutil=2.8.1=pyhd3eb1b0_0
   - pyzmq=20.0.0=py37h23ab428_1
   - qt=5.9.7=h468cd18_1
