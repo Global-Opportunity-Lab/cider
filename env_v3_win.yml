@@ -1,4 +1,4 @@
-name: cider_stubs
+name: cider
 channels:
   - conda-forge
   - defaults
@@ -209,4 +209,5 @@ dependencies:
     - websocket-client==1.2.1
     - wpca==0.1
     - xlrd==2.0.1
-prefix: /Users/luciomelito/opt/anaconda3/envs/cider_stubs
+    - https://download.lfd.uci.edu/pythonlibs/y2rycu7g/scikit_misc-0.1.4-cp37-cp37m-win_amd64.whl
+    - https://download.lfd.uci.edu/pythonlibs/y2rycu7g/numpy-1.21.2+mkl-cp37-cp37m-win32.whl
