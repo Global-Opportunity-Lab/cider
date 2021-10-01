@@ -25,7 +25,10 @@ pyquadkey2 = "^0.2.0"
 PyYAML = "^5.4.1"
 scikit-misc = "^0.1.4"
 auto-sklearn = "^0.12.0"
+<<<<<<< HEAD
 autoflake = "^1.4"
+=======
+>>>>>>> b20c61f0e68a978dd47f5e2bc5a842920158c0d0
 
 [tool.poetry.dev-dependencies]
 ipykernel = "^6.4.1"
