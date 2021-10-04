@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from box import Box  # type: ignore[import]
+from box import Box
 from collections import defaultdict
 from geopandas import GeoDataFrame  # type: ignore[import]
 from enum import Enum

@@ -338,8 +338,18 @@ def load_shapefile(fname: str) -> GeoDataFrame:
     return shapefile
 
 
-def load_model(model, out_path, type='tuned'):
-    subdir = '/' + type + '_models/'
+def load_model(model: str, out_path: str, kind: str = 'tuned'):
+    """
+    Loads trained ML model. If tuned, the best performing model will be loaded.
+
+    Args:
+        model: The name of the model to load.
+        out_path: The path to the folder where models are saved.
+        kind: The type of model, i.e. untuned, tuned, or automl.
+
+    Returns: The loaded model.
+    """
+    subdir = '/' + kind + '_models/'
 
     if os.path.isfile(out_path + subdir + model + '/model'):
         model_name = model
@@ -354,7 +364,7 @@ def load_model(model, out_path, type='tuned'):
     else:
         raise ValueError("The 'model' argument should be a path or a recognized model name")
 
-    if type == 'tuned':
+    if kind == 'tuned':
         model = model.best_estimator_
 
     return model_name, model

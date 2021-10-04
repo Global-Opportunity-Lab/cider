@@ -120,6 +120,16 @@ class Learner:
         self.ds.merge()
 
     def untuned_model(self, model_name: str) -> Dict[str, str]:
+        """
+        Trains the ML model specified by 'model_name' and returns the R2 and the RMSE it obtained on the train and test
+        sets. It also saves the trained model and computes its feature importance.
+
+        Args:
+            model_name: The name of the model to use - one of ['linear', 'lasso', 'ridge', 'randomforest',
+        'gradientboosting']
+
+        Returns: A dict of R2 and RMSE scores obtained on training and test sets.
+        """
 
         make_dir(self.outputs + '/untuned_models/' + model_name)
 
@@ -148,6 +158,17 @@ class Learner:
         return scores
 
     def tuned_model(self, model_name: str) -> Dict[str, str]:
+        """
+        Trains the ML model specified by 'model_name' and returns the R2 and the RMSE it obtained on the train and test
+        sets by all models. During training, it will try the grid of hyper-parameters specified in the config file for
+        the corresponding model. It also saves the trained models and computes its their feature importance.
+
+        Args:
+            model_name: The name of the model to use - one of ['linear', 'lasso', 'ridge', 'randomforest',
+        'gradientboosting']
+
+        Returns: A dict of R2 and RMSE scores obtained on training and test sets by the best model.
+        """
 
         make_dir(self.outputs + '/tuned_models/' + model_name)
 
@@ -188,8 +209,15 @@ class Learner:
         return scores
 
     def automl(self, model_name: str) -> None:
+        """
+        Trains ML models using AutoML - the libraries' parameters are specified in the config file. All models,
+        including the ensembles, are saved to disk.
+
+        Args:
+            model_name: The name of the AutoML library to use - currently it only supports AutoGluon='autogluon'.
+        """
         # Make sure model_name is correct, get relevant cfg
-        assert model_name in ['autosklearn', 'autogluon']
+        assert model_name in ['autogluon']
         make_dir(self.outputs + '/automl_models/' + model_name)
 
         if model_name == 'autogluon':
@@ -209,9 +237,18 @@ class Learner:
         print('Finished automl training!')
 
     def feature_importances(self, model_name: str, kind: str = 'tuned') -> PandasDataFrame:
+        """
+        Computes the relative of features for a trained model.
+
+        Args:
+            model_name: The name of the model.
+            kind: The type of model, i.e. untuned, tuned, or automl.
+
+        Returns: The pandas df with all features and their importance.
+        """
         # Load model
         subdir = '/' + kind + '_models/'
-        model_name, model = load_model(model_name, out_path=self.outputs, type=kind)
+        model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
 
         if 'feature_importances_' in dir(model.named_steps['model']):
             imports = model.named_steps['model'].feature_importances_
@@ -225,9 +262,19 @@ class Learner:
         return imports
 
     def oos_predictions(self, model_name: str, kind: str = 'tuned') -> PandasDataFrame:
+        """
+        Computes out-of-sample predictions for all training + test samples.
+
+        Args:
+            model_name: The name of the model.
+            kind: The type of model, i.e. untuned, tuned, or automl.
+
+        Returns: The pandas df with true and predicted values for all training + test samples.
+
+        """
         # Load model
         subdir = '/' + kind + '_models/'
-        model_name, model = load_model(model_name, out_path=self.outputs, type=kind)
+        model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
 
         if model_name == 'autogluon':
             oos = model.get_oof_pred()
@@ -240,9 +287,19 @@ class Learner:
         return oos
 
     def population_predictions(self, model_name: str, kind: str = 'tuned', n_chunks: int = 100) -> PandasDataFrame:
+        """
+        Computes predictions for all population samples, i.e. those samples that do not have ground-truth data.
+
+        Args:
+            model_name: The name of the model.
+            kind: The type of model, i.e. untuned, tuned, or automl.
+            n_chunks: The number of chunks to divide the full population dataset in.
+
+        Returns: The pandas df with predicted values.
+        """
         # Load model
         subdir = '/' + kind + '_models/'
-        model_name, model = load_model(model_name, out_path=self.outputs, type=kind)
+        model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
 
         columns = pd.read_csv(self.cfg.path.features, nrows=1).columns
 
@@ -261,6 +318,14 @@ class Learner:
         return results_df
 
     def scatter_plot(self, model_name: str, kind: str = 'tuned') -> None:
+        """
+        Charts the out-of-sample predictions and the true values as a scatter plot, computes the correlation coefficient
+        between the two series, and superimposed the fitted LOESS curve.
+
+        Args:
+            model_name: The name of the model.
+            kind: The type of model, i.e. untuned, tuned, or automl.
+        """
         # Load model
         subdir = '/' + kind + '_models/'
         oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
@@ -292,6 +357,14 @@ class Learner:
         plt.show()
 
     def feature_importances_plot(self, model_name: str, kind: str = 'tuned', n_features: int = 20) -> None:
+        """
+        Produces horizontal bar plots of already calculated feature importances.
+
+        Args:
+            model_name: The name of the model.
+            kind: The type of model, i.e. untuned, tuned, or automl.
+            n_features: The number of top features to use in the plot.
+        """
         # Load model
         subdir = '/' + kind + '_models/'
         importances = pd.read_csv(self.outputs + subdir + model_name + '/feature_importances.csv')
@@ -328,6 +401,17 @@ class Learner:
         plt.show()
 
     def targeting_table(self, model_name: str, kind: str = 'tuned') -> PandasDataFrame:
+        """
+        Computes classification metrics using OOS predictions and when targeting 10 different subsets of the population,
+        the bottom p percentile where p = [0, 10, ..., 90].
+
+        Args:
+            model_name: The name of the model.
+            kind: The type of model, i.e. untuned, tuned, or automl.
+
+        Returns: The pandas df with correlation, accuracy, precision, recall, AUC, when targeting the bottom p
+        percentile of the population, where p = [0, 10, ..., 90].
+        """
 
         subdir = '/' + kind + '_models/'
         oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
