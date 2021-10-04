@@ -5,7 +5,7 @@ description = "Poverty prediction and location inference with mobile phone call 
 authors = ["Emily Aiken, Lucio Melito, Andrew Vaziri"]
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.10"
+python = ">=3.7,<3.9"
 pandas = "^1.3.3"
 numpy = "^1.21.2"
 bandicoot = "^0.6.0"
@@ -26,6 +26,11 @@ PyYAML = "^5.4.1"
 scikit-misc = "^0.1.4"
 auto-sklearn = "^0.12.0"
 autoflake = "^1.4"
+pandas-stubs = "^1.2.0"
+setuptools = "^58.2.0"
+wheel = "^0.37.0"
+mxnet = "<2.0.0"
+autogluon = "^0.3.1"
 
 [tool.poetry.dev-dependencies]
 ipykernel = "^6.4.1"

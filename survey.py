@@ -1,5 +1,5 @@
 # TODO: parallelize lasso and forward selection
-from box import Box  # type: ignore[import]
+from box import Box
 from helpers.utils import check_columns_exist, check_column_types, make_dir, weighted_corr
 from helpers.plot_utils import clean_plot
 from helpers.ml_utils import Winsorizer

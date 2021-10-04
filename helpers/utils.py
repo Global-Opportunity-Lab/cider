@@ -1,4 +1,4 @@
-from box import Box  # type: ignore[import]
+from box import Box
 import numpy as np
 from numpy import ndarray
 import os

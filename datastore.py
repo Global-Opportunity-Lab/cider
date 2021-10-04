@@ -82,7 +82,7 @@ class DataStore(InitializerInterface):
         self.merged: PandasDataFrame
         self.x: PandasDataFrame
         self.y: Series
-        self.weights = None
+        self.weights: Series
         # targeting & fairness
         self.targeting: PandasDataFrame
         self.fairness: PandasDataFrame

@@ -1,5 +1,5 @@
-# from autogluon.tabular import TabularPredictor
-from box import Box  # type: ignore[import]
+from autogluon.tabular import TabularPredictor  # type: ignore[import]
+from box import Box
 import geopandas as gpd  # type: ignore[import]
 from geopandas import GeoDataFrame
 from helpers.utils import get_spark_session, make_dir
