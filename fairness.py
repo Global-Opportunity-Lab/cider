@@ -1,10 +1,14 @@
+"""
+Evaluates fairness of a machine learning module across a characteristic 
+(whether or not the machine learning module discriminates across different groups in that characteristic).
+"""
 from box import Box
 import yaml
 from helpers.utils import *
 from helpers.plot_utils import *
 from helpers.io_utils import *
 from helpers.ml_utils import *
-from scipy.stats import f_oneway
+from scipy.stats import f_oneway, chi2_contingency
 
 
 class Fairness:
@@ -52,6 +56,12 @@ class Fairness:
         return {group: data[data[characteristic] == group]['rank_residual'].values.flatten() for group in data[characteristic].unique()}
 
     def demographic_parity(self, var1, var2, characteristic, p, weighted=False):
+        """
+        var1 = groundtruth
+        var2 = proxies. The thing that you're evaluating the fairness of.
+        characteristic = how the group is divided
+        p = target the top p percent
+        """
 
         data = self.weighted_data if weighted else self.unweighted_data
 
@@ -72,6 +82,20 @@ class Fairness:
             results[group]['poverty_share'] = 100*subset['targeted_var1'].mean()
             results[group]['demographic_parity'] = 100*subset['targeted_var2'].mean() - 100*subset['targeted_var1'].mean()
         return results
+    
+    def independence(self, var1, var2, characteristic, weighted=False):
+        """
+        Performs the chi-squared independence test between the proxy variable and the sensitive characterisrtic
+        
+        var2 -- the proxy variable
+        characteristic -- sensitive characteristic
+        
+        """
+
+        data = self.weighted_data if weighted else self.unweighted_data
+        obs = np.array([data[characteristic].values, data[var2].values])
+        x2, pval, dof = chi2_contingency(obs)[:3]
+        return pval
 
     def rank_residuals_plot(self, groundtruth, proxies, characteristic, weighted=False, colors=None):
 
