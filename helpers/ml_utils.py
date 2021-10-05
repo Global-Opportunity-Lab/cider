@@ -1,26 +1,28 @@
+from __future__ import annotations
 from helpers.utils import strictly_increasing
 import numpy as np
 from numpy import ndarray
 import pandas as pd
+from pandas import DataFrame as PandasDataFrame, Series
 from sklearn.base import BaseEstimator, TransformerMixin, clone  # type: ignore[import]
 from sklearn.metrics import confusion_matrix, auc, r2_score  # type: ignore[import]
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 
-def metrics(a1: ndarray, a2: ndarray, p: float) -> Tuple[float, float, float, float, float]:
+def metrics(a1: Union[ndarray, Series], a2: Union[ndarray, Series], p: float) -> Tuple[float, float, float, float, float]:
     """
-    Compute classification metrics at a certain threshold, i.e. turn regression into classification by considering the
-    bottom p% of targets as belonging to the positive class
+    Computes classification metrics at a certain threshold, i.e. turn regression into classification by considering the
+    bottom p% of targets as belonging to the positive class.
 
     Args:
-        a1: vector of true values
-        a2: vector of predictived values
-        p: classification threshold
+        a1: Vector of true values.
+        a2: Vector of predicted values.
+        p: Classification threshold.
 
-    Returns: tuple with accuracy, precision, recall, true positive rate, false positive rate
+    Returns: Tuple with accuracy, precision, recall, true positive rate, false positive rate.
     """
     if p == 0 or p == 100:
-        raise ValueError('Pecentage targeting must be between 0 and 100 (exclusive).')
+        raise ValueError('Percentage targeting must be between 0 and 100 (exclusive).')
 
     num_ones = int((p/100)*len(a1))
     num_zeros = len(a1) - num_ones
@@ -43,15 +45,15 @@ def metrics(a1: ndarray, a2: ndarray, p: float) -> Tuple[float, float, float, fl
     return accuracy, precision, recall, tpr, fpr
 
 
-def auc_overall(a1: ndarray, a2: ndarray) -> float:
+def auc_overall(a1: Union[ndarray, Series], a2: Union[ndarray, Series]) -> float:
     """
-    Compute AUC score by turning regression problem into classification using 'metrics' function
+    Computes AUC score by turning regression problem into classification using 'metrics' function.
 
     Args:
-        a1: vector of true values
-        a2: vector of predictived values
+        a1: Vector of true values.
+        a2: Vector of predicted values.
 
-    Returns: AUC score
+    Returns: AUC score.
     """
     grid = np.linspace(1, 100, 99)[:-1]
     metrics_grid = [metrics(a1, a2, p) for p in grid]
@@ -78,22 +80,22 @@ class DropMissing(TransformerMixin, BaseEstimator):
     def __init__(self, threshold: Optional[float] = None) -> None:
         self.threshold = threshold
 
-    def fit(self, X, y=None):
+    def fit(self, X: PandasDataFrame, y: Optional[Series] = None) -> DropMissing:
         missing = X.isna().mean()
         self.missing_frac = missing
         self.cols_to_drop = missing[missing > self.threshold].index
         self.cols_to_keep = missing[missing <= self.threshold].index
         return self
 
-    def transform(self, X, y=None):
+    def transform(self, X: PandasDataFrame, y: Optional[Series] = None) -> PandasDataFrame:
         return X.drop(self.cols_to_drop.values, axis=1)
 
 
 class Winsorizer(TransformerMixin, BaseEstimator):
-    def __init__(self, limits=None):
+    def __init__(self, limits: Optional[Tuple[float, float]] = None) -> None:
         self.limits = limits
 
-    def fit(self, X, y=None):
+    def fit(self, X: PandasDataFrame, y: Optional[Series] = None) -> Winsorizer:
         X = pd.DataFrame(X)
         if self.limits is None:
             self.limits = (0.01, 0.99)
@@ -112,10 +114,11 @@ class Winsorizer(TransformerMixin, BaseEstimator):
 
         return self
 
-    def transform(self, X, y=None):
+    def transform(self, X: Union[PandasDataFrame, ndarray], y: Optional[Series] = None) -> PandasDataFrame:
         X = pd.DataFrame(X)
         X_t = X.copy()
-        def trim(x, low, high):
+
+        def trim(x: Union[float, int], low: Union[float, int], high: Union[float, int]) -> Union[float, int]:
             if pd.isna(x):
                 return x
             else:

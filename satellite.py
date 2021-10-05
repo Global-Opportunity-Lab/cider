@@ -1,4 +1,4 @@
-from box import Box  # type: ignore[import]
+from box import Box
 import geopandas as gpd  # type: ignore[import]
 import glob
 from helpers.io_utils import load_antennas, load_shapefile

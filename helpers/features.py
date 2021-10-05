@@ -1,4 +1,4 @@
-from box import Box  # type: ignore[import]
+from box import Box
 from helpers.features_utils import *
 
 
