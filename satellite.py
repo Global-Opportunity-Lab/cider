@@ -1,7 +1,7 @@
-from box import Box
+from collections import defaultdict
+from datastore import DataStore, DataType
 import geopandas as gpd  # type: ignore[import]
 import glob
-from helpers.io_utils import load_antennas, load_shapefile
 from helpers.plot_utils import voronoi_tessellation
 from helpers.satellite_utils import quadkey_to_polygon
 from helpers.utils import get_spark_session, make_dir
@@ -9,108 +9,86 @@ import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import os
 import pandas as pd
+from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 import rasterio  # type: ignore[import]
 from rasterio.mask import mask  # type: ignore[import]
 from rasterio.merge import merge  # type: ignore[import]
 from shapely.geometry import mapping  # type: ignore[import]
-from typing import Dict, Optional
-import yaml
+import shutil
+from typing import Dict, Optional, Union
 
 
-class SatellitePredictor:
+class Satellite:
 
     def __init__(self,
-                 cfg_dir: str,
-                 dataframes: Optional[Dict[str, SparkDataFrame]] = None,
-                 clean_folders: bool = False) -> None:
+                 datastore: DataStore,
+                 dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, SparkDataFrame]]]] = None,
+                 clean_folders: bool = False):
+        self.cfg = datastore.cfg
+        self.ds = datastore
+        self.outputs = datastore.outputs + 'satellite/'
 
-        # Read config file
-        with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.load(ymlfile,  Loader=yaml.FullLoader))
-        self.cfg = cfg
-        data = cfg.path.satellite.data
-        self.data = data
-        outputs = cfg.path.satellite.outputs
-        self.outputs = outputs
-        file_names = cfg.path.satellite.file_names
-        self.file_names = file_names
+        # Prepare working directories
+        make_dir(self.outputs, clean_folders)
+        make_dir(self.outputs + '/outputs/')
+        make_dir(self.outputs + '/maps/')
+        make_dir(self.outputs + '/tables/')
 
-        # Initialize values
-        self.geo = cfg.col_names.geo
-
-        # Prepare working directory
-        make_dir(outputs, clean_folders)
-        make_dir(outputs + '/outputs/')
-        make_dir(outputs + '/maps/')
-        make_dir(outputs + '/tables/')
-        
         # Spark setup
-        spark = get_spark_session(cfg)
+        spark = get_spark_session(self.cfg)
         self.spark = spark
 
-        # Load antennas data 
-        dataframe = dataframes['antennas'] if dataframes is not None and 'antennas' in dataframes.keys() else None
-        fpath = data + file_names.antennas if file_names.antennas is not None else None
-        if file_names.antennas is not None or dataframe is not None:
-            print('Loading antennas...')
-            self.antennas: Optional[SparkDataFrame] = load_antennas(self.cfg, fpath, df=dataframe)
-        else:
-            self.antennas = None
+        # Load data into datastore
+        dataframes = dataframes if dataframes else defaultdict(lambda: None)
+        data_type_map = {DataType.ANTENNAS: dataframes['antennas'],
+                         DataType.SHAPEFILES: None,
+                         DataType.RWI: None}
+        self.ds.load_data(data_type_map=data_type_map)
 
-        # Load poverty predictions
-        if self.file_names.rwi:
-            self.rwi = pd.read_csv(self.data + self.file_names.rwi, dtype={'quadkey': str})
-        else:
-            self.rwi = None
-
-        # Load shapefiles
-        self.shapefiles = {}
-        shapefiles = file_names.shapefiles
-        for shapefile_fname in shapefiles.keys():
-            self.shapefiles[shapefile_fname] = load_shapefile(data + shapefiles[shapefile_fname])
-
-    def aggregate_scores(self, dataset: str = 'rwi') -> None:
+    def aggregate_scores(self,  geo: str, dataset: str = 'rwi') -> None:
         """
-        Aggregate poverty scores contained in a raster dataset, like the Relative Wealth Index, to a certain geographic
-        level, taking into account population density levels
+        Aggregates wealth index contained in a raster dataset, like the Relative Wealth Index, to a certain geographic
+        level, taking into account population density levels.
 
         Args:
-            dataset: which poverty scores to use - only 'rwi' for now
+            geo: Geographic level of aggregation: the corresponding antennas or admin boundaries shapefiles have to have
+                been loaded.
+            dataset: Which wealth/income map to use - only 'rwi' for now.
         """
         # Check data is loaded and preprocess it
         if dataset == 'rwi':
-            if self.rwi is None:
+            if self.ds.rwi is None:
                 raise ValueError("The RWI data has not been loaded.")
-            scores = self.rwi
+            scores = self.ds.rwi
             scores = scores.rename(columns={'rwi': 'score'})
             scores['polygon'] = scores['quadkey'].map(quadkey_to_polygon)
         else:
-            raise NotImplementedError("'{scores}' scores are not supported yet.")
+            raise NotImplementedError(f"'{dataset}' scores are not supported yet.")
 
         # Obtain shapefiles for masking of raster data
-        if self.geo in ['antenna_id', 'tower_id']:
-            if self.antennas is None:
+        if geo in ['antenna_id', 'tower_id']:
+            if self.ds.antennas is None:
                 raise ValueError("Antennas have not been loaded!")
             # Get pandas dataframes of antennas/towers
-            if self.geo == 'antenna_id':
-                points = self.antennas.toPandas().dropna(subset=['antenna_id', 'latitude', 'longitude'])
+            if geo == 'antenna_id':
+                points = self.ds.antennas.toPandas().dropna(subset=['antenna_id', 'latitude', 'longitude'])
             else:
-                points = self.antennas.toPandas()[
+                points = self.ds.antennas.toPandas()[
                     ['tower_id', 'latitude', 'longitude']].dropna().drop_duplicates().copy()
 
             # Calculate voronoi tesselation
-            if len(self.shapefiles.keys()) == 0:
+            if len(self.ds.shapefiles.keys()) == 0:
                 raise ValueError('At least one shapefile must be loaded to compute voronoi polygons.')
-            shapes = voronoi_tessellation(points, list(self.shapefiles.values())[0], key=self.geo)
+            shapes = voronoi_tessellation(points, list(self.ds.shapefiles.values())[0], key=geo)
 
-        elif self.geo in self.shapefiles.keys():
-            shapes = self.shapefiles[self.geo].rename({'region': self.geo}, axis=1)
+        elif geo in self.ds.shapefiles.keys():
+            shapes = self.ds.shapefiles[geo].rename({'region': geo}, axis=1)
         else:
             raise ValueError('Invalid geometry.')
 
         # Read raster with population data, mask with scores and create new score band, write multiband output
-        pop_fpath = self.data + self.file_names.population
+        pop_fpath = self.ds.data + self.ds.file_names.population
         pop_score_fpath = self.outputs + f'/pop_{dataset}.tif'
         if not os.path.isfile(pop_score_fpath):
             temp_folder = self.outputs + '/temp'
@@ -141,11 +119,11 @@ class SatellitePredictor:
                         for idx, band in enumerate([out_image, new_band]):
                             dst.write_band(idx + 1, band)
 
+            # Open one raster to get metadata
             new_raster_paths = glob.glob(temp_folder + '/*.tif')
-            for raster in new_raster_paths:
-                src = rasterio.open(raster)
-                break
+            src = rasterio.open(new_raster_paths[0])
 
+            # Merge all rasters
             mosaic, out_trans = merge(new_raster_paths)
 
             # Update the metadata
@@ -154,14 +132,18 @@ class SatellitePredictor:
                              "width": mosaic.shape[2],
                              "transform": out_trans})
 
+            # Write mosaic to disk
             with rasterio.open(pop_score_fpath, "w", **out_meta) as dest:
                 dest.write(mosaic)
+
+        # Remove folder with intermediate rasters
+        shutil.rmtree(self.outputs + '/temp', ignore_errors=True)
 
         # Read raster with population and score bands, mask with admin shapes and aggregate
         out_data = []
         with rasterio.open(pop_score_fpath) as src:
             for _, row in shapes.iterrows():
-                idx = row[self.geo]
+                idx = row[geo]
                 geometry = row['geometry']
                 geoms = [mapping(row['geometry'])]
                 out_image, out_transform = mask(src, geoms, crop=True)
@@ -174,7 +156,7 @@ class SatellitePredictor:
                               geometry='geometry')
 
         # Save shapefile
-        df.to_file(self.outputs + '/maps/' + self.geo + '_' + dataset + '.geojson', driver='GeoJSON')
+        df.to_file(self.outputs + '/maps/' + geo + '_' + dataset + '.geojson', driver='GeoJSON')
 
         # Plot map
         fig, ax = plt.subplots(1, figsize=(10, 10))
@@ -184,5 +166,5 @@ class SatellitePredictor:
 
         ax.axis('off')
         plt.tight_layout()
-        plt.savefig(self.outputs + '/maps/' + self.geo + '_' + dataset + '.png', dpi=300)
+        plt.savefig(self.outputs + '/maps/' + geo + '_' + dataset + '.png', dpi=300)
         plt.show()
