@@ -1,7 +1,10 @@
 from __future__ import annotations
-from helpers.utils import strictly_increasing
+from autogluon.tabular import TabularPredictor  # type: ignore[import]
+from helpers.utils import make_dir, strictly_increasing
+from joblib import load  # type: ignore[import]
 import numpy as np
 from numpy import ndarray
+import os
 import pandas as pd
 from pandas import DataFrame as PandasDataFrame, Series
 from sklearn.base import BaseEstimator, TransformerMixin, clone  # type: ignore[import]
@@ -133,3 +136,33 @@ class Winsorizer(TransformerMixin, BaseEstimator):
         return X_t
 
 
+def load_model(model: str, out_path: str, kind: str = 'tuned'):
+    """
+    Loads trained ML model. If tuned, the best performing model will be loaded.
+
+    Args:
+        model: The name of the model to load.
+        out_path: The path to the folder where models are saved.
+        kind: The type of model, i.e. untuned, tuned, or automl.
+
+    Returns: The loaded model.
+    """
+    subdir = '/' + kind + '_models/'
+
+    if os.path.isfile(out_path + subdir + model + '/model'):
+        model_name = model
+        model = load(out_path + subdir + model + '/model')
+    elif os.path.isdir(out_path + subdir + model + '/model'):
+        model_name = model
+        model = TabularPredictor.load(out_path + subdir + model + '/model')
+    elif os.path.isfile(model):
+        model_name = model.split('/')[-1]
+        model = load(model)
+        make_dir(out_path + subdir + model_name)
+    else:
+        raise ValueError("The 'model' argument should be a path or a recognized model name")
+
+    if kind == 'tuned':
+        model = model.best_estimator_
+
+    return model_name, model

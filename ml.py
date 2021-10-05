@@ -1,8 +1,7 @@
 from autogluon.tabular import TabularPredictor  # type: ignore[import]
-from helpers.io_utils import load_model
 from helpers.utils import make_dir
 from helpers.plot_utils import clean_plot
-from helpers.ml_utils import auc_overall, DropMissing, metrics, Winsorizer
+from helpers.ml_utils import auc_overall, DropMissing, load_model, metrics, Winsorizer
 from datastore import DataStore, DataType
 from joblib import dump, load  # type: ignore[import]
 import json
