@@ -1,10 +1,7 @@
-# from autogluon.tabular import TabularPredictor
-from box import Box  # type: ignore[import]
+from box import Box
 import geopandas as gpd  # type: ignore[import]
 from geopandas import GeoDataFrame
-from helpers.utils import get_spark_session, make_dir
-from joblib import load  # type: ignore[import]
-import os
+from helpers.utils import get_spark_session
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import col, date_trunc, to_timestamp
@@ -336,25 +333,3 @@ def load_shapefile(fname: str) -> GeoDataFrame:
     shapefile['region'] = shapefile['region'].astype(str)
 
     return shapefile
-
-
-def load_model(model, out_path, type='tuned'):
-    subdir = '/' + type + '_models/'
-
-    if os.path.isfile(out_path + subdir + model + '/model'):
-        model_name = model
-        model = load(out_path + subdir + model + '/model')
-    elif os.path.isdir(out_path + subdir + model + '/model'):
-        model_name = model
-        model = TabularPredictor.load(out_path + subdir + model + '/model')
-    elif os.path.isfile(model):
-        model_name = model.split('/')[-1]
-        model = load(model)
-        make_dir(out_path + subdir + model_name)
-    else:
-        raise ValueError("The 'model' argument should be a path or a recognized model name")
-
-    if type == 'tuned':
-        model = model.best_estimator_
-
-    return model_name, model

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from box import Box  # type: ignore[import]
+from box import Box
 from collections import defaultdict
 from geopandas import GeoDataFrame  # type: ignore[import]
 from enum import Enum
@@ -31,6 +31,7 @@ class DataType(Enum):
     LABELS = 9
     TARGETING = 10
     FAIRNESS = 11
+    RWI = 12
 
 
 class InitializerInterface(ABC):
@@ -82,10 +83,12 @@ class DataStore(InitializerInterface):
         self.merged: PandasDataFrame
         self.x: PandasDataFrame
         self.y: Series
-        self.weights = None
+        self.weights: Series
         # targeting & fairness
         self.targeting: PandasDataFrame
         self.fairness: PandasDataFrame
+        # wealth/income maps
+        self.rwi: PandasDataFrame
 
         # Define mapping between data types and loading methods
         self.data_type_to_fn_map: Dict[DataType, Callable] = {DataType.CDR: self._load_cdr,
@@ -99,7 +102,8 @@ class DataStore(InitializerInterface):
                                                               DataType.FEATURES: self._load_features,
                                                               DataType.LABELS: self._load_labels,
                                                               DataType.TARGETING: self._load_targeting,
-                                                              DataType.FAIRNESS: self._load_fairness}
+                                                              DataType.FAIRNESS: self._load_fairness,
+                                                              DataType.RWI: self._load_wealth_map}
 
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -254,6 +258,13 @@ class DataStore(InitializerInterface):
                                                     axis=0),
                                           columns=self.weighted_fairness.columns) \
             .astype(self.unweighted_fairness.dtypes)
+
+    def _load_wealth_map(self) -> None:
+        # Load wealth/income map
+        if self.file_names.rwi:
+            self.rwi = pd.read_csv(self.data + self.file_names.rwi, dtype={'quadkey': str})
+        else:
+            raise ValueError("Missing path to wealth map in config file.")
 
     def merge(self) -> None:
         """
