@@ -250,13 +250,19 @@ class Learner:
         subdir = '/' + kind + '_models/'
         model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
 
-        if 'feature_importances_' in dir(model.named_steps['model']):
-            imports = model.named_steps['model'].feature_importances_
+        # TODO: improve performance of autogluon's feature importance computation
+        if model_name == 'autogluon':
+            imports = model.feature_importance(data=self.ds.merged)
+            imports = imports.reset_index.rename(columns={'index': 'Feature', 'importance': 'Importance'})
+            imports = imports[['Feature', 'Importance']]
         else:
-            imports = model.named_steps['model'].coef_
-
-        imports = pd.DataFrame([self.ds.x.columns, imports]).T
-        imports.columns = ['Feature', 'Importance']
+            if 'feature_importances_' in dir(model.named_steps['model']):
+                imports = model.named_steps['model'].feature_importances_
+            else:
+                imports = model.named_steps['model'].coef_
+            imports = pd.DataFrame([self.ds.x.columns, imports]).T
+            imports.columns = ['Feature', 'Importance']
+            
         imports = imports.sort_values('Importance', ascending=False)
         imports.to_csv(self.outputs + subdir + model_name + '/feature_importances.csv', index=False)
         return imports
