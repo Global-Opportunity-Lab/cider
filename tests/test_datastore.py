@@ -12,6 +12,7 @@ from helpers.utils import get_project_root
 class TestDatastoreClasses:
     """All the tests related to objects that implement Datastore."""
 
+    @pytest.mark.unit_test
     @pytest.mark.parametrize(
         "config_file_path",
         [
@@ -29,6 +30,7 @@ class TestDatastoreClasses:
             cfg_dir=os.path.join(get_project_root(), config_file_path)
         )
 
+    @pytest.mark.unit_test
     @pytest.mark.parametrize(
         "config_file_path,expected_exception",
         [("", FileNotFoundError), ("\\malformed#$directory!!!(38", FileNotFoundError)],
@@ -43,7 +45,7 @@ class TestDatastoreClasses:
             datastore = datastore_class(cfg_dir=config_file_path)
 
     @pytest.fixture()
-    def ds(self, mocker: MockerFixture, datastore_class: Type[DataStore]) -> DataStore:
+    def ds_mock_spark(self, mocker: MockerFixture, datastore_class: Type[DataStore]) -> DataStore:
         # TODO: Perhaps decouple the creation of this object from config files altogether or make a test_config.yml
         # I would lobby for having an intermediate dataclass that represents the config file as a python object with known semantics
 
@@ -57,13 +59,26 @@ class TestDatastoreClasses:
         assert mock_read_csv.called
         return out
 
+    @pytest.fixture()
+    def ds(self, mocker: MockerFixture, datastore_class: Type[DataStore]) -> DataStore:
+        # TODO: Perhaps decouple the creation of this object from config files altogether or make a test_config.yml
+        # I would lobby for having an intermediate dataclass that represents the config file as a python object with known semantics
+        out = datastore_class(cfg_dir="configs/config.yml")
+        return out
+
     # TODO: Same test for antennas, recharges, mobiledata, mobilemoney, shapefiles, home_group_truth, poverty_scores, features, labels, targeting, fairness, wealth map
     # merge, load_data, filter_dates, deduplicate, remove_spammers, filter_outlier_days
+    @pytest.mark.unit_test
     @pytest.mark.skip(reason="Test not yet implemented")
-    def test_load_cdr(self, datastore_class: Type[DataStore], ds: DataStore) -> None:
+    def test_load_cdr(self, datastore_class: Type[DataStore], ds_mock_spark: DataStore) -> None:
         # TODO: Add asserts for the following:
         # TODO: Test successful operation: nominal case, edge cases, test None when anything is Optional, test for idempotency where appropriate, test zero length iterables
         # TODO: Test expected failures raise appropriate errors: Malformed inputs, invalid inputs, basically any code path that should raise an exception
+        pass
+
+    @pytest.mark.integration_test
+    @pytest.mark.skip(reason="Test not yet implemented")
+    def test_datastore_end_to_end(self, datastore_class: Type[DataStore], ds_mock_spark: DataStore) -> None:
         pass
 
     # Example where classes have the same expected outputs
@@ -72,6 +87,7 @@ class TestDatastoreClasses:
         (2, 4, 8),
     ]
 
+    @pytest.mark.unit_test
     @pytest.mark.parametrize(
         "a, b, expected", test_example_same_behavior_per_class_data
     )
@@ -90,6 +106,7 @@ class TestDatastoreClasses:
         (2, 4, {DataStore: 8, OptDataStore: 6}),
     ]
 
+    @pytest.mark.unit_test
     @pytest.mark.parametrize(
         "a, b, expected", test_example_different_behavior_per_class_data
     )
