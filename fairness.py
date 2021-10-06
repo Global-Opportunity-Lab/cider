@@ -2,6 +2,7 @@
 Evaluates fairness of a machine learning module across a characteristic 
 (whether or not the machine learning module discriminates across different groups in that characteristic).
 """
+from numpy import character
 from box import Box
 import yaml
 from helpers.utils import *
@@ -9,20 +10,21 @@ from helpers.plot_utils import *
 from helpers.io_utils import *
 from helpers.ml_utils import *
 from scipy.stats import f_oneway, chi2_contingency
+from datastore import *
+from sklearn.metrics import recall_score, precision_score
 
 
 class Fairness:
 
-    def __init__(self, cfg_dir, dataframe=None, clean_folders=False):
+    def __init__(self, datastore: DataStore, dataframe=None, clean_folders=False):
+        self.cfg = datastore.cfg
+        self.ds = datastore
 
-        # Read config file
-        with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.safe_load(ymlfile))
-        self.cfg = cfg
-        data_path = cfg.path.fairness.data + cfg.path.fairness.file_names.data
+        data_path = self.cfg.path.data + self.cfg.path.file_names.fairness
         self.data = pd.read_csv(data_path)
         self.data['random'] = np.random.rand(len(self.data))
-        outputs = cfg.path.fairness.outputs
+
+        outputs = self.cfg.path.outputs
         self.outputs = outputs
         self.default_colors = sns.color_palette('Set2', 100)
 
@@ -83,19 +85,81 @@ class Fairness:
             results[group]['demographic_parity'] = 100*subset['targeted_var2'].mean() - 100*subset['targeted_var1'].mean()
         return results
     
-    def independence(self, var1, var2, characteristic, weighted=False):
+    def independence(self, var1, var2, characteristic, p, weighted=False):
         """
         Performs the chi-squared independence test between the proxy variable and the sensitive characterisrtic
-        
+
         var2 -- the proxy variable
         characteristic -- sensitive characteristic
-        
+
+        """
+        data = self.weighted_data if weighted else self.unweighted_data
+
+        # Simulate targeting by var2 (proxy characteristic)
+        num_ones = int((p/100)*len(data))
+        num_zeros = len(data) - num_ones
+        targeting_vector = np.concatenate([np.ones(num_ones), np.zeros(num_zeros)])
+        data = data.sort_values([var2, 'random'], ascending=True)
+        data['targeted_var2'] = targeting_vector
+
+        # Create a pivot table between the characteristic and the proxy
+        pivot = data.pivot_table(index=characteristic, columns='targeted_var2', aggfunc='count', fill_value=0).iloc[:, 0:2]
+
+        # Run independence test
+        chi2, p, dof, ex = chi2_contingency(pivot)
+        return p
+    
+    def recall_per_group(self, var1, var2, characteristic, p, weighted=False):
+        """
+        var1 = groundtruth
+        var2 = proxies. The thing that you're evaluating the fairness of.
+        characteristic = how the group is divided
+        p = target the top p percent
         """
 
         data = self.weighted_data if weighted else self.unweighted_data
-        obs = np.array([data[characteristic].values, data[var2].values])
-        x2, pval, dof = chi2_contingency(obs)[:3]
-        return pval
+
+        # Simulate targeting by var1 and var2
+        num_ones = int((p/100)*len(data))
+        num_zeros = len(data) - num_ones
+        targeting_vector = np.concatenate([np.ones(num_ones), np.zeros(num_zeros)])
+        data = data.sort_values([var1, 'random'], ascending=True)
+        data['targeted_var1'] = targeting_vector
+        data = data.sort_values([var2, 'random'], ascending=True)
+        data['targeted_var2'] = targeting_vector
+
+        # Get demographic parity and poverty share for each group
+        results = {}
+        for group in data[characteristic].unique():
+            subset = data[data[characteristic] == group]
+            results[group] = recall_score(subset['targeted_var1'], subset['targeted_var2'])
+        return results
+    
+    def precision_per_group(self, var1, var2, characteristic, p, weighted=False):
+        """
+        var1 = groundtruth
+        var2 = proxies. The thing that you're evaluating the fairness of.
+        characteristic = how the group is divided
+        p = target the top p percent
+        """
+
+        data = self.weighted_data if weighted else self.unweighted_data
+
+        # Simulate targeting by var1 and var2
+        num_ones = int((p/100)*len(data))
+        num_zeros = len(data) - num_ones
+        targeting_vector = np.concatenate([np.ones(num_ones), np.zeros(num_zeros)])
+        data = data.sort_values([var1, 'random'], ascending=True)
+        data['targeted_var1'] = targeting_vector
+        data = data.sort_values([var2, 'random'], ascending=True)
+        data['targeted_var2'] = targeting_vector
+
+        # Get demographic parity and poverty share for each group
+        results = {}
+        for group in data[characteristic].unique():
+            subset = data[data[characteristic] == group]
+            results[group] = precision_score(subset['targeted_var1'], subset['targeted_var2'])
+        return results
 
     def rank_residuals_plot(self, groundtruth, proxies, characteristic, weighted=False, colors=None):
 
@@ -281,3 +345,134 @@ class Fairness:
         # Save and show
         plt.savefig(self.outputs + '/demographic_parity_plot_' + characteristic + '_' + str(p) + '%.png', index=False)
         plt.show()
+    
+    def recall_table(self, groundtruth, proxies, characteristic, p, weighted=False, format_table=True):
+
+        data = self.weighted_data if weighted else self.unweighted_data
+        data['count'] = 1
+
+        # Set up table
+        table=pd.DataFrame()
+        groups = sorted(data[characteristic].unique())
+        table[characteristic] = groups
+
+        # Get share of population for each group
+        population_shares = data.groupby(characteristic).agg('count')
+        table["Group's share of population"] = 100*(population_shares['count'].values.flatten()/len(data))
+
+        # Get demographic parity and poverty share for each group
+        for proxy in proxies:
+            groups = sorted(data[characteristic].unique())
+            results = self.recall_per_group(groundtruth, proxy, characteristic, p, weighted=weighted)
+            table[proxy] = [results[group] for group in groups]
+        
+        # Clean up and return table
+        if format_table:
+            table["Group's share of population"] = table["Group's share of population"].apply(lambda x: ('%.2f' % x) + '%')
+
+        # Save and return
+        table.to_csv(self.outputs + '/recall_table_' + characteristic + '_' + str(p) + '%.png', index=False)
+        return table
+
+    def recall_plot(self, groundtruth, proxies, characteristic, p, weighted=False):
+
+        # Get recall table, set up parameters for grid 
+        table = self.recall_table(groundtruth, proxies, characteristic, p, weighted=weighted, format_table=False)
+        data = table[proxies]
+        keys = list(data.keys())
+        N = len(table)
+        M = len(keys)
+
+        # Format labels for y axis
+        ylabels = []
+        for i in range(len(table)):
+            # ylabels.append('{}\n{}% of Population\n{}% in Target'\
+            #             .format(table.iloc[i][characteristic], int(table.iloc[i]["Group's share of population"]), 
+            #             int(table.iloc[i]['Share of Group in Target Population'])))
+            ylabels.append('{}\n{}% of Population'\
+                        .format(table.iloc[i][characteristic], int(table.iloc[i]["Group's share of population"])))
+        ylabels = ylabels[::-1]
+        xlabels = keys
+
+        # Circles
+        x, y = np.meshgrid(np.arange(M), np.arange(N))
+        radius = 15
+        s = [[] for i in range(len(keys))]
+        for i in range(len(keys)):
+            for j in range(len(data[keys[i]])):
+                s[i].append(data[keys[i]][j])
+        arr = np.array(s).transpose()
+        new_list = []
+        for i in range(arr.shape[0]-1,-1,-1):
+            new_list.append(list(arr[i]))
+        s = new_list
+        print(s)
+        # S contains the recall values, from bottom to top, from left to rightr
+
+        # set up figure
+        fig = plt.figure(figsize=(2.7*len(proxies), 2.5*len(table))) 
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.set_title('Recall per Group: ' + characteristic,pad=85, fontsize='large')
+
+        # More circles
+        s=np.array([np.array(row) for row in s])
+        R = s
+        c = R
+        R = np.log(np.abs(R))/10
+        circles = [plt.Circle((j,i), radius=r) for r, j, i in zip(R.flatten(), x.flatten(), y.flatten())]
+        col = PatchCollection(circles, array=c.flatten(), cmap="RdBu_r", edgecolor='grey', linewidth=2)
+        col.set_clim(vmin=-20, vmax=20)
+        # math.log(abs(r)) / 10
+
+        # Set up ticks and labels
+        ax.add_collection(col)
+        ax.set(xticks=np.arange(M), yticks=np.arange(N),
+            xticklabels=xlabels, yticklabels=ylabels)
+        ax.set_xticks(np.arange(M+1)-0.5, minor=True)
+        ax.set_yticks(np.arange(N+1)-0.5, minor=True)
+        ax.xaxis.tick_top()
+
+        # Colorbar
+        cbar = fig.colorbar(col, fraction=0.03, pad=0.05,)
+        cbar.outline.set_edgecolor('white')
+        cbar.ax.set_ylabel('Percentage Point Difference', labelpad=20)
+
+        # Final touches on figure
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.tick_params(axis='both', which='both', length=0)
+        plt.tight_layout()
+
+        # Save and show
+        plt.savefig(self.outputs + '/recall_plot_' + characteristic + '_' + str(p) + '%.png', index=False)
+        plt.show()
+    
+    def precision_table(self, groundtruth, proxies, characteristic, p, weighted=False, format_table=True):
+
+        data = self.weighted_data if weighted else self.unweighted_data
+        data['count'] = 1
+
+        # Set up table
+        table=pd.DataFrame()
+        groups = sorted(data[characteristic].unique())
+        table[characteristic] = groups
+
+        # Get share of population for each group
+        population_shares = data.groupby(characteristic).agg('count')
+        table["Group's share of population"] = 100*(population_shares['count'].values.flatten()/len(data))
+
+        # Get demographic parity and poverty share for each group
+        for proxy in proxies:
+            groups = sorted(data[characteristic].unique())
+            results = self.precision_per_group(groundtruth, proxy, characteristic, p, weighted=weighted)
+            table[proxy] = [results[group] for group in groups]
+        
+        # Clean up and return table
+        if format_table:
+            table["Group's share of population"] = table["Group's share of population"].apply(lambda x: ('%.2f' % x) + '%')
+
+        # Save and return
+        table.to_csv(self.outputs + '/recall_table_' + characteristic + '_' + str(p) + '%.png', index=False)
+        return table
