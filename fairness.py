@@ -386,9 +386,6 @@ class Fairness:
         # Format labels for y axis
         ylabels = []
         for i in range(len(table)):
-            # ylabels.append('{}\n{}% of Population\n{}% in Target'\
-            #             .format(table.iloc[i][characteristic], int(table.iloc[i]["Group's share of population"]), 
-            #             int(table.iloc[i]['Share of Group in Target Population'])))
             ylabels.append('{}\n{}% of Population'\
                         .format(table.iloc[i][characteristic], int(table.iloc[i]["Group's share of population"])))
         ylabels = ylabels[::-1]
@@ -418,10 +415,10 @@ class Fairness:
         s=np.array([np.array(row) for row in s])
         R = s
         c = R
-        R = np.log(np.abs(R))/10
+        R = R**.5 / 3
         circles = [plt.Circle((j,i), radius=r) for r, j, i in zip(R.flatten(), x.flatten(), y.flatten())]
         col = PatchCollection(circles, array=c.flatten(), cmap="RdBu_r", edgecolor='grey', linewidth=2)
-        col.set_clim(vmin=-20, vmax=20)
+        col.set_clim(vmin=0, vmax=1)
         # math.log(abs(r)) / 10
 
         # Set up ticks and labels
@@ -435,7 +432,7 @@ class Fairness:
         # Colorbar
         cbar = fig.colorbar(col, fraction=0.03, pad=0.05,)
         cbar.outline.set_edgecolor('white')
-        cbar.ax.set_ylabel('Percentage Point Difference', labelpad=20)
+        cbar.ax.set_ylabel('Recall', labelpad=20)
 
         # Final touches on figure
         ax.spines['top'].set_visible(False)
@@ -476,3 +473,73 @@ class Fairness:
         # Save and return
         table.to_csv(self.outputs + '/recall_table_' + characteristic + '_' + str(p) + '%.png', index=False)
         return table
+    
+    def precision_plot(self, groundtruth, proxies, characteristic, p, weighted=False):
+
+        # Get precision table, set up parameters for grid 
+        table = self.precision_table(groundtruth, proxies, characteristic, p, weighted=weighted, format_table=False)
+        data = table[proxies]
+        keys = list(data.keys())
+        N = len(table)
+        M = len(keys)
+
+        # Format labels for y axis
+        ylabels = []
+        for i in range(len(table)):
+            ylabels.append('{}\n{}% of Population'\
+                        .format(table.iloc[i][characteristic], int(table.iloc[i]["Group's share of population"])))
+        ylabels = ylabels[::-1]
+        xlabels = keys
+
+        # Circles
+        x, y = np.meshgrid(np.arange(M), np.arange(N))
+        s = [[] for i in range(len(keys))]
+        for i in range(len(keys)):
+            for j in range(len(data[keys[i]])):
+                s[i].append(data[keys[i]][j])
+        arr = np.array(s).transpose()
+        new_list = []
+        for i in range(arr.shape[0]-1,-1,-1):
+            new_list.append(list(arr[i]))
+        s = new_list
+        print(s)
+        # S contains the recall values, from bottom to top, from left to rightr
+
+        # set up figure
+        fig = plt.figure(figsize=(2.7*len(proxies), 2.5*len(table))) 
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.set_title('Recall per Group: ' + characteristic,pad=85, fontsize='large')
+
+        # Plot the circles
+        s=np.array([np.array(row) for row in s])
+        R = s
+        c = R
+        R = R**.5 / 3
+        circles = [plt.Circle((j,i), radius=r) for r, j, i in zip(R.flatten(), x.flatten(), y.flatten())]
+        col = PatchCollection(circles, array=c.flatten(), cmap="RdBu_r", edgecolor='grey', linewidth=2)
+        col.set_clim(vmin=0, vmax=1)
+
+        # Set up ticks and labels
+        ax.add_collection(col)
+        ax.set(xticks=np.arange(M), yticks=np.arange(N),
+            xticklabels=xlabels, yticklabels=ylabels)
+        ax.set_xticks(np.arange(M+1)-0.5, minor=True)
+        ax.set_yticks(np.arange(N+1)-0.5, minor=True)
+        ax.xaxis.tick_top()
+
+        # Colorbar
+        cbar = fig.colorbar(col, fraction=0.03, pad=0.05,)
+        cbar.outline.set_edgecolor('white')
+        cbar.ax.set_ylabel('Recall', labelpad=20)
+
+        # Final touches on figure
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.tick_params(axis='both', which='both', length=0)
+        plt.tight_layout()
+
+        # Save and show
+        plt.savefig(self.outputs + '/recall_plot_' + characteristic + '_' + str(p) + '%.png', index=False)
+        plt.show()
