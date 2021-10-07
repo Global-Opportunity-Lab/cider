@@ -386,7 +386,8 @@ class DataStore(InitializerInterface):
         outliers = timeseries[(timeseries['count'] < bottomrange) | (timeseries['count'] > toprange)]
         outliers.to_csv(self.outputs + 'datasets/outlier_days.csv', index=False)
         outliers = list(outliers['day'])
-        print('Outliers removed: ' + ', '.join([outlier.split('T')[0] for outlier in outliers]))
+        outliers = [outlier.split('T')[0] for outlier in outliers]
+        print('Outliers removed: ' + ', '.join(outliers))
 
         # Remove outlier days from all datasets
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
