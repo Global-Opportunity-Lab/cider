@@ -415,6 +415,36 @@ class DataStore(InitializerInterface):
 
         return outliers
 
+    def remove_survey_outliers(self, cols: List[str], num_sds: float = 2., dry_run: bool = False) -> None:
+        """
+        Removes observations with outliers in the columns listed in 'cols' from the survey data.
+
+        Args:
+            cols: Columns used to identify outliers.
+            num_sds: Number of standard deviations used to identify outliers.
+            dry_run: If True, only prints the number of outliers without removing them.
+        """
+        # Raise exception if survey data has not been loaded
+        if self.survey_data is None:
+            raise ValueError('Survey data must be loaded to identify and remove outliers.')
+
+        data = self.survey_data.set_index('unique_id')[cols]
+
+        # Calculate top and bottom acceptable values
+        bottomrange = data.mean() - num_sds * data.std()
+        toprange = data.mean() + num_sds * data.std()
+
+        outliers = []
+        for i, (col, bottom) in enumerate(bottomrange.iteritems()):
+            outliers = outliers + list(data[(data[col] < bottom) | (data[col] > toprange[0])].index.values)
+        outliers = set(outliers)
+
+        if dry_run:
+            print(f"There are {len(outliers)} outliers that could be removed.")
+        else:
+            self.survey_data = self.survey_data[~self.survey_data['unique_id'].isin(outliers)]
+            print(f"Removed {len(outliers)} outliers!")
+
 
 class OptDataStore(DataStore):
     def __init__(self, cfg_dir: str):
