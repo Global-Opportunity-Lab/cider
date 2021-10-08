@@ -33,7 +33,6 @@ class Learner:
         # Prepare working directories
         make_dir(self.outputs, clean_folders)
         make_dir(self.outputs + '/outputs/')
-        make_dir(self.outputs + '/maps/')
         make_dir(self.outputs + '/tables/')
 
         self.kfold = KFold(n_splits=kfold, shuffle=True, random_state=100)

@@ -32,6 +32,7 @@ class DataType(Enum):
     TARGETING = 10
     FAIRNESS = 11
     RWI = 12
+    SURVEY_DATA = 13
 
 
 class InitializerInterface(ABC):
@@ -89,6 +90,8 @@ class DataStore(InitializerInterface):
         self.fairness: PandasDataFrame
         # wealth/income maps
         self.rwi: PandasDataFrame
+        # survey
+        self.survey_data: PandasDataFrame
 
         # Define mapping between data types and loading methods
         self.data_type_to_fn_map: Dict[DataType, Callable] = {DataType.CDR: self._load_cdr,
@@ -103,7 +106,8 @@ class DataStore(InitializerInterface):
                                                               DataType.LABELS: self._load_labels,
                                                               DataType.TARGETING: self._load_targeting,
                                                               DataType.FAIRNESS: self._load_fairness,
-                                                              DataType.RWI: self._load_wealth_map}
+                                                              DataType.RWI: self._load_wealth_map,
+                                                              DataType.SURVEY_DATA: self._load_survey}
 
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -211,7 +215,7 @@ class DataStore(InitializerInterface):
 
     def _load_targeting(self) -> None:
         """
-        TO BE FILLED
+        Load targeting data.
         """
         self.targeting = pd.read_csv(self.data + self.file_names.targeting)
         self.targeting['random'] = np.random.rand(len(self.targeting))
@@ -236,7 +240,7 @@ class DataStore(InitializerInterface):
 
     def _load_fairness(self) -> None:
         """
-        TO BE FILLED
+        Load fairness data.
         """
         self.fairness = pd.read_csv(self.data + self.file_names.fairness)
         self.fairness['random'] = np.random.rand(len(self.fairness))
@@ -265,6 +269,18 @@ class DataStore(InitializerInterface):
             self.rwi = pd.read_csv(self.data + self.file_names.rwi, dtype={'quadkey': str})
         else:
             raise ValueError("Missing path to wealth map in config file.")
+
+    def _load_survey(self, dataframe: Optional[PandasDataFrame] = None) -> None:
+        # Load survey data from disk if dataframe not available
+        if dataframe is not None:
+            self.survey_data = dataframe
+        elif self.file_names.survey is not None:
+            self.survey_data = pd.read_csv(self.data + self.file_names.survey)
+        else:
+            raise ValueError("Missing path to survey data in config file.")
+        # Add weights column if missing
+        if 'weight' not in self.survey_data.columns:
+            self.survey_data['weight'] = 1
 
     def merge(self) -> None:
         """

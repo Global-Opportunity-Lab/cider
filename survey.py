@@ -1,10 +1,9 @@
 # TODO: parallelize lasso and forward selection
-from box import Box
+from datastore import DataStore, DataType
 from helpers.utils import check_columns_exist, check_column_types, make_dir, weighted_corr
 from helpers.plot_utils import clean_plot
 from helpers.ml_utils import Winsorizer
 from joblib import dump, load  # type: ignore[import]
-# from json import dump
 from lightgbm import LGBMRegressor  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
@@ -20,27 +19,26 @@ from sklearn.pipeline import Pipeline  # type: ignore[import]
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler  # type: ignore[import]
 from typing import List, Optional, Tuple, Union
 from wpca import WPCA  # type: ignore[import]
-import yaml
 
 
 class SurveyOutcomeGenerator:
 
-    def __init__(self, cfg_dir: str, dataframe: Optional[PandasDataFrame] = None, clean_folders: bool = False) -> None:
+    def __init__(self,
+                 datastore: DataStore,
+                 dataframe: Optional[PandasDataFrame] = None,
+                 clean_folders: bool = False) -> None:
+        self.cfg = datastore.cfg
+        self.ds = datastore
+        self.outputs = datastore.outputs + 'survey/'
+        self.continuous = self.cfg.col_types.survey.continuous
+        self.categorical = self.cfg.col_types.survey.categorical
+        self.binary = self.cfg.col_types.survey.binary
 
-        # Read config file
-        with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
-        self.cfg = cfg
-        data = cfg.path.survey.data
-        outputs = cfg.path.survey.outputs
-        self.outputs = outputs
-        file_names = cfg.path.survey.file_names
-        self.continuous = cfg.col_types.survey.continuous
-        self.categorical = cfg.col_types.survey.categorical
-        self.binary = cfg.col_types.survey.binary
+        # Prepare working directories
+        make_dir(self.outputs, clean_folders)
 
         # Get hyper-parameter grids
-        self.grids = cfg.hyperparams
+        self.grids = self.ds.cfg.hyperparams
         for key1 in self.grids.keys():
             grid = {}
             for key2 in self.grids[key1].keys():
@@ -48,16 +46,9 @@ class SurveyOutcomeGenerator:
                     grid[key2] = self.grids[key1][key2]
             self.grids[key1] = grid
 
-        # Initialize values
-        if dataframe is not None:
-            self.survey_data = dataframe
-        else:
-            self.survey_data = pd.read_csv(data + file_names.survey)
-        if 'weight' not in self.survey_data.columns:
-            self.survey_data['weight'] = 1
-
-        # Prepare working directory
-        make_dir(outputs, clean_folders)
+        # Load data into datastore
+        data_type_map = {DataType.SURVEY_DATA: dataframe}
+        self.ds.load_data(data_type_map=data_type_map)
 
     def asset_index(self, cols: List[str], use_weights: bool = True) -> PandasDataFrame:
         """
@@ -83,8 +74,8 @@ class SurveyOutcomeGenerator:
                 len(set(cols).intersection(set(self.binary))))
 
             # Drop observations with null values
-        n_obs = len(self.survey_data)
-        assets = self.survey_data.dropna(subset=cols)
+        n_obs = len(self.ds.survey_data)
+        assets = self.ds.survey_data.dropna(subset=cols)
         dropped = n_obs - len(assets)
         if dropped > 0:
             print('Warning: Dropping %i observations with missing values (%i percent of all observations)' % (
@@ -144,11 +135,11 @@ class SurveyOutcomeGenerator:
         make_dir(out_subdir, True)
 
         # Check that columns are typed correctly
-        check_column_types(self.survey_data[cols], continuous=self.continuous, categorical=self.categorical,
+        check_column_types(self.ds.survey_data[cols], continuous=self.continuous, categorical=self.categorical,
                            binary=self.binary)
 
         # Drop observations with null values
-        data = self.survey_data[['unique_id', 'weight', outcome] + cols]
+        data = self.ds.survey_data[['unique_id', 'weight', outcome] + cols]
         n_obs = len(data)
         data = data.dropna(subset=[outcome] + list(set(cols).intersection(set(self.continuous + self.binary))))
         dropped = n_obs - len(data)
@@ -329,7 +320,7 @@ class SurveyOutcomeGenerator:
 
             correlations = []
             for c in cols:
-                subset = self.survey_data[[outcome, c, 'weight']].dropna()
+                subset = self.ds.survey_data[[outcome, c, 'weight']].dropna()
                 if use_weights:
                     correlations.append(weighted_corr(subset[outcome].values.flatten(), subset[c].values.flatten(),
                                                       subset['weight'].values.flatten()))
@@ -347,7 +338,7 @@ class SurveyOutcomeGenerator:
         elif method == 'lasso':
 
             # Drop observations with null values
-            data = self.survey_data[['unique_id', 'weight', outcome] + cols]
+            data = self.ds.survey_data[['unique_id', 'weight', outcome] + cols]
             n_obs = len(data)
             data = data.dropna(subset=[outcome] + list(set(cols).intersection(set(self.continuous + self.binary))))
             dropped = n_obs - len(data)
@@ -424,7 +415,7 @@ class SurveyOutcomeGenerator:
         else:
 
             # Drop observations with null values
-            data = self.survey_data[['unique_id', 'weight', outcome] + cols]
+            data = self.ds.survey_data[['unique_id', 'weight', outcome] + cols]
             n_obs = len(data)
             data = data.dropna(subset=[outcome] + list(set(cols).intersection(set(self.continuous + self.binary))))
             dropped = n_obs - len(data)
