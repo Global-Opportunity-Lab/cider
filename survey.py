@@ -3,8 +3,8 @@ from box import Box
 from helpers.utils import check_columns_exist, check_column_types, make_dir, weighted_corr
 from helpers.plot_utils import clean_plot
 from helpers.ml_utils import Winsorizer
-from joblib import load  # type: ignore[import]
-from json import dump
+from joblib import dump, load  # type: ignore[import]
+# from json import dump
 from lightgbm import LGBMRegressor  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
@@ -29,7 +29,7 @@ class SurveyOutcomeGenerator:
 
         # Read config file
         with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.safe_load(ymlfile))
+            cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
         self.cfg = cfg
         data = cfg.path.survey.data
         outputs = cfg.path.survey.outputs
@@ -39,7 +39,7 @@ class SurveyOutcomeGenerator:
         self.categorical = cfg.col_types.survey.categorical
         self.binary = cfg.col_types.survey.binary
 
-        # Get hypeparameter grids
+        # Get hyper-parameter grids
         self.grids = cfg.hyperparams
         for key1 in self.grids.keys():
             grid = {}
@@ -61,13 +61,13 @@ class SurveyOutcomeGenerator:
 
     def asset_index(self, cols: List[str], use_weights: bool = True) -> PandasDataFrame:
         """
-        Derive asset index - first component of (weighted) PCA - from specified set of columns
+        Derives an asset index - first component of (weighted) PCA - from specified set of columns.
 
         Args:
-            cols: columns (i.e. survey questions) to use to derive the index
-            use_weights: whether to compute a weighted PCA
+            cols: Columns (i.e. survey questions) to use to derive the index.
+            use_weights: If true, uses a weighted PCA.
 
-        Returns: pandas df containing asset index of surveyed users
+        Returns: Pandas df containing asset index of surveyed users.
         """
         # Prepare working directory
         out_subdir = self.outputs + '/asset_index'
@@ -121,21 +121,23 @@ class SurveyOutcomeGenerator:
         return asset_index
 
     def fit_pmt(self, outcome: str, cols: List[str], model_name: str = 'linear', kfold: int = 5,
-                use_weights: bool = True, scale: bool = False, winsorize: bool = False) -> PandasDataFrame:
+                use_weights: bool = True, log_transform: bool = False, scale: bool = False, winsorize: bool = False
+                ) -> PandasDataFrame:
         """
-        Train a model to predict an outcome variable using a set of survey questions - this will be our PMT
-        Also provide metrics on modelling performance
+        Trains a model to predict an outcome variable using a set of survey questions - this will be the PMT.
+        Also provides metrics on modelling performance.
 
         Args:
-            outcome: target variable
-            cols: independent variables
+            outcome: Target variable.
+            cols: Independent variables.
             model_name: ML model to use - can be one of ['linear', 'lasso', 'ridge', 'randomforest', 'gradientboosting']
-            kfold: number of cross-validation folds to use
-            use_weights: whether to use survey weights
-            scale: whether to standard scale inputs
-            winsorize: whether to winsorize (.005, .995) inputs
+            kfold: Number of cross-validation folds to use.
+            use_weights: If true, uses survey weights.
+            log_transform: If true, log transforms outcome variable.
+            scale: If true, standard scales inputs.
+            winsorize: If ture, winsorizes (.005, .995) inputs.
 
-        Returns: pandas df of outcome variable, in-sample predictions, and out-of-sample predictions
+        Returns: Pandas df of outcome variable, in-sample predictions, and out-of-sample predictions.
         """
         # Prepare working directory
         out_subdir = self.outputs + '/pmt_' + model_name
@@ -155,6 +157,10 @@ class SurveyOutcomeGenerator:
                 'Warning: Dropping %i observations with missing values in continuous or binary columns or the outcome '
                 '(%i percent of all observations)' %
                 (dropped, 100 * dropped / n_obs))
+
+        # Log transform outcome variable if requested
+        if log_transform:
+            data[outcome] = np.log(data[outcome])
 
         # Define preprocessing pipelines
         if scale and winsorize:
@@ -291,26 +297,27 @@ class SurveyOutcomeGenerator:
         return predictions
 
     def select_features(self, outcome: str, cols: List[str], n_features: int, method: str = 'correlation',
-                        model_name: str = '', kfold: int = 5, use_weights: bool = True,
+                        model_name: str = '', kfold: int = 5, use_weights: bool = True, log_transform: bool = False,
                         plot: bool = True) -> Tuple[List[str], PandasDataFrame]:
         """
-        Select the top-N features that are most useful to predict the outcome variable
+        Selects the top-N features that are most useful to predict the outcome variable.
 
         Args:
-            outcome: target variable
-            cols: independent variables
-            n_features: number of features to select
-            method: method to use to select the top-N features - it can be:
+            outcome: Target variable.
+            cols: Independent variables.
+            n_features: Number of features to select.
+            method: Method to use to select the top-N features - it can be:
                 'correlation': return top N features most correlated with the outcome
                 'lasso': use LASSO regressions for a grid of penalties to select features, use the one which has the
                  closest to n_features features
                 OTHER STRING: forward selection with a machine learning model
-            model_name: name to use when saving outputs
-            kfold: number of cross-validation folds to use
-            use_weights: whether to use survey weights
-            plot: whether to plot performance metrics
+            model_name: Name to use when saving outputs.
+            kfold: Number of cross-validation folds to use.
+            use_weights: If true, uses survey weights.
+            log_transform: If true, log transforms outcome variable.
+            plot: If true, plots performance metrics.
 
-        Returns: top-N features selected, pandas df of scores
+        Returns: Top-N features selected, pandas df of scores.
         """
 
         # Prepare working directory
@@ -349,6 +356,10 @@ class SurveyOutcomeGenerator:
                     'Warning: Dropping %i observations with missing values in continuous or binary columns or the '
                     'outcome (%i percent of all observations)' %
                     (dropped, 100 * dropped / n_obs))
+
+            # Log transform outcome variable if requested
+            if log_transform:
+                data[outcome] = np.log(data[outcome])
 
             # Define preprocessing pipelines
             continuous_transformer = Pipeline([('scaler', StandardScaler())])
@@ -421,6 +432,10 @@ class SurveyOutcomeGenerator:
                 print('Warning: Dropping %i observations with missing values in continuous or binary columns or the '
                       'outcome (%i percent of all observations)' %
                       (dropped, 100 * dropped / n_obs))
+
+            # Log transform outcome variable if requested
+            if log_transform:
+                data[outcome] = np.log(data[outcome])
 
             # Stepwise forward selection
             used_cols: List[str] = []
