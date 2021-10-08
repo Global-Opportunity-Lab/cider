@@ -33,7 +33,6 @@ class Learner:
         # Prepare working directories
         make_dir(self.outputs, clean_folders)
         make_dir(self.outputs + '/outputs/')
-        make_dir(self.outputs + '/maps/')
         make_dir(self.outputs + '/tables/')
 
         self.kfold = KFold(n_splits=kfold, shuffle=True, random_state=100)
@@ -118,6 +117,18 @@ class Learner:
         self.ds.load_data(data_type_map=data_type_map)
         self.ds.merge()
 
+        # Raise warnings if data is sparse
+        rows, cols = self.ds.merged.shape
+        if rows < 100:
+            print("WARNING: The training data has fewer than 100 examples, which will likely result in unreliable "
+                  "results and a model with poor predictive performance.")
+        if cols < 12:
+            print("WARNING: The training data has fewer than 10 features, which could result in a model with poor "
+                  "predictive performance")
+        sparse_feats = ((pd.isna(self.ds.merged).sum()/rows) > 0.9).sum()/(cols-3)*100
+        if sparse_feats > 5:
+            print(f"WARNING: {sparse_feats:.2f}% of features have data for less than 10% of users.")
+
     def untuned_model(self, model_name: str) -> Dict[str, str]:
         """
         Trains the ML model specified by 'model_name' and returns the R2 and the RMSE it obtained on the train and test
@@ -146,6 +157,10 @@ class Learner:
                                                 -raw_scores['test_neg_root_mean_squared_error'].std())}
         with open(self.outputs + '/untuned_models/' + model_name + '/results.json', 'w') as f:
             json.dump(scores, f)
+
+        if raw_scores['test_r2'].mean() < 0.1:
+            print("WARNING: The R2 score is below 0.1, which is a strong sign of poor predictive performance; it is "
+                  "recommended to investigate any data issues before proceeding further.")
 
         # Save model
         model = self.untuned_models[model_name].fit(self.ds.x, self.ds.y, model__sample_weight=self.ds.weights)
@@ -199,6 +214,11 @@ class Learner:
         with open(self.outputs + '/tuned_models/' + model_name + '/results.json', 'w') as f:
             json.dump(scores, f)
 
+        if best_model['mean_test_r2'] < 0.1:
+            print(
+                "WARNING: The R2 score of the best model is below 0.1, which is a strong sign of poor predictive "
+                "performance; it is recommended to investigate any data issues before proceeding further.")
+
         # Save model
         dump(model, self.outputs + '/tuned_models/' + model_name + '/model')
 
@@ -213,7 +233,7 @@ class Learner:
         including the ensembles, are saved to disk.
 
         Args:
-            model_name: The name of the AutoML library to use - currently it only supports AutoGluon='autogluon'.
+            model_name: The name of the AutoML library to use - currently it only supports 'autogluon' (AutoGluon).
         """
         # Make sure model_name is correct, get relevant cfg
         assert model_name in ['autogluon']
@@ -232,6 +252,11 @@ class Learner:
                       auto_stack=True,
                       time_limit=cfg.time_limit,
                       excluded_model_types=['FASTAI'])
+
+            if model.eval_metric == 'r2' and model.leaderboard().loc[0, 'score_val'] < 0.1:
+                print(
+                    "WARNING: The R2 score of the best model is below 0.1, which is a strong sign of poor predictive "
+                    "performance; it is recommended to investigate any data issues before proceeding further.")
 
         print('Finished automl training!')
 
