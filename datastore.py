@@ -37,7 +37,7 @@ class InitializerInterface(ABC):
 
 
 class DataStore(InitializerInterface):
-    def __init__(self, cfg_dir: str):
+    def __init__(self, cfg_dir: str, spark: bool = True):
         # Read config file and store paths
         with open(cfg_dir, "r") as ymlfile:
             cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
@@ -58,7 +58,9 @@ class DataStore(InitializerInterface):
 
         # Spark setup
         # TODO(lucio): Initialize spark separately ....
-        spark = get_spark_session(cfg)
+        spark = None
+        if spark:
+            spark = get_spark_session(cfg)
         self.spark = spark
 
         # Possible datasets to opt in/out of

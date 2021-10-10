@@ -155,3 +155,5 @@ cython_debug/
 book/_build/.doctrees/
 book/_build/html/
 book/_build/jupyter_execute/
+
+/outputs/*
