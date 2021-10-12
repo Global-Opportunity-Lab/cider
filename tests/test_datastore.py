@@ -1,4 +1,7 @@
 import os
+
+import pandas as pd
+from pyspark.sql import DataFrame as SparkDataFrame
 from typing import MutableMapping, Type
 
 import pytest
@@ -16,9 +19,8 @@ class TestDatastoreClasses:
     @pytest.mark.parametrize(
         "config_file_path",
         [
-            "configs/config_emily.yml",
+            "configs/config_new.yml",
             "configs/config_lucio.yml",
-            "configs/config_min.yml",
             "configs/config.yml",
         ],
     )
@@ -69,12 +71,73 @@ class TestDatastoreClasses:
     # TODO: Same test for antennas, recharges, mobiledata, mobilemoney, shapefiles, home_group_truth, poverty_scores, features, labels, targeting, fairness, wealth map
     # merge, load_data, filter_dates, deduplicate, remove_spammers, filter_outlier_days
     @pytest.mark.unit_test
-    @pytest.mark.skip(reason="Test not yet implemented")
-    def test_load_cdr(self, datastore_class: Type[DataStore], ds_mock_spark: DataStore) -> None:
+    def test_load_cdr(self, ds: Type[DataStore]) -> None:  # ds_mock_spark: DataStore
         # TODO: Add asserts for the following:
         # TODO: Test successful operation: nominal case, edge cases, test None when anything is Optional, test for idempotency where appropriate, test zero length iterables
         # TODO: Test expected failures raise appropriate errors: Malformed inputs, invalid inputs, basically any code path that should raise an exception
-        pass
+        ds._load_cdr()
+        assert type(ds.cdr) == SparkDataFrame
+        assert ds.cdr.count() == 1e5
+        assert 'caller_id' in ds.cdr.columns
+
+        # check incorrect input df
+        with pytest.raises(TypeError):
+            ds._load_cdr(dataframe=5)
+
+        # check missing columns
+        test_df = pd.DataFrame(data={'txn_type': ['text'], 'caller_id': ['A'], 'recipient_id': ['B'],
+                                     'timestamp': ['2021-01-01']})
+        with pytest.raises(ValueError):
+            ds._load_cdr(dataframe=test_df)
+
+        # check wrong column value
+        test_df = pd.DataFrame(data={'txn_type': ['text_message'], 'caller_id': ['A'], 'recipient_id': ['B'],
+                                     'timestamp': ['2021-01-01'], 'duration': [60], 'international': ['domestic']})
+        with pytest.raises(ValueError):
+            ds._load_cdr(dataframe=test_df)
+
+        test_df = pd.DataFrame(data={'txn_type': ['text'], 'caller_id': ['A'], 'recipient_id': ['B'],
+                                     'timestamp': ['2021-01-01'], 'duration': [60], 'international': ['domestic']})
+        ds._load_cdr(dataframe=test_df)
+
+    @pytest.mark.unit_test
+    def test_load_antennas(self, ds: Type[DataStore]) -> None:  # ds_mock_spark: DataStore
+        # TODO: Add asserts for the following:
+        # TODO: Test successful operation: nominal case, edge cases, test None when anything is Optional, test for idempotency where appropriate, test zero length iterables
+        # TODO: Test expected failures raise appropriate errors: Malformed inputs, invalid inputs, basically any code path that should raise an exception
+        ds._load_antennas()
+        assert type(ds.antennas) == SparkDataFrame
+        assert ds.antennas.count() == 297
+        assert 'antenna_id' in ds.antennas.columns
+
+        # check incorrect input df
+        with pytest.raises(TypeError):
+            ds._load_antennas(dataframe=5)
+
+        # check missing columns
+        test_df = pd.DataFrame(data={'antenna_id': ['1'], 'latitude': ['10']})
+        with pytest.raises(ValueError):
+            ds._load_antennas(dataframe=test_df)
+
+        test_df = pd.DataFrame(data={'antenna_id': ['1'], 'latitude': ['10'], 'longitude': ['25.3']})
+        ds._load_antennas(dataframe=test_df)
+
+    @pytest.mark.unit_test
+    def test_load_recharges(self, ds: Type[DataStore]) -> None:  # ds_mock_spark: DataStore
+        # TODO: Test successful operation: nominal case, edge cases, test None when anything is Optional, test for idempotency where appropriate, test zero length iterables
+        # TODO: Test expected failures raise appropriate errors: Malformed inputs, invalid inputs, basically any code path that should raise an exception
+        ds._load_recharges()
+        assert type(ds.recharges) == SparkDataFrame
+        assert ds.recharges.count() == 1e4
+        assert 'amount' in ds.recharges.columns
+
+        # check incorrect input df
+        with pytest.raises(TypeError):
+            ds._load_recharges(dataframe=5)
+
+        test_df = pd.DataFrame(data={'caller_id': ['A'], 'amount': ['100'], 'timestamp': ['2020-01-01']})
+        ds._load_recharges(dataframe=test_df)
+
 
     @pytest.mark.integration_test
     @pytest.mark.skip(reason="Test not yet implemented")
