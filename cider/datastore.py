@@ -6,7 +6,8 @@ from enum import Enum
 import inspect
 from helpers.io_utils import load_antennas, load_shapefile, load_cdr, load_mobilemoney, load_mobiledata, load_recharges
 from helpers.opt_utils import generate_user_consent_list
-from helpers.utils import get_spark_session, filter_dates_dataframe, make_dir, save_df
+from helpers.utils import get_project_root, get_spark_session, filter_dates_dataframe, make_dir, save_df
+# from helpers.utils import get_project_root
 import numpy as np
 import os
 import pandas as pd
@@ -32,6 +33,7 @@ class DataType(Enum):
     TARGETING = 10
     FAIRNESS = 11
     RWI = 12
+    SURVEY_DATA = 13
 
 
 class InitializerInterface(ABC):
@@ -46,8 +48,16 @@ class DataStore(InitializerInterface):
         with open(cfg_dir, "r") as ymlfile:
             cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
         self.cfg = cfg
-        data = cfg.path.data
-        self.data = data
+        # TODO: Paths should be relative to project root, not to where the command was run (which is the result of "./" notation). See code below
+        # TODO: Datastore member variables should still have path in their names. At first I thought "outputs" was an object that held an output dataframe
+        # TODO: If the user does not specify a project root then we should use the helper funciton (sell below)
+        # data = cfg.path.data
+        # if "root" in cfg.path:
+        #     root = cfg.path.root
+        # else:
+        #     root = get_project_root()
+        # self.data_path = os.path.join(root, self.config.data)
+        # self.data = data
         outputs = cfg.path.outputs
         self.outputs = outputs
         file_names = cfg.path.file_names
@@ -89,6 +99,8 @@ class DataStore(InitializerInterface):
         self.fairness: PandasDataFrame
         # wealth/income maps
         self.rwi: PandasDataFrame
+        # survey
+        self.survey_data: PandasDataFrame
 
         # Define mapping between data types and loading methods
         self.data_type_to_fn_map: Dict[DataType, Callable] = {DataType.CDR: self._load_cdr,
@@ -103,7 +115,8 @@ class DataStore(InitializerInterface):
                                                               DataType.LABELS: self._load_labels,
                                                               DataType.TARGETING: self._load_targeting,
                                                               DataType.FAIRNESS: self._load_fairness,
-                                                              DataType.RWI: self._load_wealth_map}
+                                                              DataType.RWI: self._load_wealth_map,
+                                                              DataType.SURVEY_DATA: self._load_survey}
 
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -211,7 +224,7 @@ class DataStore(InitializerInterface):
 
     def _load_targeting(self) -> None:
         """
-        TO BE FILLED
+        Load targeting data.
         """
         self.targeting = pd.read_csv(self.data + self.file_names.targeting)
         self.targeting['random'] = np.random.rand(len(self.targeting))
@@ -236,7 +249,7 @@ class DataStore(InitializerInterface):
 
     def _load_fairness(self) -> None:
         """
-        TO BE FILLED
+        Load fairness data.
         """
         self.fairness = pd.read_csv(self.data + self.file_names.fairness)
         self.fairness['random'] = np.random.rand(len(self.fairness))
@@ -265,6 +278,18 @@ class DataStore(InitializerInterface):
             self.rwi = pd.read_csv(self.data + self.file_names.rwi, dtype={'quadkey': str})
         else:
             raise ValueError("Missing path to wealth map in config file.")
+
+    def _load_survey(self, dataframe: Optional[PandasDataFrame] = None) -> None:
+        # Load survey data from disk if dataframe not available
+        if dataframe is not None:
+            self.survey_data = dataframe
+        elif self.file_names.survey is not None:
+            self.survey_data = pd.read_csv(self.data + self.file_names.survey)
+        else:
+            raise ValueError("Missing path to survey data in config file.")
+        # Add weights column if missing
+        if 'weight' not in self.survey_data.columns:
+            self.survey_data['weight'] = 1
 
     def merge(self) -> None:
         """
@@ -386,7 +411,8 @@ class DataStore(InitializerInterface):
         outliers = timeseries[(timeseries['count'] < bottomrange) | (timeseries['count'] > toprange)]
         outliers.to_csv(self.outputs + 'datasets/outlier_days.csv', index=False)
         outliers = list(outliers['day'])
-        print('Outliers removed: ' + ', '.join([outlier.split('T')[0] for outlier in outliers]))
+        outliers = [outlier.split('T')[0] for outlier in outliers]
+        print('Outliers removed: ' + ', '.join(outliers))
 
         # Remove outlier days from all datasets
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
@@ -398,6 +424,36 @@ class DataStore(InitializerInterface):
                                    (col('timestamp') >= outlier + pd.Timedelta(value=1, unit='days'))))
 
         return outliers
+
+    def remove_survey_outliers(self, cols: List[str], num_sds: float = 2., dry_run: bool = False) -> None:
+        """
+        Removes observations with outliers in the columns listed in 'cols' from the survey data.
+
+        Args:
+            cols: Columns used to identify outliers.
+            num_sds: Number of standard deviations used to identify outliers.
+            dry_run: If True, only prints the number of outliers without removing them.
+        """
+        # Raise exception if survey data has not been loaded
+        if self.survey_data is None:
+            raise ValueError('Survey data must be loaded to identify and remove outliers.')
+
+        data = self.survey_data.set_index('unique_id')[cols]
+
+        # Calculate top and bottom acceptable values
+        bottomrange = data.mean() - num_sds * data.std()
+        toprange = data.mean() + num_sds * data.std()
+
+        outliers = []
+        for i, (col, bottom) in enumerate(bottomrange.iteritems()):
+            outliers = outliers + list(data[(data[col] < bottom) | (data[col] > toprange[0])].index.values)
+        outliers = set(outliers)
+
+        if dry_run:
+            print(f"There are {len(outliers)} outliers that could be removed.")
+        else:
+            self.survey_data = self.survey_data[~self.survey_data['unique_id'].isin(outliers)]
+            print(f"Removed {len(outliers)} outliers!")
 
 
 class OptDataStore(DataStore):

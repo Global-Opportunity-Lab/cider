@@ -246,7 +246,8 @@ class Featurizer:
                                             ('reporting' not in col) or (col == 'reporting__number_of_records')])
         cdr_features = cdr_features.toDF(*[c if c == 'name' else 'cdr_' + c for c in cdr_features.columns])
         save_df(cdr_features, self.outputs + '/datasets/bandicoot_features/all.csv')
-        self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/bandicoot_features/all.csv', header=True)
+        self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/bandicoot_features/all.csv',
+                                                   header=True, inferSchema=True)
 
     def cdr_features_spark(self) -> None:
         """
@@ -262,7 +263,8 @@ class Featurizer:
         cdr_features_df = cdr_features_df.withColumnRenamed('caller_id', 'name')
 
         save_df(cdr_features_df, self.outputs + '/datasets/cdr_features_spark/all.csv')
-        self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/cdr_features_spark/all.csv', header=True)
+        self.features['cdr'] = self.spark.read.csv(self.outputs + '/datasets/cdr_features_spark/all.csv',
+                                                   header=True, inferSchema=True)
 
     def international_features(self) -> None:
         # Check that CDR is present to calculate international features
@@ -298,7 +300,7 @@ class Featurizer:
         feats_df.columns = [c if c == 'name' else 'international_' + c for c in feats_df.columns]
         feats_df.to_csv(self.outputs + '/datasets/international_feats.csv', index=False)
         self.features['international'] = self.spark.read.csv(self.outputs + '/datasets/international_feats.csv',
-                                                             header=True)
+                                                             header=True, inferSchema=True)
 
     def location_features(self) -> None:
 
@@ -365,7 +367,8 @@ class Featurizer:
         feats = count_by_region.merge(unique_regions, on='name', how='outer')
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
         feats.to_csv(self.outputs + '/datasets/location_features.csv', index=False)
-        self.features['location'] = self.spark.read.csv(self.outputs + '/datasets/location_features.csv', header=True)
+        self.features['location'] = self.spark.read.csv(self.outputs + '/datasets/location_features.csv',
+                                                        header=True, inferSchema=True)
 
     def mobiledata_features(self) -> None:
 
@@ -426,7 +429,6 @@ class Featurizer:
 
         # Get mobile money features
         features = []
-        txn_types = mm.select('txn_type').distinct().rdd.map(lambda r: r[0]).collect()
         for dfname, df in [('all', mm), ('incoming', incoming), ('outgoing', outgoing)]:
             # add 'all' txn type
             df = (df
@@ -470,7 +472,7 @@ class Featurizer:
         feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
         save_df(feats, self.outputs + '/datasets/mobilemoney_feats.csv')
         self.features['mobilemoney'] = self.spark.read.csv(self.outputs + '/datasets/mobilemoney_feats.csv',
-                                                           header=True)
+                                                           header=True, inferSchema=True)
 
     def recharges_features(self) -> None:
 
@@ -488,7 +490,8 @@ class Featurizer:
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
         save_df(feats, self.outputs + '/datasets/recharges_feats.csv')
-        self.features['recharges'] = self.spark.read.csv(self.outputs + '/datasets/recharges_feats.csv', header=True)
+        self.features['recharges'] = self.spark.read.csv(self.outputs + '/datasets/recharges_feats.csv',
+                                                         header=True, inferSchema=True)
 
     def load_features(self) -> None:
         """
@@ -503,7 +506,8 @@ class Featurizer:
         for feature, dataset in zip(features, datasets):
             if not self.features[feature]:
                 try:
-                    self.features[feature] = self.spark.read.csv(data_path + dataset + '.csv', header=True)
+                    self.features[feature] = self.spark.read.csv(data_path + dataset + '.csv',
+                                                                 header=True, inferSchema=True)
                 except AnalysisException:
                     print(f"Could not locate or read data for '{dataset}'")
 
@@ -521,7 +525,8 @@ class Featurizer:
         if all_features_list:
             all_features = long_join_pyspark(all_features_list, how='left', on='name')
             save_df(all_features, self.outputs + '/datasets/features.csv')
-            self.features['all'] = self.spark.read.csv(self.outputs + '/datasets/features.csv', header=True)
+            self.features['all'] = self.spark.read.csv(self.outputs + '/datasets/features.csv',
+                                                       header=True, inferSchema=True)
         else:
             print('No features have been computed yet.')
 

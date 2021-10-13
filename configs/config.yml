@@ -27,7 +27,7 @@ path:
       regions: 'regions.geojson'
       cantons: 'cantons.geojson'
       prefectures: 'prefectures.geojson'
-    user_consent: null
+    survey: 'survey.csv'
     targeting: 'targeting.csv'
   outputs: "./outputs/"
   wd: "./"

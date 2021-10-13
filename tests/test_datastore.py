@@ -33,7 +33,6 @@ class TestDatastoreClasses:
         "config_file_path",
         [
             "configs/config_new.yml",
-            "configs/config_lucio.yml",
             "configs/config.yml",
         ],
     )
@@ -73,6 +72,7 @@ class TestDatastoreClasses:
         # Can test for example that the mock was used
         assert mock_read_csv.called
         return out
+
 
     @pytest.fixture()
     def ds(self, datastore_class: Type[DataStore]) -> DataStore:

@@ -83,26 +83,28 @@ class HomeLocator:
         """
         # Get tower ID for each transaction
         if geo == 'tower_id':
-            self.ds.cdr = (self.ds.cdr
-                           .join(self.ds.antennas
-                                 .select(['antenna_id', 'tower_id']).na.drop(), on='antenna_id', how='inner'))
+            if 'tower_id' not in self.ds.cdr.columns:
+                self.ds.cdr = (self.ds.cdr
+                               .join(self.ds.antennas
+                                     .select(['antenna_id', 'tower_id']).na.drop(), on='antenna_id', how='inner'))
 
         # Get polygon for each transaction based on antenna latitude and longitudes
         elif geo in self.ds.shapefiles.keys():
-            antennas_df = self.ds.antennas.na.drop().toPandas()
-            antennas = gpd.GeoDataFrame(antennas_df,
-                                        geometry=gpd.points_from_xy(antennas_df['longitude'],
-                                                                    antennas_df['latitude']))
-            antennas.crs = {"init": "epsg:4326"}
-            antennas = gpd.sjoin(antennas, self.ds.shapefiles[geo], op='within', how='left')[
-                ['antenna_id', 'region']].rename({'region': geo}, axis=1)
-            antennas = self.spark.createDataFrame(antennas.dropna())
-            length_before = self.ds.cdr.count()
-            self.ds.cdr = self.ds.cdr.join(antennas, on='antenna_id', how='inner')
-            length_after = self.ds.cdr.count()
-            if length_before != length_after:
-                print('Warning: %i (%.2f percent of) transactions not located in a polygon' %
-                      (length_before - length_after, 100 * (length_before - length_after) / length_before))
+            if geo not in self.ds.cdr.columns:
+                antennas_df = self.ds.antennas.na.drop().toPandas()
+                antennas = gpd.GeoDataFrame(antennas_df,
+                                            geometry=gpd.points_from_xy(antennas_df['longitude'],
+                                                                        antennas_df['latitude']))
+                antennas.crs = {"init": "epsg:4326"}
+                antennas = gpd.sjoin(antennas, self.ds.shapefiles[geo], op='within', how='left')[
+                    ['antenna_id', 'region']].rename({'region': geo}, axis=1)
+                antennas = self.spark.createDataFrame(antennas.dropna())
+                length_before = self.ds.cdr.count()
+                self.ds.cdr = self.ds.cdr.join(antennas, on='antenna_id', how='inner')
+                length_after = self.ds.cdr.count()
+                if length_before != length_after:
+                    print('Warning: %i (%.2f percent of) transactions not located in a polygon' %
+                          (length_before - length_after, 100 * (length_before - length_after) / length_before))
 
         elif geo != 'antenna_id':
             raise ValueError('Invalid geography, must be antenna_id, tower_id, or shapefile name')
