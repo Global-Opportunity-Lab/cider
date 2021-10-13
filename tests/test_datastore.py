@@ -20,7 +20,6 @@ class TestDatastoreClasses:
         "config_file_path",
         [
             "configs/config_new.yml",
-            "configs/config_lucio.yml",
             "configs/config.yml",
         ],
     )
@@ -61,6 +60,7 @@ class TestDatastoreClasses:
         assert mock_read_csv.called
         return out
 
+
     @pytest.fixture()
     def ds(self, mocker: MockerFixture, datastore_class: Type[DataStore]) -> DataStore:
         # TODO: Perhaps decouple the creation of this object from config files altogether or make a test_config.yml
@@ -99,6 +99,26 @@ class TestDatastoreClasses:
         test_df = pd.DataFrame(data={'txn_type': ['text'], 'caller_id': ['A'], 'recipient_id': ['B'],
                                      'timestamp': ['2021-01-01'], 'duration': [60], 'international': ['domestic']})
         ds._load_cdr(dataframe=test_df)
+    
+    
+    malformed_cdr_dataframes_and_errors = [
+        (pd.DataFrame(data={'txn_type': ['text'], 'caller_id': ['A'], 'recipient_id': ['B'], 'timestamp': ['2021-01-01']}), ValueError),
+    ]
+    
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("dataframe, expected_error", malformed_cdr_dataframes_and_errors)
+    def test_load_cdr_raises_from_csv(self, mocker: MockerFixture, ds: DataStore, dataframe, expected_error):
+        mock_spark = mocker.patch("helpers.utils.SparkSession", autospec=True)
+        mock_read_csv = mock_spark.return_value.read.csv
+        mock_read_csv.return_value = dataframe   
+        with pytest.raises(expected_error):
+            ds._load_cdr()
+
+    @pytest.mark.parametrize("dataframe, expected_error", malformed_cdr_dataframes_and_errors)
+    def test_load_cdr_raises_from_csv(self, ds: DataStore, dataframe, expected_error):
+        with pytest.raises(expected_error):
+            ds._load_cdr(dataframe=dataframe)
+
 
     @pytest.mark.unit_test
     def test_load_antennas(self, ds: Type[DataStore]) -> None:  # ds_mock_spark: DataStore
