@@ -9,8 +9,8 @@ spark:
 
 
 path:
-  data: "/Users/luciomelito/Documents/GD/cider/synthetic_data/"
-  features: '/Users/luciomelito/Documents/GD/cider/outputs/featurizer/datasets/features.csv'
+  data: "./synthetic_data/"
+  features: './outputs/featurizer/datasets/features.csv'
   file_names:
     antennas: 'antennas.csv'
     cdr: 'cdr.csv'
@@ -29,9 +29,8 @@ path:
       prefectures: 'prefectures.geojson'
     survey: 'survey.csv'
     targeting: 'targeting.csv'
-    user_consent: null
-  outputs: "/Users/luciomelito/Documents/GD/cider/outputs/"
-  wd: "/Users/luciomelito/Documents/GD/cider/"
+  outputs: "./outputs/"
+  wd: "./"
 
 
 col_names:

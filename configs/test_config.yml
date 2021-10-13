@@ -9,8 +9,8 @@ spark:
 
 
 path:
-  data: "/Users/luciomelito/Documents/GD/cider/synthetic_data/"
-  features: '/Users/luciomelito/Documents/GD/cider/outputs/featurizer/datasets/features.csv'
+  data: "../synthetic_data/"
+  features: '../outputs/featurizer/datasets/features.csv'
   file_names:
     antennas: 'antennas.csv'
     cdr: 'cdr.csv'
@@ -22,15 +22,15 @@ path:
     population: 'population_tgo_2019-07-01.tif'
     poverty_scores: null
     recharges: 'recharges.csv'
-    rwi: '/TGO_relative_wealth_index.csv'
+    rwi: 'TGO_relative_wealth_index.csv'
     shapefiles:
       regions: 'regions.geojson'
       cantons: 'cantons.geojson'
       prefectures: 'prefectures.geojson'
     user_consent: null
     targeting: 'targeting.csv'
-  outputs: "/Users/luciomelito/Documents/GD/cider/outputs/"
-  wd: "/Users/luciomelito/Documents/GD/cider/"
+  outputs: "../cider/outputs/"
+  wd: "../"
 
 
 col_names:
@@ -66,7 +66,7 @@ col_names:
     sender_balance_after: "sender_balance_after"
     recipient_balance_before: "recipient_balance_before"
     recipient_balance_after: "recipient_balance_after"
-  geo: 'adm4'
+  geo: 'cantons'
 
 
 col_types:

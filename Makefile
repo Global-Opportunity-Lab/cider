@@ -1,5 +1,6 @@
 # Runs all tests
 test:
+	poetry run ./check_for_unmarked_tests.sh
 	poetry run pytest $(filter-out $@,$(MAKECMDGOALS))
 
 # Run lint checks. This will sort/format any files that arn't already formatted

@@ -60,3 +60,12 @@ warn_unused_ignores=true
 warn_redundant_casts=true
 warn_unreachable=true
 warn_return_any=false
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+xfail_strict = true
+markers_strict = true
+markers = [
+  "unit_test",
+  "integration_test"
+]
