@@ -51,13 +51,11 @@ class DataStore(InitializerInterface):
         # TODO: Paths should be relative to project root, not to where the command was run (which is the result of "./" notation). See code below
         # TODO: Datastore member variables should still have path in their names. At first I thought "outputs" was an object that held an output dataframe
         # TODO: If the user does not specify a project root then we should use the helper funciton (sell below)
-        # data = cfg.path.data
-        # if "root" in cfg.path:
-        #     root = cfg.path.root
-        # else:
-        #     root = get_project_root()
-        # self.data_path = os.path.join(root, self.config.data)
-        # self.data = data
+        if "root" in cfg.path:
+            self.root = cfg.path.root
+        else:
+            self.root = get_project_root()
+        self.data = os.path.join(self.root, self.cfg.path.data)
         outputs = cfg.path.outputs
         self.outputs = outputs
         file_names = cfg.path.file_names
