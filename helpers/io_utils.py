@@ -283,13 +283,15 @@ def load_mobilemoney(cfg: Box,
     """
     spark = get_spark_session(cfg)
     # load data as generic df and standardize column_names
-    if fname is not None:
-        mobilemoney = load_generic(cfg, fname=fname, df=df)
-    elif df is not None:
-        if not isinstance(df, SparkDataFrame):
+    if df is not None:
+        if isinstance(df, PandasDataFrame):
             mobilemoney = spark.createDataFrame(df)
-        else:
+        elif isinstance(df, SparkDataFrame):
             mobilemoney = df
+        else:
+            raise TypeError("The dataframe provided should be a spark or pandas df.")
+    elif fname is not None:
+        mobilemoney = load_generic(cfg, fname=fname, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
     mobilemoney = standardize_col_names(mobilemoney, cfg.col_names.mobilemoney)
