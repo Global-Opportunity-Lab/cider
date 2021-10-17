@@ -14,6 +14,7 @@ from typing import List, Tuple, Union
 from typing_extensions import Literal
 from pathlib import Path
 
+
 def get_project_root() -> Path:
     """Returns the root of the project."""
     return Path(__file__).parent.parent

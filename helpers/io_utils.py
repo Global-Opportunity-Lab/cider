@@ -32,7 +32,7 @@ def load_generic(cfg: Box,
             df = spark.read.csv(fname + '/*.csv', header=True)
 
     # Load from pandas dataframe
-    if df is not None:
+    elif df is not None:
         if not isinstance(df, SparkDataFrame):
             df = spark.createDataFrame(df)
 
@@ -254,6 +254,7 @@ def load_mobiledata(cfg: Box,
         mobiledata = load_generic(cfg, fname=fname, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
+
     mobiledata = standardize_col_names(mobiledata, cfg.col_names.mobiledata)
 
     # Clean timestamp column
@@ -339,6 +340,9 @@ def load_shapefile(fname: str) -> GeoDataFrame:
     required_cols = ['region', 'geometry']
     error_msg = 'Shapefile format incorrect. Shapefile must include the following columns: ' + ', '.join(required_cols)
     check_cols(shapefile, required_cols, error_msg)
+
+    # Verify that the geometry column has been loaded correctly
+    assert shapefile.dtypes['geometry'] == 'geometry'
 
     shapefile['region'] = shapefile['region'].astype(str)
 
