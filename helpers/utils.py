@@ -1,4 +1,4 @@
-from box import Box  # type: ignore[import]
+from box import Box
 import numpy as np
 from numpy import ndarray
 import os
@@ -10,7 +10,13 @@ from pyspark.sql.functions import col, date_format, lit
 from pyspark.sql import SparkSession
 import shutil
 from typing import List, Tuple, Union
+
 from typing_extensions import Literal
+from pathlib import Path
+
+def get_project_root() -> Path:
+    """Returns the root of the project."""
+    return Path(__file__).parent.parent
 
 
 def get_spark_session(cfg: Box) -> SparkSession:

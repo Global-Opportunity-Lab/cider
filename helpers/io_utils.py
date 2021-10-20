@@ -1,10 +1,7 @@
-# from autogluon.tabular import TabularPredictor
-from box import Box  # type: ignore[import]
+from box import Box
 import geopandas as gpd  # type: ignore[import]
 from geopandas import GeoDataFrame
-from helpers.utils import get_spark_session, make_dir
-from joblib import load  # type: ignore[import]
-import os
+from helpers.utils import get_spark_session
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import col, date_trunc, to_timestamp
@@ -111,20 +108,20 @@ def load_cdr(cfg: Box,
     """
     spark = get_spark_session(cfg)
     # load data as generic df and standardize column_names
-    if fname is not None:
-        cdr = load_generic(cfg, fname=fname, df=df)
-    elif df is not None:
+    if df is not None:
         if not isinstance(df, SparkDataFrame):
             cdr = spark.createDataFrame(df)
         else:
             cdr = df
+    elif fname is not None:
+        cdr = load_generic(cfg, fname=fname, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
     cdr = standardize_col_names(cdr, cfg.col_names.cdr)
 
     if verify:
         # Check that required columns are present
-        required_cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'duration']
+        required_cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'duration', 'international']
         error_msg = 'CDR format incorrect. CDR must include the following columns: ' + ', '.join(required_cols)
         check_cols(cdr, required_cols, error_msg)
 
@@ -163,13 +160,13 @@ def load_antennas(cfg: Box,
     """
     spark = get_spark_session(cfg)
     # load data as generic df and standardize column_names
-    if fname is not None:
-        antennas = load_generic(cfg, fname=fname, df=df)
-    elif df is not None:
+    if df is not None:
         if not isinstance(df, SparkDataFrame):
             antennas = spark.createDataFrame(df)
         else:
             antennas = df
+    elif fname is not None:
+        antennas = load_generic(cfg, fname=fname, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
     antennas = standardize_col_names(antennas, cfg.col_names.antennas)
@@ -204,13 +201,13 @@ def load_recharges(cfg: Box,
     """
     spark = get_spark_session(cfg)
     # load data as generic df and standardize column_names
-    if fname is not None:
-        recharges = load_generic(cfg, fname=fname, df=df)
-    elif df is not None:
+    if df is not None:
         if not isinstance(df, SparkDataFrame):
             recharges = spark.createDataFrame(df)
         else:
             recharges = df
+    elif fname is not None:
+        recharges = load_generic(cfg, fname=fname, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
     recharges = standardize_col_names(recharges, cfg.col_names.recharges)
@@ -336,25 +333,3 @@ def load_shapefile(fname: str) -> GeoDataFrame:
     shapefile['region'] = shapefile['region'].astype(str)
 
     return shapefile
-
-
-def load_model(model, out_path, type='tuned'):
-    subdir = '/' + type + '_models/'
-
-    if os.path.isfile(out_path + subdir + model + '/model'):
-        model_name = model
-        model = load(out_path + subdir + model + '/model')
-    elif os.path.isdir(out_path + subdir + model + '/model'):
-        model_name = model
-        model = TabularPredictor.load(out_path + subdir + model + '/model')
-    elif os.path.isfile(model):
-        model_name = model.split('/')[-1]
-        model = load(model)
-        make_dir(out_path + subdir + model_name)
-    else:
-        raise ValueError("The 'model' argument should be a path or a recognized model name")
-
-    if type == 'tuned':
-        model = model.best_estimator_
-
-    return model_name, model

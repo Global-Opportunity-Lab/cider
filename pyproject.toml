@@ -1,0 +1,71 @@
+[tool.poetry]
+name = "cider"
+version = "0.1.0"
+description = "Poverty prediction and location inference with mobile phone call data records"
+authors = ["Emily Aiken, Lucio Melito, Andrew Vaziri"]
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.9"
+pandas = "^1.3.3"
+numpy = "^1.21.2"
+bandicoot = "^0.6.0"
+mypy = "^0.910"
+pyspark = "^3.1.2"
+geopandas = "^0.9.0"
+seaborn = "^0.11.2"
+matplotlib = "^3.4.3"
+rasterio = "^1.2.8"
+Shapely = "^1.7.1"
+lightgbm = "^3.2.1"
+joblib = "^1.0.1"
+python-box = "^5.4.1"
+wpca = "^0.1"
+geovoronoi = "^0.3.0"
+pyquadkey2 = "^0.2.0"
+PyYAML = "^5.4.1"
+scikit-misc = "^0.1.4"
+auto-sklearn = "^0.12.0"
+autoflake = "^1.4"
+pandas-stubs = "^1.2.0"
+setuptools = "^58.2.0"
+wheel = "^0.37.0"
+mxnet = ">=1.7.0, <2.0.0"
+autogluon = "^0.3.1"
+Rtree = "^0.9.7"
+
+[tool.poetry.dev-dependencies]
+ipykernel = "^6.4.1"
+jupyter = "^1.0.0"
+pytest = "^6.2.5"
+mypy = "^0.910"
+isort = "^5.9.3"
+black = "^21.9b0"
+pytest-mock = "^3.6.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+check_untyped_defs=true
+disallow_incomplete_defs=true
+disallow_untyped_defs=true
+install_types=true
+no_implicit_optional=true
+non_interactive=true
+show_column_numbers=true
+show_error_codes=true
+strict_equality=true
+warn_unused_ignores=true
+warn_redundant_casts=true
+warn_unreachable=true
+warn_return_any=false
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+xfail_strict = true
+markers_strict = true
+markers = [
+  "unit_test",
+  "integration_test"
+]

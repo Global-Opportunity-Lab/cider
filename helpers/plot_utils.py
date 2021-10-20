@@ -4,11 +4,11 @@ import geovoronoi  # type: ignore[import]
 from helpers.utils import flatten_lst
 import matplotlib.pyplot as plt  # type: ignore[import]
 import matplotlib.dates as mdates  # type: ignore[import]
-from matplotlib.pyplot import axis   # type: ignore[import]
+from matplotlib.pyplot import axis
 import matplotlib.ticker as mtick   # type: ignore[import]
 from matplotlib.collections import PatchCollection    # type: ignore[import]
-from pandas import DataFrame as PandasDataFrame  # type: ignore[import]
-from pyspark.sql import DataFrame as SparkDataFrame  # type: ignore[import]
+from pandas import DataFrame as PandasDataFrame
+from pyspark.sql import DataFrame as SparkDataFrame
 import seaborn as sns  # type: ignore[import]
 from typing import List
 
@@ -101,9 +101,10 @@ def voronoi_tessellation(points: PandasDataFrame, shapefile: GeoDataFrame, key: 
     shapefile = shapefile.dissolve(by='nation')['geometry'].values[0]
 
     voronoi = geovoronoi.voronoi_regions_from_coords(coords, shapefile)
-    voronoi = gpd.GeoDataFrame([list(voronoi[0].values()),
-                                [labels[i] for i in flatten_lst(list(voronoi[1].values()))]]).T
+    voronoi = PandasDataFrame([list(voronoi[0].values()),
+                               [labels[i] for i in flatten_lst(list(voronoi[1].values()))]]).T
     voronoi.columns = ['geometry', key]
+    voronoi = gpd.GeoDataFrame(voronoi, geometry='geometry')
     voronoi['geometry'] = voronoi['geometry'].convex_hull
 
     return voronoi

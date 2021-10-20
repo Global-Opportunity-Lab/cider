@@ -9,8 +9,8 @@ spark:
 
 
 path:
-  data: "synthetic_data/"
-  features: './outputs/featurizer/datasets/features.csv'
+  data: "../synthetic_data/"
+  features: '../outputs/featurizer/datasets/features.csv'
   file_names:
     antennas: 'antennas.csv'
     cdr: 'cdr.csv'
@@ -22,15 +22,15 @@ path:
     population: 'population_tgo_2019-07-01.tif'
     poverty_scores: null
     recharges: 'recharges.csv'
-    rwi: '/TGO_relative_wealth_index.csv'
+    rwi: 'TGO_relative_wealth_index.csv'
     shapefiles:
       regions: 'regions.geojson'
       cantons: 'cantons.geojson'
       prefectures: 'prefectures.geojson'
-    survey: 'survey.csv'
+    user_consent: null
     targeting: 'targeting.csv'
-  outputs: "./outputs/"
-  wd: "./"
+  outputs: "../cider/outputs/"
+  wd: "../"
 
 
 col_names:
