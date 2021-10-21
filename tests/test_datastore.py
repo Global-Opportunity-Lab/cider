@@ -1,10 +1,11 @@
 import os
 
 import geopandas
-import numpy as np
 from geopandas import GeoDataFrame
+from itertools import combinations
+import numpy as np
 import pandas as pd
-from pandas import DataFrame as PandasDataFrame
+from pandas import DataFrame as PandasDataFrame, Series
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.utils import AnalysisException
 from typing import Dict, MutableMapping, Type
@@ -12,7 +13,7 @@ from typing import Dict, MutableMapping, Type
 import pytest
 from pytest_mock import mocker, MockerFixture
 
-from cider.datastore import DataStore, OptDataStore
+from cider.datastore import DataStore, DataType, OptDataStore
 from helpers.utils import get_project_root, get_spark_session
 
 malformed_dataframes_and_errors = {
@@ -283,6 +284,13 @@ class TestDatastoreClasses:
         pass
 
     @pytest.mark.unit_test
+    def test_load_features_raises(self, mock_dataframe_reader: MockerFixture, ds: Type[DataStore]) -> None:
+        dataframe = pd.DataFrame(data={'user_id': ['X'], 'feat0': [50]})
+        mock_dataframe_reader.return_value.csv.return_value = ds.spark.createDataFrame(dataframe)
+        with pytest.raises(ValueError):
+            ds._load_features()
+
+    @pytest.mark.unit_test
     def test_load_labels(self, ds: Type[DataStore]) -> None:
         ds._load_labels()
         assert isinstance(ds.labels, SparkDataFrame)
@@ -317,6 +325,55 @@ class TestDatastoreClasses:
         assert (ds.unweighted_fairness['weight'].values == np.ones(1000)).all()
         new_len = ds.weighted_fairness.drop_duplicates()['weight'].sum()
         assert ds.weighted_fairness.shape[0] == new_len
+
+    @pytest.mark.unit_test
+    def test_load_survey(self, ds: Type[DataStore]) -> None:
+        ds._load_survey()
+        assert isinstance(ds.survey_data, PandasDataFrame)
+        assert ds.survey_data.shape[0] == 1e3
+        assert 'weight' in ds.survey_data.columns
+        assert len(ds.survey_data.columns) == 34
+
+        test_df = pd.DataFrame(data={'unique_id': ['XYZ'], 'bin0': [0], 'con0': [25]})
+        ds._load_survey(dataframe=test_df)
+        assert isinstance(ds.survey_data, PandasDataFrame)
+        assert ds.survey_data.shape[0] == 1
+        assert 'weight' in ds.survey_data.columns
+        assert len(ds.survey_data.columns) == 4
+
+    @pytest.mark.unit_test
+    def test_merge(self, ds: Type[DataStore]) -> None:
+        ds._load_features()
+        ds._load_labels()
+        ds.merge()
+
+        assert isinstance(ds.merged, PandasDataFrame)
+        assert ds.merged.shape[0] == 50
+
+        assert isinstance(ds.x, PandasDataFrame)
+        assert all(col not in ds.x.columns for col in ['name', 'label', 'weight'])
+        assert len(ds.x.columns) == len(ds.merged.columns) - 3
+
+        assert isinstance(ds.y, Series)
+        assert isinstance(ds.weights, Series)
+        assert ds.weights.min() >= 1
+
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("function, expected_error", [("_load_labels", ValueError),
+                                                          ("_load_features", ValueError)])
+    def test_merge_raises(self, ds: Type[DataStore], function, expected_error) -> None:
+        with pytest.raises(expected_error):
+            getattr(ds, function)()
+            ds.merge()
+
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("data_types", combinations(DataType._member_names_, 2))
+    def test_load_data(self, ds: Type[DataStore], data_types) -> None:
+        data_type_map = {DataType[x]: None for x in data_types}
+        # import pdb; pdb.set_trace()
+        ds.load_data(data_type_map)
+        assert ()
+
 
     @pytest.mark.integration_test
     @pytest.mark.skip(reason="Test not yet implemented")

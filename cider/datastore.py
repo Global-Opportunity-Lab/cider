@@ -7,7 +7,6 @@ import inspect
 from helpers.io_utils import load_antennas, load_shapefile, load_cdr, load_mobilemoney, load_mobiledata, load_recharges
 from helpers.opt_utils import generate_user_consent_list
 from helpers.utils import get_project_root, get_spark_session, filter_dates_dataframe, make_dir, save_df
-# from helpers.utils import get_project_root
 import numpy as np
 import os
 import pandas as pd
@@ -291,7 +290,7 @@ class DataStore(InitializerInterface):
         """
         Merge features and labels, split into x and y dataframes
         """
-        if self.features is None or self.labels is None:
+        if getattr(self, 'features', None) is None or getattr(self, 'labels', None) is None:
             raise ValueError("Features and/or labels have not been loaded!")
         print('Number of observations with features: %i (%i unique)' %
               (self.features.count(), self.features.select('name').distinct().count()))
