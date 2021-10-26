@@ -1,5 +1,6 @@
 import os
 
+from datetime import datetime, timedelta
 import geopandas
 from geopandas import GeoDataFrame
 from itertools import combinations
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame as PandasDataFrame, Series
 from pyspark.sql import DataFrame as SparkDataFrame
+from pyspark.sql import functions as F
 from pyspark.sql.utils import AnalysisException
 from typing import Dict, MutableMapping, Type
 
@@ -18,11 +20,11 @@ from helpers.utils import get_project_root, get_spark_session
 
 malformed_dataframes_and_errors = {
     'cdr': [(pd.DataFrame(
-                data={'txn_type': ['text'], 'caller_id': ['A'], 'recipient_id': ['B'], 'timestamp': ['2021-01-01']}),
+        data={'txn_type': ['text'], 'caller_id': ['A'], 'recipient_id': ['B'], 'timestamp': ['2021-01-01']}),
              ValueError),
-            (pd.DataFrame(data={'txn_type': ['text_message'], 'caller_id': ['A'], 'recipient_id': ['B'],
-                                'timestamp': ['2021-01-01'], 'duration': [60], 'international': ['domestic']}),
-             ValueError)],
+        (pd.DataFrame(data={'txn_type': ['text_message'], 'caller_id': ['A'], 'recipient_id': ['B'],
+                            'timestamp': ['2021-01-01'], 'duration': [60], 'international': ['domestic']}),
+         ValueError)],
     'antennas': [(pd.DataFrame(data={'antenna_id': ['1'], 'latitude': ['10']}), ValueError)],
     'recharges': [(pd.DataFrame(data={'caller_id': ['A'], 'amount': ['100']}), AnalysisException),
                   (pd.DataFrame(data={'caller_id': ['A'], 'timestamp': ['2020-01-01']}), AnalysisException)],
@@ -53,7 +55,7 @@ class TestDatastoreClasses:
         ],
     )
     def test_config_datastore(
-        self, config_file_path: str, datastore_class: Type[DataStore]
+            self, config_file_path: str, datastore_class: Type[DataStore]
     ) -> None:
         """Test that each config file is not stale and can initialize without raising an error."""
         datastore = datastore_class(
@@ -66,10 +68,10 @@ class TestDatastoreClasses:
         [("", FileNotFoundError), ("\\malformed#$directory!!!(38", FileNotFoundError)],
     )
     def test_config_datastore_exception(
-        self,
-        config_file_path: str,
-        datastore_class: Type[DataStore],
-        expected_exception: Type[Exception],
+            self,
+            config_file_path: str,
+            datastore_class: Type[DataStore],
+            expected_exception: Type[Exception],
     ) -> None:
         with pytest.raises(expected_exception):
             datastore = datastore_class(cfg_dir=config_file_path)
@@ -96,7 +98,7 @@ class TestDatastoreClasses:
 
     @pytest.fixture()
     def ds(self, datastore_class: Type[DataStore]) -> DataStore:
-        out = datastore_class(cfg_dir="configs/config.yml")
+        out = datastore_class(cfg_dir="configs/test_config.yml")
         return out
 
     @pytest.mark.unit_test
@@ -117,7 +119,6 @@ class TestDatastoreClasses:
         assert ds.cdr.count() == 1
         assert 'day' in ds.cdr.columns
         assert len(ds.cdr.columns) == 7
-
 
     @pytest.mark.unit_test
     @pytest.mark.parametrize("dataframe, expected_error", malformed_dataframes_and_errors['cdr'])
@@ -211,7 +212,8 @@ class TestDatastoreClasses:
 
     @pytest.mark.unit_test
     @pytest.mark.parametrize("dataframe, expected_error", malformed_dataframes_and_errors['mobiledata'])
-    def test_load_mobiledata_raises_from_csv(self, mock_dataframe_reader: MockerFixture, ds: DataStore, dataframe, expected_error):
+    def test_load_mobiledata_raises_from_csv(self, mock_dataframe_reader: MockerFixture, ds: DataStore, dataframe,
+                                             expected_error):
         mock_dataframe_reader.return_value.csv.return_value = ds.spark.createDataFrame(dataframe)
         with pytest.raises(expected_error):
             ds._load_mobiledata()
@@ -238,7 +240,8 @@ class TestDatastoreClasses:
 
     @pytest.mark.unit_test
     @pytest.mark.parametrize("dataframe, expected_error", malformed_dataframes_and_errors['mobilemoney'])
-    def test_load_mobilemoney_raises_from_csv(self, mock_dataframe_reader: MockerFixture, ds: DataStore, dataframe, expected_error):
+    def test_load_mobilemoney_raises_from_csv(self, mock_dataframe_reader: MockerFixture, ds: DataStore, dataframe,
+                                              expected_error):
         mock_dataframe_reader.return_value.csv.return_value = ds.spark.createDataFrame(dataframe)
         with pytest.raises(expected_error):
             ds._load_mobilemoney()
@@ -259,7 +262,8 @@ class TestDatastoreClasses:
 
     @pytest.mark.unit_test
     @pytest.mark.parametrize("dataframe, expected_error", malformed_dataframes_and_errors['shapefiles'])
-    def test_load_shapefiles_raises_from_csv(self, mocker: MockerFixture, ds: Type[DataStore], dataframe, expected_error) -> None:
+    def test_load_shapefiles_raises_from_csv(self, mocker: MockerFixture, ds: Type[DataStore], dataframe,
+                                             expected_error) -> None:
         mock_geodataframe_reader = mocker.patch("helpers.io_utils.gpd.read_file", autospec=True)
         mock_geodataframe_reader.return_value = GeoDataFrame(dataframe)
         with pytest.raises(expected_error):
@@ -278,10 +282,10 @@ class TestDatastoreClasses:
         assert isinstance(ds.poverty_scores, PandasDataFrame)
 
     @pytest.mark.unit_test
-    @pytest.mark.skip(reason="Test not yet implemented")
     def test_load_features(self, ds: Type[DataStore]) -> None:
-        # TODO: Create features fake data
-        pass
+        ds._load_features()
+        assert isinstance(ds.features, SparkDataFrame)
+        assert ds.features.count() == 1e3
 
     @pytest.mark.unit_test
     def test_load_features_raises(self, mock_dataframe_reader: MockerFixture, ds: Type[DataStore]) -> None:
@@ -299,7 +303,8 @@ class TestDatastoreClasses:
 
     @pytest.mark.unit_test
     @pytest.mark.parametrize("dataframe, expected_error", malformed_dataframes_and_errors['labels'])
-    def test_load_labels_raises_from_csv(self, mock_dataframe_reader, ds: Type[DataStore], dataframe, expected_error) -> None:
+    def test_load_labels_raises_from_csv(self, mock_dataframe_reader, ds: Type[DataStore], dataframe,
+                                         expected_error) -> None:
         mock_dataframe_reader.return_value.csv.return_value = ds.spark.createDataFrame(dataframe)
         with pytest.raises(expected_error):
             ds._load_labels()
@@ -370,10 +375,44 @@ class TestDatastoreClasses:
     @pytest.mark.parametrize("data_types", combinations(DataType._member_names_, 2))
     def test_load_data(self, ds: Type[DataStore], data_types) -> None:
         data_type_map = {DataType[x]: None for x in data_types}
-        # import pdb; pdb.set_trace()
         ds.load_data(data_type_map)
-        assert ()
 
+    @pytest.mark.unit_test
+    def test_filter_dates(self, ds: Type[DataStore]):
+        # Load two datasets
+        ds._load_recharges()
+        ds._load_mobiledata()
+        min_date, max_date = datetime(2020, 1, 1), datetime(2020, 2, 29)
+
+        # Check that filtering with larger boundaries doesn't change anything
+        ds.filter_dates(min_date - timedelta(days=1), max_date + timedelta(days=1))
+        assert ds.recharges.agg(F.min('day')).collect()[0][0] == min_date
+        assert ds.recharges.agg(F.max('day')).collect()[0][0] == max_date
+        assert ds.mobiledata.agg(F.min('day')).collect()[0][0] == min_date
+        assert ds.mobiledata.agg(F.max('day')).collect()[0][0] == max_date
+
+        # Check that filtering with smaller boundaries works
+        new_min_date, new_max_date = min_date + timedelta(days=1), max_date - timedelta(days=1)
+        ds.filter_dates(new_min_date, new_max_date)
+        assert ds.recharges.agg(F.min('day')).collect()[0][0] == new_min_date
+        assert ds.recharges.agg(F.max('day')).collect()[0][0] == new_max_date
+        assert ds.mobiledata.agg(F.min('day')).collect()[0][0] == new_min_date
+        assert ds.mobiledata.agg(F.max('day')).collect()[0][0] == new_max_date
+
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("df, n_rows", [(pd.DataFrame(data={'caller_id': ['A', 'A'],
+                                                                'volume': [50, 50],
+                                                                'timestamp': ['2020-01-01 12:00:00', '2020-01-02 12:00:01']}),
+                                             2),
+                                            (pd.DataFrame(data={'caller_id': ['A', 'A'],
+                                                                'volume': [50, 50],
+                                                                'timestamp': ['2020-01-02 12:00:00', '2020-01-02 12:00:00']}),
+                                             1)])
+    def test_deduplicate(self, mock_dataframe_reader, ds: DataStore, df, n_rows):
+        mock_dataframe_reader.return_value.csv.return_value = ds.spark.createDataFrame(df)
+        ds._load_mobiledata()
+        ds.deduplicate()
+        assert ds.mobiledata.count() == n_rows
 
     @pytest.mark.integration_test
     @pytest.mark.skip(reason="Test not yet implemented")

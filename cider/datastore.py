@@ -200,7 +200,8 @@ class DataStore(InitializerInterface):
         """
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
-        self.features = self.spark.read.csv(self.cfg.path.features, header=True)
+        feat_path = self.cfg.path.features if '/' in self.cfg.path.features else self.data + self.cfg.path.features
+        self.features = self.spark.read.csv(feat_path, header=True)
         if 'name' not in self.features.columns:
             raise ValueError('Features dataframe must include name column')
 
@@ -339,7 +340,7 @@ class DataStore(InitializerInterface):
             end_date: e.g. '2020-01-10'
         """
         for dataset_name in self.datasets:
-            dataset = getattr(self, '_' + dataset_name, None)
+            dataset = getattr(self, dataset_name, None)
             if dataset is not None:
                 setattr(self, dataset_name, filter_dates_dataframe(dataset, start_date, end_date))
 
@@ -348,7 +349,7 @@ class DataStore(InitializerInterface):
         Remove duplicate rows from alla available datasets
         """
         for dataset_name in self.datasets:
-            dataset = getattr(self, '_' + dataset_name, None)
+            dataset = getattr(self, dataset_name, None)
             if dataset is not None:
                 setattr(self, dataset_name, dataset.distinct())
 
