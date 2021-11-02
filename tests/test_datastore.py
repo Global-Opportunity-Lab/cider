@@ -244,7 +244,7 @@ class TestDatastoreClasses:
         assert isinstance(ds.shapefiles, dict)
         assert 'regions' in ds.shapefiles
         assert isinstance(ds.shapefiles['regions'], GeoDataFrame)
-        assert len(ds.shapefiles) == 3
+        assert len(ds.shapefiles) == 2
 
     @pytest.mark.unit_test
     @pytest.mark.parametrize("dataframe, expected_error", malformed_dataframes_and_errors['shapefiles'])
@@ -503,12 +503,53 @@ class TestOptDatastoreClass:
 
     @pytest.mark.unit_test
     @pytest.mark.parametrize("data_type_map, n_users", [({DataType.CDR: None}, 1000),
-                                               ({DataType.MOBILEMONEY: None}, 700),
-                                               ({DataType.CDR: None,
-                                                 DataType.MOBILEMONEY: None}, 1000)])
+                                                        ({DataType.MOBILEMONEY: None}, 700),
+                                                        ({DataType.CDR: None,
+                                                          DataType.MOBILEMONEY: None}, 1000)])
     def test_initialize_user_consent_table(self, ds: OptDataStore, data_type_map, n_users):
         assert getattr(ds, 'user_consent', None) is None
         ds.load_data(data_type_map=data_type_map)
         ds.initialize_user_consent_table()
         assert getattr(ds, 'user_consent', None) is not None
         assert ds.user_consent.count() == n_users
+
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("data", [({'user_id': ['WzwHpoldPp', 'xkThzuCDAY', 'OtFfOxcGMu', 'pjjlDwunYH']}),
+                                      ({'user_id': ['WzwHpoldPp', 'xkThzuCDAY', 'OtFfOxcGMu', 'pjjlDwunYH'],
+                                        'include': [True, False, False, True]})])
+    def test_initialize_user_consent_table_from_file(self, mocker: MockerFixture, ds: OptDataStore, data):
+        mock_dataframe_reader = mocker.patch("cider.datastore.pd.read_csv", autospec=True)
+        df = pd.DataFrame(data=data)
+        mock_dataframe_reader.return_value = df
+        ds.load_data(data_type_map={DataType.RECHARGES: None,
+                                    DataType.MOBILEMONEY: None})
+        ds.initialize_user_consent_table(read_from_file=True)
+        if len(data) == 1:
+            assert ds.recharges.where(col('caller_id').isin(data['user_id'])).count() == ds.recharges.count()
+            assert ds.mobilemoney.where(col('caller_id').isin(data['user_id'])).count() == ds.mobilemoney.count()
+        else:
+            included = list(df[df['include'] == True]['user_id'].values)
+            excluded = list(df[df['include'] == False]['user_id'].values)
+            assert ds.recharges.where(col('caller_id').isin(excluded)).count() == 0
+            assert ds.mobilemoney.where(col('caller_id').isin(excluded)).count() == 0
+            assert ds.recharges.where(col('caller_id').isin(included)).count() == ds.recharges.count()
+            assert ds.mobilemoney.where(col('caller_id').isin(included)).count() == ds.mobilemoney.count()
+
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("data, expected_exception",
+                             [({'user_idx': ['WzwHpoldPp', 'xkThzuCDAY', 'OtFfOxcGMu', 'pjjlDwunYH']}, ValueError),
+                              ({'user_id': ['WzwHpoldPp', 'xkThzuCDAY', 'OtFfOxcGMu', 'pjjlDwunYH'],
+                                'opted_in': [True, False, False, True]}, ValueError),
+                              ({'user_id': ['WzwHpoldPp', 'xkThzuCDAY', 'OtFfOxcGMu','pjjlDwunYH'],
+                               'include': ['yes', 'no', 'no', 'yes']}, ValueError)
+                              ])
+    def test_initialize_user_consent_table_from_file_raises(self, mocker: MockerFixture, ds: OptDataStore, data,
+                                                            expected_exception):
+        mock_dataframe_reader = mocker.patch("cider.datastore.pd.read_csv", autospec=True)
+        df = pd.DataFrame(data=data)
+        mock_dataframe_reader.return_value = df
+        ds.load_data(data_type_map={DataType.RECHARGES: None,
+                                    DataType.MOBILEMONEY: None})
+        with pytest.raises(expected_exception):
+            ds.initialize_user_consent_table(read_from_file=True)
+

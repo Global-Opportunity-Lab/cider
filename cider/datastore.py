@@ -491,7 +491,7 @@ class OptDataStore(DataStore):
                 setattr(self, dataset_name, dataset.join(val.where(col('include') == True).select(user_col_name),
                                                          on=user_col_name, how='inner'))
 
-    def initialize_user_consent_table(self) -> None:
+    def initialize_user_consent_table(self, read_from_file: bool = False) -> None:
         """
         Create table of all user ids present in the datasets, and whether they should be included in the analysis or not
         This is defined by the opt_in_default parameter specified in the config file
@@ -515,7 +515,7 @@ class OptDataStore(DataStore):
                                                        opt_in=self.cfg.params.opt_in_default)
 
         # Check if a user consent file has been provided, and if so set consent flags appropriately
-        if self.file_names.user_consent is not None:
+        if read_from_file and self.file_names.user_consent is not None:
             user_consent_df = pd.read_csv(self.data + self.file_names.user_consent)
             if 'user_id' not in user_consent_df.columns:
                 raise ValueError("The user consent table should have a 'user_id' column")

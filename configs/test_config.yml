@@ -25,9 +25,10 @@ path:
     rwi: 'TGO_relative_wealth_index.csv'
     shapefiles:
       regions: 'regions.geojson'
+      prefectures: 'prefectures.geojson'
     survey: 'survey.csv'
     targeting: 'targeting.csv'
-    user_consent: null
+    user_consent: 'test'
   outputs: "../cider/outputs/"
   wd: "../"
 
