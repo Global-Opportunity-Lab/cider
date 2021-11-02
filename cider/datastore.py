@@ -14,7 +14,7 @@ from pandas import DataFrame as PandasDataFrame, Series
 from pyspark.sql import DataFrame as SparkDataFrame
 import pyspark.sql.functions as F
 from pyspark.sql.functions import col, count, countDistinct, lit
-from typing import Callable, Dict, List, Mapping, Optional, Union
+from typing import Callable, Dict, List, Mapping, Optional, Set, Union
 import yaml
 
 
@@ -355,7 +355,7 @@ class DataStore(InitializerInterface):
 
     def remove_spammers(self, spammer_threshold: float = 100) -> List[str]:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
-        if self.cdr is None:
+        if getattr(self, 'cdr', None) is None:
             raise ValueError('CDR must be loaded to identify and remove spammers.')
 
         # Get average number of calls and SMS per day
@@ -374,11 +374,11 @@ class DataStore(InitializerInterface):
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
         self.cdr = self.cdr.where(~col('caller_id').isin(self.spammers))
         self.cdr = self.cdr.where(~col('recipient_id').isin(self.spammers))
-        if self.recharges is not None:
+        if getattr(self, 'recharges', None) is not None:
             self.recharges = self.recharges.where(~col('caller_id').isin(self.spammers))
-        if self.mobiledata is not None:
+        if getattr(self, 'mobiledata', None) is not None:
             self.mobiledata = self.mobiledata.where(~col('caller_id').isin(self.spammers))
-        if self.mobilemoney is not None:
+        if getattr(self, 'mobilemoney', None) is not None:
             self.mobilemoney = self.mobilemoney.where(~col('caller_id').isin(self.spammers))
             self.mobilemoney = self.mobilemoney.where(~col('recipient_id').isin(self.spammers))
 
@@ -386,7 +386,7 @@ class DataStore(InitializerInterface):
 
     def filter_outlier_days(self, num_sds: float = 2) -> List:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
-        if self.cdr is None:
+        if getattr(self, 'cdr', None) is None:
             raise ValueError('CDR must be loaded to identify and remove outlier days.')
 
         # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
@@ -407,8 +407,12 @@ class DataStore(InitializerInterface):
         outliers = timeseries[(timeseries['count'] < bottomrange) | (timeseries['count'] > toprange)]
         outliers.to_csv(self.outputs + 'datasets/outlier_days.csv', index=False)
         outliers = list(outliers['day'])
-        outliers = [outlier.split('T')[0] for outlier in outliers]
-        print('Outliers removed: ' + ', '.join(outliers))
+        if outliers and isinstance(outliers[0], str):
+            outliers = [outlier.split('T')[0] for outlier in outliers]
+            print('Outliers removed: ' + ', '.join(outliers))
+        else:
+            outliers = [outlier.strftime("%Y-%m-%d") for outlier in outliers]
+            print('Outliers removed: ' + ', '.join(outliers))
 
         # Remove outlier days from all datasets
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
@@ -421,7 +425,7 @@ class DataStore(InitializerInterface):
 
         return outliers
 
-    def remove_survey_outliers(self, cols: List[str], num_sds: float = 2., dry_run: bool = False) -> None:
+    def remove_survey_outliers(self, cols: List[str], num_sds: float = 2., dry_run: bool = False) -> Set[str]:
         """
         Removes observations with outliers in the columns listed in 'cols' from the survey data.
 
@@ -431,8 +435,14 @@ class DataStore(InitializerInterface):
             dry_run: If True, only prints the number of outliers without removing them.
         """
         # Raise exception if survey data has not been loaded
-        if self.survey_data is None:
+        if getattr(self, 'survey_data', None) is None:
             raise ValueError('Survey data must be loaded to identify and remove outliers.')
+
+        # Raise an exception if the columns are not continuous or not in the survey data
+        if not all(col in self.cfg.col_types.survey.continuous for col in cols):
+            raise TypeError('The columns used to identify for outliers should be continuous.')
+        elif not all(col in self.survey_data.columns for col in cols):
+            raise ValueError('The columns provided are not in the survey data.')
 
         data = self.survey_data.set_index('unique_id')[cols]
 
@@ -442,7 +452,7 @@ class DataStore(InitializerInterface):
 
         outliers = []
         for i, (col, bottom) in enumerate(bottomrange.iteritems()):
-            outliers = outliers + list(data[(data[col] < bottom) | (data[col] > toprange[0])].index.values)
+            outliers = outliers + list(data[(data[col] < bottom) | (data[col] > toprange[i])].index.values)
         outliers = set(outliers)
 
         if dry_run:
@@ -450,6 +460,8 @@ class DataStore(InitializerInterface):
         else:
             self.survey_data = self.survey_data[~self.survey_data['unique_id'].isin(outliers)]
             print(f"Removed {len(outliers)} outliers!")
+
+        return outliers
 
 
 class OptDataStore(DataStore):

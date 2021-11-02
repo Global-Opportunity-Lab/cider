@@ -9,6 +9,7 @@ import pandas as pd
 from pandas import DataFrame as PandasDataFrame, Series
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql import functions as F
+from pyspark.sql.functions import col
 from pyspark.sql.utils import AnalysisException
 from typing import Dict, MutableMapping, Type
 
@@ -75,21 +76,6 @@ class TestDatastoreClasses:
     ) -> None:
         with pytest.raises(expected_exception):
             datastore = datastore_class(cfg_dir=config_file_path)
-
-    # @pytest.fixture()
-    # def ds_mock_spark(self, mocker: MockerFixture, datastore_class: Type[DataStore]) -> DataStore:
-    #     # TODO: Perhaps decouple the creation of this object from config files altogether or make a test_config.yml
-    #     # I would lobby for having an intermediate dataclass that represents the config file as a python object with known semantics
-    #
-    #     # Also here is an opportunity to give an example of mocking an object that your unit test would use
-    #     mock_spark = mocker.patch("helpers.utils.SparkSession", autospec=True)
-    #     mock_read_csv = mock_spark.return_value.read.csv
-    #     mock_read_csv.return_value = {"col1": (0, 1, 2, 3)}
-    #     # Now this object will have a mock spark, since we are trying to unit test our code, not test spark
-    #     out = datastore_class(cfg_dir="configs/config.yml")
-    #     # Can test for example that the mock was used
-    #     assert mock_read_csv.called
-    #     return out
 
     @pytest.fixture()
     def mock_dataframe_reader(self, mocker: MockerFixture):
@@ -402,11 +388,13 @@ class TestDatastoreClasses:
     @pytest.mark.unit_test
     @pytest.mark.parametrize("df, n_rows", [(pd.DataFrame(data={'caller_id': ['A', 'A'],
                                                                 'volume': [50, 50],
-                                                                'timestamp': ['2020-01-01 12:00:00', '2020-01-02 12:00:01']}),
+                                                                'timestamp': ['2020-01-01 12:00:00',
+                                                                              '2020-01-02 12:00:01']}),
                                              2),
                                             (pd.DataFrame(data={'caller_id': ['A', 'A'],
                                                                 'volume': [50, 50],
-                                                                'timestamp': ['2020-01-02 12:00:00', '2020-01-02 12:00:00']}),
+                                                                'timestamp': ['2020-01-02 12:00:00',
+                                                                              '2020-01-02 12:00:00']}),
                                              1)])
     def test_deduplicate(self, mock_dataframe_reader, ds: DataStore, df, n_rows):
         mock_dataframe_reader.return_value.csv.return_value = ds.spark.createDataFrame(df)
@@ -414,7 +402,113 @@ class TestDatastoreClasses:
         ds.deduplicate()
         assert ds.mobiledata.count() == n_rows
 
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("df, threshold, n_spammers", [(pd.DataFrame(data={'txn_type': ['call', 'call'],
+                                                                               'caller_id': ['A', 'A'],
+                                                                               'recipient_id': ['X', 'X'],
+                                                                               'duration': [50, 50],
+                                                                               'timestamp': ['2020-01-01 12:00:00',
+                                                                                             '2020-01-02 12:00:01'],
+                                                                               'international': ['domestic',
+                                                                                                 'domestic']}),
+                                                            1, 0),
+                                                           (pd.DataFrame(data={'txn_type': ['call'] * 12,
+                                                                               'caller_id': ['A', 'A'] + ['B'] * 10,
+                                                                               'recipient_id': ['X'] * 12,
+                                                                               'duration': [50, 50] + [50] * 10,
+                                                                               'timestamp': [
+                                                                                                '2020-01-02 12:00:00'] * 12,
+                                                                               'international': ['domestic'] * 12}),
+                                                            5, 1),
+                                                           (pd.DataFrame(data={'txn_type': ['call'] * 12,
+                                                                               'caller_id': ['A', 'A'] + ['B'] * 10,
+                                                                               'recipient_id': ['X'] * 12,
+                                                                               'duration': [50, 50] + [50] * 10,
+                                                                               'timestamp': [
+                                                                                                '2020-01-02 12:00:00'] * 12,
+                                                                               'international': ['domestic'] * 12}),
+                                                            10, 0)
+                                                           ])
+    def test_remove_spammers(self, mock_dataframe_reader, ds: DataStore, df, threshold, n_spammers):
+        mock_dataframe_reader.return_value.csv.return_value = ds.spark.createDataFrame(df)
+        ds._load_cdr()
+        spammers = ds.remove_spammers(spammer_threshold=threshold)
+        assert len(spammers) == n_spammers
+        assert ds.cdr.where(col('caller_id').isin(spammers)).count() == 0
+
+    @pytest.mark.unit_test
+    def test_remove_spammers_raises(self, ds: DataStore):
+        ds._load_recharges()
+        with pytest.raises(ValueError):
+            _ = ds.remove_spammers(spammer_threshold=1)
+
+    timeseries_df = pd.DataFrame(data={'day': pd.date_range(start='2020-01-01', periods=6),
+                                       'count': [10, 8, 9, 12, 8, 13]})
+
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("df, num_sds, n_outliers", [(timeseries_df, 2, 0),
+                                                         (timeseries_df, 1.4, 1),
+                                                         (timeseries_df, 0.9, 4)])
+    def test_filter_outlier_days(self, mocker: MockerFixture, ds: DataStore, df, num_sds, n_outliers):
+        mock_dataframe_reader = mocker.patch("cider.datastore.pd.read_csv", autospec=True)
+        mock_dataframe_reader.return_value = df
+        ds._load_cdr()
+        outliers = ds.filter_outlier_days(num_sds=num_sds)
+        assert len(outliers) == n_outliers
+
+    survey_df = pd.DataFrame(data={'unique_id': [str(x) for x in range(10)],
+                                   'con1': [1.7, 1.8, 0.9, 1.1, 0.5, 1.5, 1.0, 1.8, None, 0.1],
+                                   'con2': [0.3, 0.9, 1.6, 0.9, 1.5, 1.1, 2.8, 0.8, 0.7, 1.4],
+                                   'bin1': [0, 0, 1, 0, 0, 1, 1, 0, 1, 0]})
+
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("df, cols, num_sds, outliers", [(survey_df, ['con1'], 1, ['1', '4', '7', '9']),
+                                                             (survey_df, ['con1', 'con2'], 1,
+                                                              ['0', '1', '4', '6', '7', '9']),
+                                                             (survey_df, ['con1', 'con2'], 2.5, [])])
+    def test_remove_survey_outliers(self, mocker: MockerFixture, ds: DataStore, df, cols, num_sds, outliers):
+        mock_dataframe_reader = mocker.patch("cider.datastore.pd.read_csv", autospec=True)
+        mock_dataframe_reader.return_value = df
+        ds._load_survey()
+        assert set(outliers) == ds.remove_survey_outliers(cols=cols, num_sds=num_sds)
+
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("df, cols, expected_exception", [(survey_df, ['bin1'], TypeError),
+                                                              (survey_df, ['con3'], ValueError)])
+    def test_remove_survey_outliers_raises(self, mocker: MockerFixture, ds: DataStore, df, cols, expected_exception):
+        mock_dataframe_reader = mocker.patch("cider.datastore.pd.read_csv", autospec=True)
+        mock_dataframe_reader.return_value = df
+        ds._load_survey()
+        with pytest.raises(expected_exception):
+            ds.remove_survey_outliers(cols=cols)
+
+    @pytest.mark.unit_test
+    def test_remove_survey_outliers_raises_before_load(self, ds: DataStore, ):
+        with pytest.raises(ValueError):
+            ds.remove_survey_outliers(cols=['con1'])
+
     @pytest.mark.integration_test
     @pytest.mark.skip(reason="Test not yet implemented")
     def test_datastore_end_to_end(self, datastore_class: Type[DataStore], ds_mock_spark: DataStore) -> None:
         pass
+
+
+class TestOptDatastoreClass:
+    """All the tests related to object that implement OptDatastore."""
+
+    @pytest.fixture()
+    def ds(self) -> OptDataStore:
+        out = OptDataStore(cfg_dir="configs/test_config.yml")
+        return out
+
+    @pytest.mark.unit_test
+    @pytest.mark.parametrize("data_type_map, n_users", [({DataType.CDR: None}, 1000),
+                                               ({DataType.MOBILEMONEY: None}, 700),
+                                               ({DataType.CDR: None,
+                                                 DataType.MOBILEMONEY: None}, 1000)])
+    def test_initialize_user_consent_table(self, ds: OptDataStore, data_type_map, n_users):
+        assert getattr(ds, 'user_consent', None) is None
+        ds.load_data(data_type_map=data_type_map)
+        ds.initialize_user_consent_table()
+        assert getattr(ds, 'user_consent', None) is not None
+        assert ds.user_consent.count() == n_users
