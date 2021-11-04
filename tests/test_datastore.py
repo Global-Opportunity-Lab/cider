@@ -3,7 +3,6 @@ import os
 from datetime import datetime, timedelta
 import geopandas
 from geopandas import GeoDataFrame
-from itertools import combinations
 import numpy as np
 import pandas as pd
 from pandas import DataFrame as PandasDataFrame, Series
@@ -89,9 +88,6 @@ class TestDatastoreClasses:
 
     @pytest.mark.unit_test
     def test_load_cdr(self, ds: Type[DataStore]) -> None:  # ds_mock_spark: DataStore
-        # TODO: Add asserts for the following:
-        # TODO: Test successful operation: nominal case, edge cases, test None when anything is Optional, test for idempotency where appropriate, test zero length iterables
-        # TODO: Test expected failures raise appropriate errors: Malformed inputs, invalid inputs, basically any code path that should raise an exception
         ds._load_cdr()
         assert isinstance(ds.cdr, SparkDataFrame)
         assert ds.cdr.count() == 1e5
@@ -123,8 +119,6 @@ class TestDatastoreClasses:
 
     @pytest.mark.unit_test
     def test_load_antennas(self, ds: Type[DataStore]) -> None:
-        # TODO: Test successful operation: nominal case, edge cases, test None when anything is Optional, test for idempotency where appropriate, test zero length iterables
-        # TODO: Test expected failures raise appropriate errors: Malformed inputs, invalid inputs, basically any code path that should raise an exception
         ds._load_antennas()
         assert isinstance(ds.antennas, SparkDataFrame)
         assert ds.antennas.count() == 297
@@ -155,8 +149,6 @@ class TestDatastoreClasses:
 
     @pytest.mark.unit_test
     def test_load_recharges(self, ds: Type[DataStore]) -> None:
-        # TODO: Test successful operation: nominal case, edge cases, test None when anything is Optional, test for idempotency where appropriate, test zero length iterables
-        # TODO: Test expected failures raise appropriate errors: Malformed inputs, invalid inputs, basically any code path that should raise an exception
         ds._load_recharges()
         assert isinstance(ds.recharges, SparkDataFrame)
         assert ds.recharges.count() == 1e4
@@ -183,8 +175,6 @@ class TestDatastoreClasses:
 
     @pytest.mark.unit_test
     def test_load_mobiledata(self, ds: Type[DataStore]) -> None:
-        # TODO: Test successful operation: nominal case, edge cases, test None when anything is Optional, test for idempotency where appropriate, test zero length iterables
-        # TODO: Test expected failures raise appropriate errors: Malformed inputs, invalid inputs, basically any code path that should raise an exception
         ds._load_mobiledata()
         assert isinstance(ds.mobiledata, SparkDataFrame)
         assert ds.mobiledata.count() == 1e4
@@ -358,9 +348,20 @@ class TestDatastoreClasses:
             ds.merge()
 
     @pytest.mark.unit_test
-    @pytest.mark.parametrize("data_types", combinations(DataType._member_names_, 2))
-    def test_load_data(self, ds: Type[DataStore], data_types) -> None:
-        data_type_map = {DataType[x]: None for x in data_types}
+    @pytest.mark.parametrize("data_type_map", [({DataType.CDR: None,
+                                                 DataType.RECHARGES: None,
+                                                 DataType.MOBILEDATA: None,
+                                                 DataType.MOBILEMONEY: None,
+                                                 DataType.ANTENNAS: None,
+                                                 DataType.SHAPEFILES: None}),
+                                               ({DataType.FEATURES: None,
+                                                 DataType.LABELS: None}),
+                                               ({DataType.CDR: None,
+                                                 DataType.ANTENNAS: None,
+                                                 DataType.SHAPEFILES: None,
+                                                 DataType.HOME_GROUND_TRUTH: None,
+                                                 DataType.POVERTY_SCORES: None})])
+    def test_load_data(self, ds: Type[DataStore], data_type_map) -> None:
         ds.load_data(data_type_map)
 
     @pytest.mark.unit_test
@@ -487,6 +488,7 @@ class TestDatastoreClasses:
         with pytest.raises(ValueError):
             ds.remove_survey_outliers(cols=['con1'])
 
+    # TODO: Write integration tests
     @pytest.mark.integration_test
     @pytest.mark.skip(reason="Test not yet implemented")
     def test_datastore_end_to_end(self, datastore_class: Type[DataStore], ds_mock_spark: DataStore) -> None:
@@ -540,8 +542,8 @@ class TestOptDatastoreClass:
                              [({'user_idx': ['WzwHpoldPp', 'xkThzuCDAY', 'OtFfOxcGMu', 'pjjlDwunYH']}, ValueError),
                               ({'user_id': ['WzwHpoldPp', 'xkThzuCDAY', 'OtFfOxcGMu', 'pjjlDwunYH'],
                                 'opted_in': [True, False, False, True]}, ValueError),
-                              ({'user_id': ['WzwHpoldPp', 'xkThzuCDAY', 'OtFfOxcGMu','pjjlDwunYH'],
-                               'include': ['yes', 'no', 'no', 'yes']}, ValueError)
+                              ({'user_id': ['WzwHpoldPp', 'xkThzuCDAY', 'OtFfOxcGMu', 'pjjlDwunYH'],
+                                'include': ['yes', 'no', 'no', 'yes']}, ValueError)
                               ])
     def test_initialize_user_consent_table_from_file_raises(self, mocker: MockerFixture, ds: OptDataStore, data,
                                                             expected_exception):
@@ -553,3 +555,4 @@ class TestOptDatastoreClass:
         with pytest.raises(expected_exception):
             ds.initialize_user_consent_table(read_from_file=True)
 
+    # TODO: write opt_in/out tests

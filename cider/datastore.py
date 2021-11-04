@@ -353,6 +353,7 @@ class DataStore(InitializerInterface):
             if dataset is not None:
                 setattr(self, dataset_name, dataset.distinct())
 
+    # TODO: adapt for OptDataStore
     def remove_spammers(self, spammer_threshold: float = 100) -> List[str]:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
         if getattr(self, 'cdr', None) is None:
