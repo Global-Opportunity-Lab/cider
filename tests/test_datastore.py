@@ -2,7 +2,7 @@ import os
 
 from datetime import datetime, timedelta
 import geopandas
-from geopandas import GeoDataFrame
+from geopandas import GeoDataFrame  # type: ignore[import]
 import numpy as np
 import pandas as pd
 from pandas import DataFrame as PandasDataFrame, Series

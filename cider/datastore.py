@@ -163,7 +163,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = os.paht.join(self.data,
+        fpath = os.path.join(self.data,
                              self.file_names.mobilemoney) if self.file_names.mobilemoney is not None else None
         if fpath or dataframe is not None:
             print('Loading mobile data...')
@@ -452,10 +452,9 @@ class DataStore(InitializerInterface):
         bottomrange = data.mean() - num_sds * data.std()
         toprange = data.mean() + num_sds * data.std()
 
-        outliers = []
+        outliers: Set[str] = set()
         for i, (col, bottom) in enumerate(bottomrange.iteritems()):
-            outliers = outliers + list(data[(data[col] < bottom) | (data[col] > toprange[i])].index.values)
-        outliers = set(outliers)
+            outliers.update(list(data[(data[col] < bottom) | (data[col] > toprange[i])].index.values))
 
         if dry_run:
             print(f"There are {len(outliers)} outliers that could be removed.")
