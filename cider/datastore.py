@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from box import Box
-from collections import defaultdict
 from geopandas import GeoDataFrame  # type: ignore[import]
 from enum import Enum
 import inspect
@@ -118,7 +117,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.cdr if self.file_names.cdr is not None else None
+        fpath = os.path.join(self.data, self.file_names.cdr) if self.file_names.cdr is not None else None
         if fpath or dataframe is not None:
             print('Loading CDR...')
             cdr = load_cdr(self.cfg, fpath, df=dataframe)
@@ -130,7 +129,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.antennas if self.file_names.antennas is not None else None
+        fpath = os.path.join(self.data, self.file_names.antennas) if self.file_names.antennas is not None else None
         if fpath or dataframe is not None:
             print('Loading antennas...')
             self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
@@ -141,7 +140,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.recharges if self.file_names.recharges is not None else None
+        fpath = os.path.join(self.data, self.file_names.recharges) if self.file_names.recharges is not None else None
         if fpath or dataframe is not None:
             print('Loading recharges...')
             self.recharges = load_recharges(self.cfg, fpath, df=dataframe)
@@ -153,7 +152,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.mobiledata if self.file_names.mobiledata is not None else None
+        fpath = os.path.join(self.data, self.file_names.mobiledata) if self.file_names.mobiledata is not None else None
         if fpath or dataframe is not None:
             print('Loading mobile data...')
             self.mobiledata = load_mobiledata(self.cfg, fpath, df=dataframe)
@@ -164,7 +163,8 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.mobilemoney if self.file_names.mobilemoney is not None else None
+        fpath = os.paht.join(self.data,
+                             self.file_names.mobilemoney) if self.file_names.mobilemoney is not None else None
         if fpath or dataframe is not None:
             print('Loading mobile data...')
             self.mobilemoney = load_mobilemoney(self.cfg, fpath, df=dataframe)
@@ -183,7 +183,7 @@ class DataStore(InitializerInterface):
         Load ground truth data for home locations
         """
         if self.file_names.home_ground_truth is not None:
-            self.home_ground_truth = pd.read_csv(self.data + self.file_names.home_ground_truth)
+            self.home_ground_truth = pd.read_csv(os.path.join(self.data, self.file_names.home_ground_truth))
         else:
             print('No ground truth data for home locations has been specified.')
 
@@ -192,7 +192,7 @@ class DataStore(InitializerInterface):
         Load poverty scores (e.g. those produced by the ML module)
         """
         if self.file_names.poverty_scores is not None:
-            self.poverty_scores = pd.read_csv(self.data + self.file_names.poverty_scores)
+            self.poverty_scores = pd.read_csv(os.path.join(self.data, self.file_names.poverty_scores))
         else:
             self.poverty_scores = pd.DataFrame()
 
@@ -200,7 +200,8 @@ class DataStore(InitializerInterface):
         """
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
-        feat_path = self.cfg.path.features if '/' in self.cfg.path.features else self.data + self.cfg.path.features
+        feat_path = self.cfg.path.features if '/' in self.cfg.path.features else \
+            os.path.join(self.data, self.cfg.path.features)
         self.features = self.spark.read.csv(feat_path, header=True)
         if 'name' not in self.features.columns:
             raise ValueError('Features dataframe must include name column')
@@ -209,7 +210,7 @@ class DataStore(InitializerInterface):
         """
         Load labels to train ML model on
         """
-        self.labels = self.spark.read.csv(self.data + self.file_names.labels, header=True)
+        self.labels = self.spark.read.csv(os.path.join(self.data, self.file_names.labels), header=True)
         if 'name' not in self.labels.columns:
             raise ValueError('Labels dataframe must include name column')
         if 'label' not in self.labels.columns:
@@ -222,7 +223,7 @@ class DataStore(InitializerInterface):
         """
         Load targeting data.
         """
-        self.targeting = pd.read_csv(self.data + self.file_names.targeting)
+        self.targeting = pd.read_csv(os.path.join(self.data, self.file_names.targeting))
         self.targeting['random'] = np.random.rand(len(self.targeting))
 
         # TODO: use decorator
@@ -247,7 +248,7 @@ class DataStore(InitializerInterface):
         """
         Load fairness data.
         """
-        self.fairness = pd.read_csv(self.data + self.file_names.fairness)
+        self.fairness = pd.read_csv(os.path.join(self.data, self.file_names.fairness))
         self.fairness['random'] = np.random.rand(len(self.fairness))
 
         # TODO: use decorator
@@ -261,17 +262,17 @@ class DataStore(InitializerInterface):
             self.weighted_fairness['weight'] = 1
         else:
             self.weighted_fairness['weight'] = (self.weighted_fairness['weight'] /
-                                                 self.weighted_fairness['weight'].min())
+                                                self.weighted_fairness['weight'].min())
         self.weighted_fairness = pd.DataFrame(np.repeat(self.weighted_fairness.values,
-                                                    self.weighted_fairness['weight'],
-                                                    axis=0),
-                                          columns=self.weighted_fairness.columns) \
+                                                        self.weighted_fairness['weight'],
+                                                        axis=0),
+                                              columns=self.weighted_fairness.columns) \
             .astype(self.unweighted_fairness.dtypes)
 
     def _load_wealth_map(self) -> None:
         # Load wealth/income map
         if self.file_names.rwi:
-            self.rwi = pd.read_csv(self.data + self.file_names.rwi, dtype={'quadkey': str})
+            self.rwi = pd.read_csv(os.path.join(self.data, self.file_names.rwi), dtype={'quadkey': str})
         else:
             raise ValueError("Missing path to wealth map in config file.")
 
@@ -280,7 +281,7 @@ class DataStore(InitializerInterface):
         if dataframe is not None:
             self.survey_data = dataframe
         elif self.file_names.survey is not None:
-            self.survey_data = pd.read_csv(self.data + self.file_names.survey)
+            self.survey_data = pd.read_csv(os.path.join(self.data, self.file_names.survey))
         else:
             raise ValueError("Missing path to survey data in config file.")
         # Add weights column if missing
