@@ -1,13 +1,11 @@
 from abc import ABC, abstractmethod
 from box import Box
-from collections import defaultdict
 from geopandas import GeoDataFrame  # type: ignore[import]
 from enum import Enum
 import inspect
 from helpers.io_utils import load_antennas, load_shapefile, load_cdr, load_mobilemoney, load_mobiledata, load_recharges
 from helpers.opt_utils import generate_user_consent_list
 from helpers.utils import get_project_root, get_spark_session, filter_dates_dataframe, make_dir, save_df
-# from helpers.utils import get_project_root
 import numpy as np
 import os
 import pandas as pd
@@ -15,7 +13,7 @@ from pandas import DataFrame as PandasDataFrame, Series
 from pyspark.sql import DataFrame as SparkDataFrame
 import pyspark.sql.functions as F
 from pyspark.sql.functions import col, count, countDistinct, lit
-from typing import Callable, Dict, List, Mapping, Optional, Union
+from typing import Callable, Dict, List, Mapping, Optional, Set, Union
 import yaml
 
 
@@ -50,7 +48,7 @@ class DataStore(InitializerInterface):
         self.cfg = cfg
         # TODO: Paths should be relative to project root, not to where the command was run (which is the result of "./" notation). See code below
         # TODO: Datastore member variables should still have path in their names. At first I thought "outputs" was an object that held an output dataframe
-        # TODO: If the user does not specify a project root then we should use the helper funciton (sell below)
+        # TODO: If the user does not specify a project root then we should use the helper funciton (see below)
         if "root" in cfg.path:
             self.root = cfg.path.root
         else:
@@ -124,7 +122,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.cdr if self.file_names.cdr is not None else None
+        fpath = os.path.join(self.data, self.file_names.cdr) if self.file_names.cdr is not None else None
         if fpath or dataframe is not None:
             print('Loading CDR...')
             cdr = load_cdr(self.cfg, fpath, df=dataframe)
@@ -136,7 +134,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.antennas if self.file_names.antennas is not None else None
+        fpath = os.path.join(self.data, self.file_names.antennas) if self.file_names.antennas is not None else None
         if fpath or dataframe is not None:
             print('Loading antennas...')
             self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
@@ -147,10 +145,11 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.recharges if self.file_names.recharges is not None else None
+        fpath = os.path.join(self.data, self.file_names.recharges) if self.file_names.recharges is not None else None
         if fpath or dataframe is not None:
             print('Loading recharges...')
             self.recharges = load_recharges(self.cfg, fpath, df=dataframe)
+            print("SUCCESS!")
 
     def _load_mobiledata(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -158,7 +157,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.mobiledata if self.file_names.mobiledata is not None else None
+        fpath = os.path.join(self.data, self.file_names.mobiledata) if self.file_names.mobiledata is not None else None
         if fpath or dataframe is not None:
             print('Loading mobile data...')
             self.mobiledata = load_mobiledata(self.cfg, fpath, df=dataframe)
@@ -169,7 +168,8 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.data + self.file_names.mobilemoney if self.file_names.mobilemoney is not None else None
+        fpath = os.path.join(self.data,
+                             self.file_names.mobilemoney) if self.file_names.mobilemoney is not None else None
         if fpath or dataframe is not None:
             print('Loading mobile data...')
             self.mobilemoney = load_mobilemoney(self.cfg, fpath, df=dataframe)
@@ -188,7 +188,7 @@ class DataStore(InitializerInterface):
         Load ground truth data for home locations
         """
         if self.file_names.home_ground_truth is not None:
-            self.home_ground_truth = pd.read_csv(self.data + self.file_names.home_ground_truth)
+            self.home_ground_truth = pd.read_csv(os.path.join(self.data, self.file_names.home_ground_truth))
         else:
             print('No ground truth data for home locations has been specified.')
 
@@ -197,7 +197,7 @@ class DataStore(InitializerInterface):
         Load poverty scores (e.g. those produced by the ML module)
         """
         if self.file_names.poverty_scores is not None:
-            self.poverty_scores = pd.read_csv(self.data + self.file_names.poverty_scores)
+            self.poverty_scores = pd.read_csv(os.path.join(self.data, self.file_names.poverty_scores))
         else:
             self.poverty_scores = pd.DataFrame()
 
@@ -205,7 +205,9 @@ class DataStore(InitializerInterface):
         """
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
-        self.features = self.spark.read.csv(self.cfg.path.features, header=True)
+        feat_path = self.cfg.path.features if '/' in self.cfg.path.features else \
+            os.path.join(self.data, self.cfg.path.features)
+        self.features = self.spark.read.csv(feat_path, header=True)
         if 'name' not in self.features.columns:
             raise ValueError('Features dataframe must include name column')
 
@@ -213,7 +215,7 @@ class DataStore(InitializerInterface):
         """
         Load labels to train ML model on
         """
-        self.labels = self.spark.read.csv(self.data + self.file_names.labels, header=True)
+        self.labels = self.spark.read.csv(os.path.join(self.data, self.file_names.labels), header=True)
         if 'name' not in self.labels.columns:
             raise ValueError('Labels dataframe must include name column')
         if 'label' not in self.labels.columns:
@@ -226,7 +228,7 @@ class DataStore(InitializerInterface):
         """
         Load targeting data.
         """
-        self.targeting = pd.read_csv(self.data + self.file_names.targeting)
+        self.targeting = pd.read_csv(os.path.join(self.data, self.file_names.targeting))
         self.targeting['random'] = np.random.rand(len(self.targeting))
 
         # TODO: use decorator
@@ -251,7 +253,7 @@ class DataStore(InitializerInterface):
         """
         Load fairness data.
         """
-        self.fairness = pd.read_csv(self.data + self.file_names.fairness)
+        self.fairness = pd.read_csv(os.path.join(self.data, self.file_names.fairness))
         self.fairness['random'] = np.random.rand(len(self.fairness))
 
         # TODO: use decorator
@@ -265,17 +267,17 @@ class DataStore(InitializerInterface):
             self.weighted_fairness['weight'] = 1
         else:
             self.weighted_fairness['weight'] = (self.weighted_fairness['weight'] /
-                                                 self.weighted_fairness['weight'].min())
-        self.weighted_data = pd.DataFrame(np.repeat(self.weighted_fairness.values,
-                                                    self.weighted_fairness['weight'],
-                                                    axis=0),
-                                          columns=self.weighted_fairness.columns) \
+                                                self.weighted_fairness['weight'].min())
+        self.weighted_fairness = pd.DataFrame(np.repeat(self.weighted_fairness.values,
+                                                        self.weighted_fairness['weight'],
+                                                        axis=0),
+                                              columns=self.weighted_fairness.columns) \
             .astype(self.unweighted_fairness.dtypes)
 
     def _load_wealth_map(self) -> None:
         # Load wealth/income map
         if self.file_names.rwi:
-            self.rwi = pd.read_csv(self.data + self.file_names.rwi, dtype={'quadkey': str})
+            self.rwi = pd.read_csv(os.path.join(self.data, self.file_names.rwi), dtype={'quadkey': str})
         else:
             raise ValueError("Missing path to wealth map in config file.")
 
@@ -284,7 +286,7 @@ class DataStore(InitializerInterface):
         if dataframe is not None:
             self.survey_data = dataframe
         elif self.file_names.survey is not None:
-            self.survey_data = pd.read_csv(self.data + self.file_names.survey)
+            self.survey_data = pd.read_csv(os.path.join(self.data, self.file_names.survey))
         else:
             raise ValueError("Missing path to survey data in config file.")
         # Add weights column if missing
@@ -295,7 +297,7 @@ class DataStore(InitializerInterface):
         """
         Merge features and labels, split into x and y dataframes
         """
-        if self.features is None or self.labels is None:
+        if getattr(self, 'features', None) is None or getattr(self, 'labels', None) is None:
             raise ValueError("Features and/or labels have not been loaded!")
         print('Number of observations with features: %i (%i unique)' %
               (self.features.count(), self.features.select('name').distinct().count()))
@@ -344,7 +346,7 @@ class DataStore(InitializerInterface):
             end_date: e.g. '2020-01-10'
         """
         for dataset_name in self.datasets:
-            dataset = getattr(self, '_' + dataset_name, None)
+            dataset = getattr(self, dataset_name, None)
             if dataset is not None:
                 setattr(self, dataset_name, filter_dates_dataframe(dataset, start_date, end_date))
 
@@ -353,13 +355,14 @@ class DataStore(InitializerInterface):
         Remove duplicate rows from alla available datasets
         """
         for dataset_name in self.datasets:
-            dataset = getattr(self, '_' + dataset_name, None)
+            dataset = getattr(self, dataset_name, None)
             if dataset is not None:
                 setattr(self, dataset_name, dataset.distinct())
 
+    # TODO: adapt for OptDataStore
     def remove_spammers(self, spammer_threshold: float = 100) -> List[str]:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
-        if self.cdr is None:
+        if getattr(self, 'cdr', None) is None:
             raise ValueError('CDR must be loaded to identify and remove spammers.')
 
         # Get average number of calls and SMS per day
@@ -378,11 +381,11 @@ class DataStore(InitializerInterface):
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
         self.cdr = self.cdr.where(~col('caller_id').isin(self.spammers))
         self.cdr = self.cdr.where(~col('recipient_id').isin(self.spammers))
-        if self.recharges is not None:
+        if getattr(self, 'recharges', None) is not None:
             self.recharges = self.recharges.where(~col('caller_id').isin(self.spammers))
-        if self.mobiledata is not None:
+        if getattr(self, 'mobiledata', None) is not None:
             self.mobiledata = self.mobiledata.where(~col('caller_id').isin(self.spammers))
-        if self.mobilemoney is not None:
+        if getattr(self, 'mobilemoney', None) is not None:
             self.mobilemoney = self.mobilemoney.where(~col('caller_id').isin(self.spammers))
             self.mobilemoney = self.mobilemoney.where(~col('recipient_id').isin(self.spammers))
 
@@ -390,7 +393,7 @@ class DataStore(InitializerInterface):
 
     def filter_outlier_days(self, num_sds: float = 2) -> List:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
-        if self.cdr is None:
+        if getattr(self, 'cdr', None) is None:
             raise ValueError('CDR must be loaded to identify and remove outlier days.')
 
         # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
@@ -411,8 +414,12 @@ class DataStore(InitializerInterface):
         outliers = timeseries[(timeseries['count'] < bottomrange) | (timeseries['count'] > toprange)]
         outliers.to_csv(self.outputs + 'datasets/outlier_days.csv', index=False)
         outliers = list(outliers['day'])
-        outliers = [outlier.split('T')[0] for outlier in outliers]
-        print('Outliers removed: ' + ', '.join(outliers))
+        if outliers and isinstance(outliers[0], str):
+            outliers = [outlier.split('T')[0] for outlier in outliers]
+            print('Outliers removed: ' + ', '.join(outliers))
+        else:
+            outliers = [outlier.strftime("%Y-%m-%d") for outlier in outliers]
+            print('Outliers removed: ' + ', '.join(outliers))
 
         # Remove outlier days from all datasets
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
@@ -425,7 +432,7 @@ class DataStore(InitializerInterface):
 
         return outliers
 
-    def remove_survey_outliers(self, cols: List[str], num_sds: float = 2., dry_run: bool = False) -> None:
+    def remove_survey_outliers(self, cols: List[str], num_sds: float = 2., dry_run: bool = False) -> Set[str]:
         """
         Removes observations with outliers in the columns listed in 'cols' from the survey data.
 
@@ -435,8 +442,14 @@ class DataStore(InitializerInterface):
             dry_run: If True, only prints the number of outliers without removing them.
         """
         # Raise exception if survey data has not been loaded
-        if self.survey_data is None:
+        if getattr(self, 'survey_data', None) is None:
             raise ValueError('Survey data must be loaded to identify and remove outliers.')
+
+        # Raise an exception if the columns are not continuous or not in the survey data
+        if not all(col in self.cfg.col_types.survey.continuous for col in cols):
+            raise TypeError('The columns used to identify for outliers should be continuous.')
+        elif not all(col in self.survey_data.columns for col in cols):
+            raise ValueError('The columns provided are not in the survey data.')
 
         data = self.survey_data.set_index('unique_id')[cols]
 
@@ -444,16 +457,17 @@ class DataStore(InitializerInterface):
         bottomrange = data.mean() - num_sds * data.std()
         toprange = data.mean() + num_sds * data.std()
 
-        outliers = []
+        outliers: Set[str] = set()
         for i, (col, bottom) in enumerate(bottomrange.iteritems()):
-            outliers = outliers + list(data[(data[col] < bottom) | (data[col] > toprange[0])].index.values)
-        outliers = set(outliers)
+            outliers.update(list(data[(data[col] < bottom) | (data[col] > toprange[i])].index.values))
 
         if dry_run:
             print(f"There are {len(outliers)} outliers that could be removed.")
         else:
             self.survey_data = self.survey_data[~self.survey_data['unique_id'].isin(outliers)]
             print(f"Removed {len(outliers)} outliers!")
+
+        return outliers
 
 
 class OptDataStore(DataStore):
@@ -483,7 +497,7 @@ class OptDataStore(DataStore):
                 setattr(self, dataset_name, dataset.join(val.where(col('include') == True).select(user_col_name),
                                                          on=user_col_name, how='inner'))
 
-    def initialize_user_consent_table(self) -> None:
+    def initialize_user_consent_table(self, read_from_file: bool = False) -> None:
         """
         Create table of all user ids present in the datasets, and whether they should be included in the analysis or not
         This is defined by the opt_in_default parameter specified in the config file
@@ -507,7 +521,7 @@ class OptDataStore(DataStore):
                                                        opt_in=self.cfg.params.opt_in_default)
 
         # Check if a user consent file has been provided, and if so set consent flags appropriately
-        if self.file_names.user_consent is not None:
+        if read_from_file and self.file_names.user_consent is not None:
             user_consent_df = pd.read_csv(self.data + self.file_names.user_consent)
             if 'user_id' not in user_consent_df.columns:
                 raise ValueError("The user consent table should have a 'user_id' column")

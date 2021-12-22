@@ -26,8 +26,8 @@ def generate_user_consent_list(data: List[SparkDataFrame], user_id_col: str, opt
 
     # Add default consent value
     if opt_in:
-        users = users.withColumn('include', lit(False))
-    else:
         users = users.withColumn('include', lit(True))
+    else:
+        users = users.withColumn('include', lit(False))
 
     return users

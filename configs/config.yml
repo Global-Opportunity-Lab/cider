@@ -29,6 +29,7 @@ path:
       prefectures: 'prefectures.geojson'
     survey: 'survey.csv'
     targeting: 'targeting.csv'
+    user_consent: null
   outputs: "./outputs/"
   wd: "./"
 
