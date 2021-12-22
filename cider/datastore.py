@@ -41,11 +41,14 @@ class InitializerInterface(ABC):
 
 
 class DataStore(InitializerInterface):
-    def __init__(self, cfg_dir: str):
+    def __init__(self, cfg_dir: str, spark: bool = True):
         # Read config file and store paths
         with open(cfg_dir, "r") as ymlfile:
             cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
         self.cfg = cfg
+        # TODO: Paths should be relative to project root, not to where the command was run (which is the result of "./" notation). See code below
+        # TODO: Datastore member variables should still have path in their names. At first I thought "outputs" was an object that held an output dataframe
+        # TODO: If the user does not specify a project root then we should use the helper funciton (see below)
         if "root" in cfg.path:
             self.root = cfg.path.root
         else:
@@ -65,7 +68,9 @@ class DataStore(InitializerInterface):
 
         # Spark setup
         # TODO(lucio): Initialize spark separately ....
-        spark = get_spark_session(cfg)
+        spark = None
+        if spark:
+            spark = get_spark_session(cfg)
         self.spark = spark
 
         # Possible datasets to opt in/out of
