@@ -119,6 +119,7 @@ class DataStore(InitializerInterface):
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load cdr data: use file path specified in config as default, or spark/pandas df
+
         Args:
             dataframe: spark/pandas df to assign if available
         """
@@ -131,6 +132,7 @@ class DataStore(InitializerInterface):
     def _load_antennas(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load antennas data: use file path specified in config as default, or spark/pandas df
+
         Args:
             dataframe: spark/pandas df to assign if available
         """
@@ -142,6 +144,7 @@ class DataStore(InitializerInterface):
     def _load_recharges(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load recharges data: use file path specified in config as default, or spark/pandas df
+
         Args:
             dataframe: spark/pandas df to assign if available
         """
@@ -154,6 +157,7 @@ class DataStore(InitializerInterface):
     def _load_mobiledata(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load mobile data: use file path specified in config as default, or spark/pandas df
+
         Args:
             dataframe: spark/pandas df to assign if available
         """
@@ -165,6 +169,7 @@ class DataStore(InitializerInterface):
     def _load_mobilemoney(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load mobile money data: use file path specified in config as default, or spark/pandas df
+
         Args:
             dataframe: spark/pandas df to assign if available
         """
@@ -318,6 +323,7 @@ class DataStore(InitializerInterface):
     def load_data(self, data_type_map: Mapping[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
         """
         Load all datasets defined by data_type_map; raise an error if any of them failed to load
+
         Args:
             data_type_map: mapping between DataType(s) and dataframes, if provided. If None look at config file
         """
@@ -341,6 +347,7 @@ class DataStore(InitializerInterface):
     def filter_dates(self, start_date: str, end_date: str) -> None:
         """
         Filter data outside [start_date, end_date] (inclusive) in all available datasets
+
         Args:
             start_date: e.g. '2020-01-01'
             end_date: e.g. '2020-01-10'
@@ -484,6 +491,7 @@ class OptDataStore(DataStore):
         """
         Whenever the user consent table is updated, also update all datasets in the datastore to include only users that
         have given their consent
+
         Args:
             val: new user consent table as spark df
         """
@@ -546,6 +554,7 @@ class OptDataStore(DataStore):
     def opt_in(self, user_ids: List[str]) -> None:
         """
         Update the user consent table based on list of user ids that have opted in
+
         Args:
             user_ids: list of user ids to flag as opted in, i.e. include = True
         """
@@ -557,6 +566,7 @@ class OptDataStore(DataStore):
     def opt_out(self, user_ids: List[str]) -> None:
         """
         Update the user consent table based on list of user ids that have opted out
+
         Args:
             user_ids: list of user ids to flag as opted out, i.e. include = False
         """
