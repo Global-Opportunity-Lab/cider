@@ -1,9 +1,8 @@
 # cider
 ## poverty prediction and location inference with mobile phone metadata
 
-Documentation: https://luciomelito.github.io/cider-book/intro.html
-
-Note: On Windows, you may need to install the [numpy+mkl wheel](https://www.lfd.uci.edu/~gohlke/pythonlibs/#numpy). Download the file, then run `pip install filename.whl` in the directory.
+### Documentation
+For documentation, see: https://luciomelito.github.io/cider-book/intro.html.
 
 ### Deployment
 To install, and manage dependencies and virtual environments this project uses Poetry. Follow the [instructions](https://python-poetry.org/docs/) to
@@ -14,6 +13,8 @@ From the root directory `poetry update` followed by `poetry install`, this will 
 Once your venv is made you can use `poetry run [command]` to run a single CLI command inside the venv.
 
 You can use `poetry shell` to enter into the venv.
+
+Note: On Windows, you may need to install the [numpy+mkl wheel](https://www.lfd.uci.edu/~gohlke/pythonlibs/#numpy). Download the file, then run `pip install filename.whl` in the directory.
 
 ### Helper Functions
 To support some helper functions that are portable across operating systems we use make. There are many implementations of this functionality for all
