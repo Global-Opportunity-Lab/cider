@@ -1,5 +1,5 @@
 # cider
-## poverty prediction and location inference with mobile phone metadata
+## poverty prediction and targeting with mobile phone metadata
 
 ### Documentation
 For documentation, see: https://luciomelito.github.io/cider-book/intro.html.
