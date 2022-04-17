@@ -2,7 +2,7 @@
 ## poverty prediction and targeting with mobile phone metadata
 
 ### Documentation
-Read about deploying cider on the [cider documentation site](https://global-policy-lab.github.io/cider-documentation/intro.html). 
+Visit [cider's documentation](https://global-policy-lab.github.io/cider-documentation/intro.html). 
 
 ### Deployment
 To install, and manage dependencies and virtual environments this project uses Poetry. Follow the [instructions](https://python-poetry.org/docs/) to
