@@ -1,20 +1,25 @@
+import inspect
+import os
 from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Callable, Dict, List, Mapping, Optional, Set, Union
+
+import numpy as np
+import pandas as pd
+import pyspark.sql.functions as F
+import yaml
 from box import Box
 from geopandas import GeoDataFrame  # type: ignore[import]
-from enum import Enum
-import inspect
-from helpers.io_utils import load_antennas, load_shapefile, load_cdr, load_mobilemoney, load_mobiledata, load_recharges
-from helpers.opt_utils import generate_user_consent_list
-from helpers.utils import get_project_root, get_spark_session, filter_dates_dataframe, make_dir, save_df
-import numpy as np
-import os
-import pandas as pd
-from pandas import DataFrame as PandasDataFrame, Series
+from pandas import DataFrame as PandasDataFrame
+from pandas import Series
 from pyspark.sql import DataFrame as SparkDataFrame
-import pyspark.sql.functions as F
 from pyspark.sql.functions import col, count, countDistinct, lit
-from typing import Callable, Dict, List, Mapping, Optional, Set, Union
-import yaml
+
+from helpers.io_utils import (load_antennas, load_cdr, load_mobiledata,
+                              load_mobilemoney, load_recharges, load_shapefile)
+from helpers.opt_utils import generate_user_consent_list
+from helpers.utils import (filter_dates_dataframe, get_project_root,
+                           get_spark_session, make_dir, save_df)
 
 
 class DataType(Enum):

@@ -2,16 +2,18 @@
 Evaluates fairness of a machine learning module across a characteristic 
 (whether or not the machine learning module discriminates across different groups in that characteristic).
 """
-from numpy import character
-from box import Box
 import yaml
-from helpers.utils import *
-from helpers.plot_utils import *
+from box import Box
+from numpy import character
+from scipy.stats import chi2_contingency, f_oneway
+from sklearn.metrics import precision_score, recall_score
+
 from helpers.io_utils import *
 from helpers.ml_utils import *
-from scipy.stats import f_oneway, chi2_contingency
-from datastore import *
-from sklearn.metrics import recall_score, precision_score
+from helpers.plot_utils import *
+from helpers.utils import *
+
+from .datastore import *
 
 
 class Fairness:

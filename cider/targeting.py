@@ -1,16 +1,19 @@
 # TODO: parallelize lasso and forward selection
-from datastore import DataStore, DataType
-from helpers.plot_utils import clean_plot, mtick
-from helpers.ml_utils import confusion_matrix, strictly_increasing
-from helpers.utils import make_dir
+from typing import Dict, List, Optional, Tuple, Union
+
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
+import seaborn as sns  # type: ignore[import]
+from datastore import DataStore, DataType
 from pandas import DataFrame as PandasDataFrame
 from scipy.stats import spearmanr  # type: ignore[import]
-import seaborn as sns  # type: ignore[import]
-from sklearn.metrics import roc_auc_score, roc_curve, auc  # type: ignore[import]
-from typing import Dict, List, Optional, Tuple, Union
+from sklearn.metrics import (auc, roc_auc_score,  # type: ignore[import]
+                             roc_curve)
+
+from helpers.ml_utils import confusion_matrix, strictly_increasing
+from helpers.plot_utils import clean_plot, mtick
+from helpers.utils import make_dir
 
 
 class Targeting:
