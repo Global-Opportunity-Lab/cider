@@ -68,7 +68,7 @@ class DataStore(InitializerInterface):
 
         # Spark setup
         # TODO(lucio): Initialize spark separately ....
-        spark = None
+        spark = True
         if spark:
             spark = get_spark_session(cfg)
         self.spark = spark
