@@ -1,24 +1,30 @@
 # TODO: parallelize lasso and forward selection
-from datastore import DataStore, DataType
-from helpers.utils import check_columns_exist, check_column_types, make_dir, weighted_corr
-from helpers.plot_utils import clean_plot
-from helpers.ml_utils import Winsorizer
-from joblib import dump, load  # type: ignore[import]
-from lightgbm import LGBMRegressor  # type: ignore[import]
+from typing import List, Optional, Tuple, Union
+
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
+from datastore import DataStore, DataType
+from joblib import dump, load  # type: ignore[import]
+from lightgbm import LGBMRegressor  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
 from sklearn.compose import ColumnTransformer  # type: ignore[import]
 from sklearn.decomposition import PCA  # type: ignore[import]
 from sklearn.ensemble import RandomForestRegressor  # type: ignore[import]
-from sklearn.linear_model import Lasso, LinearRegression, Ridge  # type: ignore[import]
+from sklearn.linear_model import Lasso  # type: ignore[import]
+from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.metrics import r2_score  # type: ignore[import]
-from sklearn.model_selection import cross_validate, cross_val_predict, GridSearchCV  # type: ignore[import]
+from sklearn.model_selection import GridSearchCV  # type: ignore[import]
+from sklearn.model_selection import cross_val_predict, cross_validate
 from sklearn.pipeline import Pipeline  # type: ignore[import]
-from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler  # type: ignore[import]
-from typing import List, Optional, Tuple, Union
+from sklearn.preprocessing import MinMaxScaler  # type: ignore[import]
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from wpca import WPCA  # type: ignore[import]
+
+from helpers.ml_utils import Winsorizer
+from helpers.plot_utils import clean_plot
+from helpers.utils import (check_column_types, check_columns_exist, make_dir,
+                           weighted_corr)
 
 
 class SurveyOutcomeGenerator:
