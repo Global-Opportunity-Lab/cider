@@ -7,19 +7,16 @@ from typing import Callable, Dict, List, Mapping, Optional, Set, Union
 import numpy as np
 import pandas as pd
 import pyspark.sql.functions as F
-import yaml
-from box import Box
 from geopandas import GeoDataFrame  # type: ignore[import]
+from helpers.io_utils import (load_antennas, load_cdr, load_mobiledata,
+                              load_mobilemoney, load_recharges, load_shapefile)
+from helpers.opt_utils import generate_user_consent_list
+from helpers.utils import (build_config_from_file, filter_dates_dataframe,
+                           get_spark_session, make_dir, read_csv, save_df)
 from pandas import DataFrame as PandasDataFrame
 from pandas import Series
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import col, count, countDistinct, lit
-
-from helpers.io_utils import (load_antennas, load_cdr, load_mobiledata,
-                              load_mobilemoney, load_recharges, load_shapefile)
-from helpers.opt_utils import generate_user_consent_list
-from helpers.utils import (filter_dates_dataframe, get_project_root,
-                           get_spark_session, make_dir, save_df)
 
 
 class DataType(Enum):
@@ -46,30 +43,19 @@ class InitializerInterface(ABC):
 
 
 class DataStore(InitializerInterface):
-    def __init__(self, cfg_dir: str, spark: bool = True):
+    def __init__(self, config_file_path_string: str, spark: bool = True):
         # Read config file and store paths
-        with open(cfg_dir, "r") as ymlfile:
-            cfg = Box(yaml.load(ymlfile, Loader=yaml.FullLoader))
+        cfg = build_config_from_file(config_file_path_string)
         self.cfg = cfg
-        # TODO: Paths should be relative to project root, not to where the command was run (which is the result of "./" notation). See code below
-        # TODO: Datastore member variables should still have path in their names. At first I thought "outputs" was an object that held an output dataframe
-        # TODO: If the user does not specify a project root then we should use the helper funciton (see below)
-        if "root" in cfg.path:
-            self.root = cfg.path.root
-        else:
-            self.root = get_project_root()
-        self.data = os.path.join(self.root, self.cfg.path.data)
-        outputs = cfg.path.outputs
-        self.outputs = outputs
-        file_names = cfg.path.file_names
-        self.file_names = file_names
+        self.working_directory_path = cfg.path.working.directory_path
+        self.input_data_file_paths = cfg.path.input_data.file_paths
 
         # Create directories
-        make_dir(self.outputs + '/datasets/')
+        make_dir(self.working_directory_path / 'datasets')
 
         # Parameters
-        self.filter_hours = self.cfg.params.home_location.filter_hours
-        self.geo = self.cfg.col_names.geo
+        self.filter_hours = cfg.params.home_location.filter_hours
+        self.geo = cfg.col_names.geo
 
         # Spark setup
         # TODO(lucio): Initialize spark separately ....
@@ -128,7 +114,8 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = os.path.join(self.data, self.file_names.cdr) if self.file_names.cdr is not None else None
+
+        fpath = self.input_data_file_paths.cdr
         if fpath or dataframe is not None:
             print('Loading CDR...')
             cdr = load_cdr(self.cfg, fpath, df=dataframe)
@@ -141,7 +128,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = os.path.join(self.data, self.file_names.antennas) if self.file_names.antennas is not None else None
+        fpath = self.input_data_file_paths.antennas
         if fpath or dataframe is not None:
             print('Loading antennas...')
             self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
@@ -153,7 +140,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = os.path.join(self.data, self.file_names.recharges) if self.file_names.recharges is not None else None
+        fpath = self.input_data_file_paths.recharges
         if fpath or dataframe is not None:
             print('Loading recharges...')
             self.recharges = load_recharges(self.cfg, fpath, df=dataframe)
@@ -166,7 +153,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = os.path.join(self.data, self.file_names.mobiledata) if self.file_names.mobiledata is not None else None
+        fpath = self.input_data_file_paths.mobiledata
         if fpath or dataframe is not None:
             print('Loading mobile data...')
             self.mobiledata = load_mobiledata(self.cfg, fpath, df=dataframe)
@@ -178,8 +165,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = os.path.join(self.data,
-                             self.file_names.mobilemoney) if self.file_names.mobilemoney is not None else None
+        fpath = self.input_data_file_paths.mobilemoney
         if fpath or dataframe is not None:
             print('Loading mobile data...')
             self.mobilemoney = load_mobilemoney(self.cfg, fpath, df=dataframe)
@@ -189,16 +175,16 @@ class DataStore(InitializerInterface):
         Iterate through shapefiles specified in config and load them in self.shapefiles dictionary
         """
         # Load shapefiles
-        shapefiles = self.file_names.shapefiles
-        for shapefile_fname in shapefiles.keys():
-            self.shapefiles[shapefile_fname] = load_shapefile(self.data + shapefiles[shapefile_fname])
+        shapefiles = self.input_data_file_paths.shapefiles
+        for shapefile_name, shapefile_fpath in shapefiles.items():
+            self.shapefiles[shapefile_name] = load_shapefile(shapefile_fpath)
 
     def _load_home_ground_truth(self) -> None:
         """
         Load ground truth data for home locations
         """
-        if self.file_names.home_ground_truth is not None:
-            self.home_ground_truth = pd.read_csv(os.path.join(self.data, self.file_names.home_ground_truth))
+        if self.input_data_file_paths.home_ground_truth is not None:
+            self.home_ground_truth = pd.read_csv(self.input_data_file_paths.home_ground_truth)
         else:
             print('No ground truth data for home locations has been specified.')
 
@@ -206,8 +192,8 @@ class DataStore(InitializerInterface):
         """
         Load poverty scores (e.g. those produced by the ML module)
         """
-        if self.file_names.poverty_scores is not None:
-            self.poverty_scores = pd.read_csv(os.path.join(self.data, self.file_names.poverty_scores))
+        if self.input_data_file_paths.poverty_scores is not None:
+            self.poverty_scores = pd.read_csv(self.input_data_file_paths.poverty_scores)
         else:
             self.poverty_scores = pd.DataFrame()
 
@@ -215,9 +201,7 @@ class DataStore(InitializerInterface):
         """
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
-        feat_path = self.cfg.path.features if '/' in self.cfg.path.features else \
-            os.path.join(self.data, self.cfg.path.features)
-        self.features = self.spark.read.csv(feat_path, header=True)
+        self.features = read_csv(self.spark, self.cfg.path.working.directory_path / 'features.csv', header=True)
         if 'name' not in self.features.columns:
             raise ValueError('Features dataframe must include name column')
 
@@ -225,7 +209,7 @@ class DataStore(InitializerInterface):
         """
         Load labels to train ML model on
         """
-        self.labels = self.spark.read.csv(os.path.join(self.data, self.file_names.labels), header=True)
+        self.labels = read_csv(self.spark, self.input_data_file_paths.labels, header=True)
         if 'name' not in self.labels.columns:
             raise ValueError('Labels dataframe must include name column')
         if 'label' not in self.labels.columns:
@@ -238,7 +222,7 @@ class DataStore(InitializerInterface):
         """
         Load targeting data.
         """
-        self.targeting = pd.read_csv(os.path.join(self.data, self.file_names.targeting))
+        self.targeting = pd.read_csv(self.input_data_file_paths.targeting)
         self.targeting['random'] = np.random.rand(len(self.targeting))
 
         # TODO: use decorator
@@ -263,7 +247,7 @@ class DataStore(InitializerInterface):
         """
         Load fairness data.
         """
-        self.fairness = pd.read_csv(os.path.join(self.data, self.file_names.fairness))
+        self.fairness = pd.read_csv(self.input_data_file_paths.fairness)
         self.fairness['random'] = np.random.rand(len(self.fairness))
 
         # TODO: use decorator
@@ -286,8 +270,8 @@ class DataStore(InitializerInterface):
 
     def _load_wealth_map(self) -> None:
         # Load wealth/income map
-        if self.file_names.rwi:
-            self.rwi = pd.read_csv(os.path.join(self.data, self.file_names.rwi), dtype={'quadkey': str})
+        if self.input_data_file_paths.rwi:
+            self.rwi = pd.read_csv(self.input_data_file_paths.rwi)
         else:
             raise ValueError("Missing path to wealth map in config file.")
 
@@ -295,8 +279,8 @@ class DataStore(InitializerInterface):
         # Load survey data from disk if dataframe not available
         if dataframe is not None:
             self.survey_data = dataframe
-        elif self.file_names.survey is not None:
-            self.survey_data = pd.read_csv(os.path.join(self.data, self.file_names.survey))
+        elif self.input_data_file_paths.survey is not None:
+            self.survey_data = pd.read_csv(self.input_data_file_paths.survey)
         else:
             raise ValueError("Missing path to survey data in config file.")
         # Add weights column if missing
@@ -318,8 +302,8 @@ class DataStore(InitializerInterface):
         print('Number of matched observations: %i (%i unique)' %
               (merged.count(), merged.select('name').distinct().count()))
 
-        save_df(merged, self.outputs + '/merged.csv')
-        self.merged = pd.read_csv(self.outputs + '/merged.csv')
+        save_df(merged, self.working_directory_path / 'merged.csv')
+        self.merged = pd.read_csv(self.working_directory_path / 'merged.csv')
         self.x = self.merged.drop(['name', 'label', 'weight'], axis=1)
         self.y = self.merged['label']
         # Make the smallest weight 1
@@ -387,7 +371,7 @@ class DataStore(InitializerInterface):
         # Get list of spammers
         self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(
             lambda r: r[0]).collect()
-        pd.DataFrame(self.spammers).to_csv(self.outputs + 'datasets/spammers.csv', index=False)
+        pd.DataFrame(self.spammers).to_csv(self.working_directory_path / 'datasets' / 'spammers.csv', index=False)
         print('Number of spammers identified: %i' % len(self.spammers))
 
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
@@ -409,11 +393,11 @@ class DataStore(InitializerInterface):
             raise ValueError('CDR must be loaded to identify and remove outlier days.')
 
         # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
-        if not os.path.isfile(self.outputs + 'datasets/CDR_transactionsbyday.csv'):
-            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.outputs + 'datasets/CDR_transactionsbyday.csv')
+        if not os.path.isfile(self.working_directory_path / 'datasets' / 'CDR_transactionsbyday.csv'):
+            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.working_directory_path / 'datasets' / 'CDR_transactionsbyday.csv')
 
         # Read in timeseries of subscribers by day
-        timeseries = pd.read_csv(self.outputs + 'datasets/CDR_transactionsbyday.csv')
+        timeseries = pd.read_csv(self.working_directory_path / 'datasets' / 'CDR_transactionsbyday.csv')
 
         # Calculate timeseries of all transaction (voice + SMS together)
         timeseries = timeseries.groupby('day', as_index=False).agg('sum')
@@ -424,7 +408,7 @@ class DataStore(InitializerInterface):
 
         # Obtain list of outlier days
         outliers = timeseries[(timeseries['count'] < bottomrange) | (timeseries['count'] > toprange)]
-        outliers.to_csv(self.outputs + 'datasets/outlier_days.csv', index=False)
+        outliers.to_csv(self.working_directory_path / 'datasets' / 'outlier_days.csv', index=False)
         outliers = list(outliers['day'])
         if outliers and isinstance(outliers[0], str):
             outliers = [outlier.split('T')[0] for outlier in outliers]
@@ -483,8 +467,8 @@ class DataStore(InitializerInterface):
 
 
 class OptDataStore(DataStore):
-    def __init__(self, cfg_dir: str):
-        super(OptDataStore, self).__init__(cfg_dir)
+    def __init__(self, config_file_path_string: str):
+        super(OptDataStore, self).__init__(config_file_path_string)
         self._user_consent: SparkDataFrame
 
     @property
@@ -534,8 +518,8 @@ class OptDataStore(DataStore):
                                                        opt_in=self.cfg.params.opt_in_default)
 
         # Check if a user consent file has been provided, and if so set consent flags appropriately
-        if read_from_file and self.file_names.user_consent is not None:
-            user_consent_df = pd.read_csv(self.data + self.file_names.user_consent)
+        if read_from_file and self.input_data_file_paths.user_consent is not None:
+            user_consent_df = pd.read_csv(self.input_data_file_paths.user_consent)
             if 'user_id' not in user_consent_df.columns:
                 raise ValueError("The user consent table should have a 'user_id' column")
             # If there's just a user id column, set those user ids' consent to the opposite of opt_in_default

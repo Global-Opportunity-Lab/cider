@@ -9,24 +9,23 @@ spark:
 
 
 path:
-  input_data:
-    directory_path: "../synthetic_data/"
-    file_names:
-      antennas: '/antennas.csv'
-      cdr: '/cdr.csv'
-      fairness: '/fairness.csv'
-      home_ground_truth: '/home_locations.csv'
-      labels: '/labels.csv'
-      mobiledata: '/mobiledata.csv'
-      mobilemoney: '/mobilemoney.csv'
-      poverty_scores: null
-      recharges: '/recharges.csv'
-      shapefiles:
-        regions: '/regions.geojson'
-        prefectures: '/prefectures.geojson'
-      user_consent: null
-  working:
-    directory_path: "../outputs/"
+  data: "../synthetic_data"
+  file_names:
+    antennas: '/antennas.csv'
+    cdr: '/cdr.csv'
+    fairness: '/fairness.csv'
+    home_ground_truth: '/home_locations.csv'
+    labels: '/labels.csv'
+    mobiledata: '/mobiledata.csv'
+    mobilemoney: '/mobilemoney.csv'
+    poverty_scores: null
+    recharges: '/recharges.csv'
+    shapefiles:
+      regions: '/regions.geojson'
+      prefectures: '/prefectures.geojson'
+    user_consent: null
+  outputs: "../outputs/"
+  wd: "../"
 
 
 col_names:

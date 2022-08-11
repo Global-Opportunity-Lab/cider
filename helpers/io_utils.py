@@ -1,20 +1,23 @@
-from box import Box
+from pathlib import Path
+from typing import Dict, List, Optional, Union
+
 import geopandas as gpd  # type: ignore[import]
+from box import Box
 from geopandas import GeoDataFrame
-from helpers.utils import get_spark_session
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import col, date_trunc, to_timestamp
-from typing import Dict, List, Optional, Union
+
+from helpers.utils import get_spark_session
 
 
 def load_generic(cfg: Box,
-                 fname: Optional[str] = None,
+                 fpath: Optional[Path] = None,
                  df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> SparkDataFrame:
     """
     Args:
         cfg: box object containing config data
-        fname: path to file or folder with files
+        file_path: path to file or folder with files
         df: pandas or spark df, if already loaded
 
     Returns: loaded spark df
@@ -22,14 +25,14 @@ def load_generic(cfg: Box,
     spark = get_spark_session(cfg)
 
     # Load from file
-    if fname is not None:
+    if fpath is not None:
         # Load data if in a single file
-        if '.csv' in fname:
-            df = spark.read.csv(fname, header=True)
+        if fpath.is_file():
+            df = spark.read.csv(str(fpath), header=True)
 
         # Load data if in chunks
         else:
-            df = spark.read.csv(fname + '/*.csv', header=True)
+            df = spark.read.csv(str(fpath + '/*.csv'), header=True)
 
     # Load from pandas dataframe
     elif df is not None:
@@ -92,7 +95,7 @@ def standardize_col_names(df: SparkDataFrame, col_names: Dict[str, str]) -> Spar
 
 
 def load_cdr(cfg: Box,
-             fname: Optional[str] = None,
+             fpath: Optional[Path] = None,
              df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
              verify: bool = True) -> SparkDataFrame:
     """
@@ -100,7 +103,7 @@ def load_cdr(cfg: Box,
 
     Args:
         cfg: box object containing config data
-        fname: path to file or folder with files
+        fpath: path to file or folder with files
         df: pandas or spark df, if already loaded
         verify: whether to check if right columns and values are present
 
@@ -115,8 +118,8 @@ def load_cdr(cfg: Box,
             cdr = df
         else:
             raise TypeError("The dataframe provided should be a spark or pandas df.")
-    elif fname is not None:
-        cdr = load_generic(cfg, fname=fname, df=df)
+    elif fpath is not None:
+        cdr = load_generic(cfg, fpath=fpath, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
     cdr = standardize_col_names(cdr, cfg.col_names.cdr)
@@ -146,7 +149,7 @@ def load_cdr(cfg: Box,
 
 
 def load_antennas(cfg: Box,
-                  fname: Optional[str] = None,
+                  fpath: Optional[Path] = None,
                   df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
                   verify: bool = True) -> SparkDataFrame:
     """
@@ -154,7 +157,7 @@ def load_antennas(cfg: Box,
 
     Args:
         cfg: box object containing config data
-        fname: path to file
+        fpath: path to file
         df: pandas or spark df, if already loaded
         verify: whether to check if right columns and values are present
 
@@ -169,8 +172,8 @@ def load_antennas(cfg: Box,
             antennas = df
         else:
             raise TypeError("The dataframe provided should be a spark or pandas df.")
-    elif fname is not None:
-        antennas = load_generic(cfg, fname=fname, df=df)
+    elif fpath is not None:
+        antennas = load_generic(cfg, fpath=fpath, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
     antennas = standardize_col_names(antennas, cfg.col_names.antennas)
@@ -191,14 +194,14 @@ def load_antennas(cfg: Box,
 
 
 def load_recharges(cfg: Box,
-                   fname: Optional[str] = None,
+                   fpath: Optional[Path] = None,
                    df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> SparkDataFrame:
     """
     Load recharges' dataset
 
     Args:
         cfg: box object containing config data
-        fname: path to file or folder with files
+        fpath: path to file or folder with files
         df: pandas or spark df, if already loaded
 
     Returns: spark df
@@ -212,8 +215,8 @@ def load_recharges(cfg: Box,
             recharges = df
         else:
             raise TypeError("The dataframe provided should be a spark or pandas df.")
-    elif fname is not None:
-        recharges = load_generic(cfg, fname=fname, df=df)
+    elif fpath is not None:
+        recharges = load_generic(cfg, fpath=fpath, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
     recharges = standardize_col_names(recharges, cfg.col_names.recharges)
@@ -229,14 +232,14 @@ def load_recharges(cfg: Box,
 
 
 def load_mobiledata(cfg: Box,
-                    fname: Optional[str] = None,
+                    fpath: Optional[Path] = None,
                     df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> SparkDataFrame:
     """
     Load mobile data dataset
 
     Args:
         cfg: box object containing config data
-        fname: path to file or folder with files
+        fpath: path to file or folder with files
         df: pandas or spark df, if already loaded
 
     Returns: spark df
@@ -250,8 +253,8 @@ def load_mobiledata(cfg: Box,
             mobiledata = df
         else:
             raise TypeError("The dataframe provided should be a spark or pandas df.")
-    elif fname is not None:
-        mobiledata = load_generic(cfg, fname=fname, df=df)
+    elif fpath is not None:
+        mobiledata = load_generic(cfg, fpath=fpath, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
 
@@ -268,7 +271,7 @@ def load_mobiledata(cfg: Box,
 
 
 def load_mobilemoney(cfg: Box,
-                     fname: Optional[str] = None,
+                     fpath: Optional[Path] = None,
                      df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
                      verify: bool = True) -> SparkDataFrame:
     """
@@ -276,7 +279,7 @@ def load_mobilemoney(cfg: Box,
 
     Args:
         cfg: box object containing config data
-        fname: path to file or folder with files
+        fpath: path to file or folder with files
         df: pandas or spark df, if already loaded
         verify: whether to check if right columns and values are present
 
@@ -291,8 +294,8 @@ def load_mobilemoney(cfg: Box,
             mobilemoney = df
         else:
             raise TypeError("The dataframe provided should be a spark or pandas df.")
-    elif fname is not None:
-        mobilemoney = load_generic(cfg, fname=fname, df=df)
+    elif fpath is not None:
+        mobilemoney = load_generic(cfg, fpath=fpath, df=df)
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
     mobilemoney = standardize_col_names(mobilemoney, cfg.col_names.mobilemoney)
@@ -324,17 +327,17 @@ def load_mobilemoney(cfg: Box,
     return mobilemoney
 
 
-def load_shapefile(fname: str) -> GeoDataFrame:
+def load_shapefile(fpath: Path) -> GeoDataFrame:
     """
     Load shapefile and make sure it has the right columns
 
     Args:
-        fname: path to file, which can be .shp or .geojson
+        fpath: path to file, which can be .shp or .geojson
 
     Returns: GeoDataFrame
 
     """
-    shapefile = gpd.read_file(fname)
+    shapefile = gpd.read_file(fpath)
 
     # Verify that columns are correct
     required_cols = ['region', 'geometry']
@@ -347,3 +350,4 @@ def load_shapefile(fname: str) -> GeoDataFrame:
     shapefile['region'] = shapefile['region'].astype(str)
 
     return shapefile
+
