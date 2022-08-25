@@ -12,7 +12,7 @@ path:
   input_data:
     directory_path: "synthetic_data"
     features: 'features.csv'
-    file_names:
+    file_paths:
       antennas: 'antennas.csv'
       cdr: 'cdr.csv'
       fairness: 'fairness.csv'

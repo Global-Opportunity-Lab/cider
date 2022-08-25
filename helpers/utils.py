@@ -286,10 +286,7 @@ def build_config_from_file(config_file_path_string: str) -> Box:
             new_dict = {}
             for key, value in dict_or_path_string.items():
                 
-                # Update any file_names heading to relfect that values are now full paths
-                new_key = 'file_paths' if key == 'file_names' else key
-                
-                new_dict[new_key] = recursively_convert_to_path_and_resolve(value, path_root)
+                new_dict[key] = recursively_convert_to_path_and_resolve(value, path_root)
 
             return new_dict
                 

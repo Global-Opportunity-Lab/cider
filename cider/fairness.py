@@ -4,14 +4,13 @@ Evaluates fairness of a machine learning module across a characteristic
 """
 import yaml
 from box import Box
-from numpy import character
-from scipy.stats import chi2_contingency, f_oneway
-from sklearn.metrics import precision_score, recall_score
-
 from helpers.io_utils import *
 from helpers.ml_utils import *
 from helpers.plot_utils import *
 from helpers.utils import *
+from numpy import character
+from scipy.stats import chi2_contingency, f_oneway
+from sklearn.metrics import precision_score, recall_score
 
 from .datastore import *
 
@@ -22,7 +21,7 @@ class Fairness:
         self.cfg = datastore.cfg
         self.ds = datastore
 
-        data_path = self.cfg.path.data + self.cfg.path.file_names.fairness
+        data_path = self.cfg.path.input_data.file_paths.fairness
         self.data = pd.read_csv(data_path)
         self.data['random'] = np.random.rand(len(self.data))
 

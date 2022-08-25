@@ -12,7 +12,7 @@ path:
   input_data:
     # TODO: replace w absolute paths, here and under working
     directory_path: "synthetic_data/"
-    file_names:
+    file_paths:
       antennas: 'antennas.csv'
       cdr: 'cdr.csv'
       fairness: 'fairness.csv'

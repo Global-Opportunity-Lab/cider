@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
 import rasterio  # type: ignore[import]
+from helpers.plot_utils import voronoi_tessellation
+from helpers.utils import get_spark_session, make_dir
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (col, count, countDistinct, desc_nulls_last,
@@ -14,9 +16,6 @@ from pyspark.sql.functions import (col, count, countDistinct, desc_nulls_last,
 from pyspark.sql.window import Window
 from rasterio.mask import mask  # type: ignore[import]
 from shapely.geometry import mapping  # type: ignore[import]
-
-from helpers.plot_utils import voronoi_tessellation
-from helpers.utils import get_spark_session, make_dir
 
 from .datastore import DataStore, DataType
 
@@ -347,7 +346,7 @@ class HomeLocator:
             raise ValueError('Invalid geometry.')
 
         # Read raster with population data, mask with each shape and compute population in units
-        raster_fpath = self.ds.data + self.ds.file_names.population
+        raster_fpath = self.cfg.path.input_data.file_paths.population
         out_data = []
         with rasterio.open(raster_fpath) as src:
             for _, row in shapes.iterrows():

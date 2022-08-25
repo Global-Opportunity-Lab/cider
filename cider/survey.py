@@ -4,7 +4,10 @@ from typing import List, Optional, Tuple, Union
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
-from datastore import DataStore, DataType
+from helpers.ml_utils import Winsorizer
+from helpers.plot_utils import clean_plot
+from helpers.utils import (check_column_types, check_columns_exist, make_dir,
+                           weighted_corr)
 from joblib import dump, load  # type: ignore[import]
 from lightgbm import LGBMRegressor  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
@@ -21,10 +24,7 @@ from sklearn.preprocessing import MinMaxScaler  # type: ignore[import]
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from wpca import WPCA  # type: ignore[import]
 
-from helpers.ml_utils import Winsorizer
-from helpers.plot_utils import clean_plot
-from helpers.utils import (check_column_types, check_columns_exist, make_dir,
-                           weighted_corr)
+from datastore import DataStore, DataType
 
 
 class SurveyOutcomeGenerator:
