@@ -9,28 +9,29 @@ spark:
 
 
 path:
-  data: "synthetic_data"
-  features: 'features.csv'
-  file_names:
-    antennas: 'antennas.csv'
-    cdr: 'cdr.csv'
-    fairness: 'fairness.csv'
-    home_ground_truth: 'home_locations.csv'
-    labels: 'labels.csv'
-    mobiledata: 'mobiledata.csv'
-    mobilemoney: 'mobilemoney.csv'
-    population: 'population_tgo_2019-07-01.tif'
-    poverty_scores: null
-    recharges: 'recharges.csv'
-    rwi: 'TGO_relative_wealth_index.csv'
-    shapefiles:
-      regions: '/regions.geojson'
-      prefectures: '/prefectures.geojson'
-    survey: 'survey.csv'
-    targeting: 'targeting.csv'
-    user_consent: 'test'
-  outputs: "../cider/outputs/"
-  wd: "../"
+  input_data:
+    directory_path: "synthetic_data"
+    features: 'features.csv'
+    file_paths:
+      antennas: 'antennas.csv'
+      cdr: 'cdr.csv'
+      fairness: 'fairness.csv'
+      home_ground_truth: 'home_locations.csv'
+      labels: 'labels.csv'
+      mobiledata: 'mobiledata.csv'
+      mobilemoney: 'mobilemoney.csv'
+      population: 'population_tgo_2019-07-01.tif'
+      poverty_scores: null
+      recharges: 'recharges.csv'
+      rwi: 'TGO_relative_wealth_index.csv'
+      shapefiles:
+        regions: 'regions.geojson'
+        prefectures: 'prefectures.geojson'
+      survey: 'survey.csv'
+      targeting: 'targeting.csv'
+      user_consent: 'test'
+  working:
+    directory_path: "../cider/outputs/"
 
 
 col_names:

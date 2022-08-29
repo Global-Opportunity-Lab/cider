@@ -1,23 +1,19 @@
-from box import Box
-import numpy as np
-from numpy import ndarray
 import os
-import pandas as pd
-from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.types import IntegerType, StringType
-from pyspark.sql.functions import col, date_format, lit
-from pyspark.sql import SparkSession
 import shutil
+from pathlib import Path
 from typing import List, Tuple, Union
 
+import numpy as np
+import pandas as pd
+from box import Box
+from numpy import ndarray
+from pandas import DataFrame as PandasDataFrame
+from pyspark.sql import DataFrame as SparkDataFrame
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, date_format, lit
+from pyspark.sql.types import IntegerType, StringType
 from typing_extensions import Literal
-from pathlib import Path
-
-
-def get_project_root() -> Path:
-    """Returns the root of the project."""
-    return Path(__file__).parent.parent
+from yaml import FullLoader, load as yaml_load
 
 
 def get_spark_session(cfg: Box) -> SparkSession:
@@ -36,23 +32,41 @@ def get_spark_session(cfg: Box) -> SparkSession:
     return spark
 
 
-def save_df(df: SparkDataFrame, outfname: str, sep: str = ',') -> None:
+def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',') -> None:
     """
-    Saves spark dataframe to csv file, using work-around to deal with spark's automatic partitioning and naming
+    Saves spark dataframe to csv file.
     """
-    outfolder = outfname[:-4]
-    df.repartition(1).write.csv(path=outfolder, mode="overwrite", header="true", sep=sep)
-    # Work around to deal with spark automatic naming
-    old_fname = [fname for fname in os.listdir(outfolder) if fname[-4:] == '.csv'][0]
-    os.rename(outfolder + '/' + old_fname, outfname)
-    shutil.rmtree(outfolder)
+    # we need to work around spark's automatic partitioning/naming
+
+    # create a temporary folder in the directory where the output will ultimately live
+    temp_folder = out_file_path.parent / 'temp'
+    
+    # Ask spark to write output there. The repartition(1) call will tell spark to write a single file.
+    # It will name it with some meaningless partition name, but we can find it easily bc it's the only
+    # csv in the temp directory.
+    df.repartition(1).write.csv(path=str(temp_folder), mode="overwrite", header="true", sep=sep)
+    spark_generated_file_name = [
+        fname for fname in os.listdir(temp_folder) if os.path.splitext(fname)[1] == '.csv'
+    ][0]
+    
+    # move the file out of the temporary directory and rename it
+    os.rename(temp_folder / spark_generated_file_name, out_file_path)
+    
+    # delete the temp directory and everything in it
+    shutil.rmtree(temp_folder)
+
+def read_csv(spark_session, file_path: Path, **kwargs):
+    """
+    A wrapper around spark.read.csv which accepts pathlib.Path objects as input.
+    """
+    return spark_session.read.csv(str(file_path), **kwargs)
 
 
-def save_parquet(df: SparkDataFrame, outfname: str) -> None:
+def save_parquet(df: SparkDataFrame, out_file_path: Path) -> None:
     """
     Save spark dataframe to parquet file
     """
-    df.write.mode('overwrite').parquet(outfname)
+    df.write.mode('overwrite').parquet(str(out_file_path))
 
 
 def filter_dates_dataframe(df: SparkDataFrame,
@@ -76,17 +90,18 @@ def filter_dates_dataframe(df: SparkDataFrame,
     return df
 
 
-def make_dir(fname: str, remove: bool = False) -> None:
+def make_dir(directory_path: Path, remove: bool = False) -> None:
     """
     Create new directory
 
     Args:
-        fname: directory path
-        remove: whether to remove directory if already present
+        directory_path: directory path
+        remove: whether to replace the directory with an empty one if it's already present
     """
-    if os.path.isdir(fname) and remove:
-        shutil.rmtree(fname)
-    os.makedirs(fname, exist_ok=True)
+    if directory_path.is_dir() and remove:
+        shutil.rmtree(directory_path)
+
+    directory_path.mkdir(parents=True, exist_ok=True)
 
 
 def flatten_lst(lst: List[List]) -> List:
@@ -243,3 +258,64 @@ def weighted_cov(x: ndarray, y: ndarray, w: ndarray) -> float:
 
 def weighted_corr(x: ndarray, y: ndarray, w: ndarray) -> float:
     return weighted_cov(x, y, w) / np.sqrt(weighted_cov(x, x, w) * weighted_cov(y, y, w))
+
+
+def build_config_from_file(config_file_path_string: str) -> Box:
+    """
+    Build the config Box (dictionary) from file and convert file paths to pathlib.Path objects, taking into 
+    account that some paths are expected to be defined relative to other paths, returning a Box containing
+    file paths.
+    """
+    
+    def recursively_convert_to_path_and_resolve(dict_or_path_string, path_root):
+        
+        if dict_or_path_string is None:
+            return None
+        
+        elif isinstance(dict_or_path_string, str):
+            
+            path = Path(dict_or_path_string)
+            
+            if os.path.isabs(path):
+                return path
+            
+            return path_root / path
+        
+        else:
+            
+            new_dict = {}
+            for key, value in dict_or_path_string.items():
+                
+                new_dict[key] = recursively_convert_to_path_and_resolve(value, path_root)
+
+            return new_dict
+                
+    with open(config_file_path_string, 'r') as config_file:
+        config_dict = yaml_load(config_file, Loader=FullLoader)
+
+    input_path_dict = config_dict['path']
+    
+    processed_path_dict = {}
+    
+    # get the working directory path
+    working_directory_path = Path(input_path_dict['working']['directory_path'])
+    if not os.path.isabs(working_directory_path):
+        # raise ValueError(f'expected absolute path to working directory; got {working_directory_path} instead.')
+        # This is only allowed because our tests rely on it. TODO: Change tests so this isn't necessary
+        working_directory_path = Path(__file__).parent.parent / working_directory_path
+    
+    # get the top level input data directory
+    input_data_directory_path = Path(input_path_dict['input_data']['directory_path'])
+    if not os.path.isabs(input_data_directory_path):
+        # raise ValueError(f'expected absolute path to input data directory; got {input_data_directory_path} instead.')
+        # This is only allowed because our tests rely on it. TODO: Change tests so this isn't necessary
+        input_data_directory_path = Path(__file__).parent.parent / input_data_directory_path
+
+    # now recursively turn the rest of the path strings into Path objects
+    processed_path_dict['input_data'] = recursively_convert_to_path_and_resolve(input_path_dict['input_data'], input_data_directory_path)
+    processed_path_dict['working'] = recursively_convert_to_path_and_resolve(input_path_dict['working'], working_directory_path)
+
+        
+    config_dict['path'] = processed_path_dict
+    
+    return Box(config_dict)

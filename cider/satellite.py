@@ -9,16 +9,16 @@ import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
 import rasterio  # type: ignore[import]
-from datastore import DataStore, DataType
+from helpers.plot_utils import voronoi_tessellation
+from helpers.satellite_utils import quadkey_to_polygon
+from helpers.utils import get_spark_session, make_dir
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 from rasterio.mask import mask  # type: ignore[import]
 from rasterio.merge import merge  # type: ignore[import]
 from shapely.geometry import mapping  # type: ignore[import]
 
-from helpers.plot_utils import voronoi_tessellation
-from helpers.satellite_utils import quadkey_to_polygon
-from helpers.utils import get_spark_session, make_dir
+from .datastore import DataStore, DataType
 
 
 class Satellite:
@@ -90,7 +90,7 @@ class Satellite:
             raise ValueError('Invalid geometry.')
 
         # Read raster with population data, mask with scores and create new score band, write multiband output
-        pop_fpath = self.ds.data + self.ds.file_names.population
+        pop_fpath = self.cfg.input_data.file_paths.population
         pop_score_fpath = self.outputs + f'/pop_{dataset}.tif'
         if not os.path.isfile(pop_score_fpath):
             temp_folder = self.outputs + '/temp'

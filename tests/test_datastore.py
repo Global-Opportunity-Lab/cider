@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from datetime import datetime, timedelta
 import geopandas
@@ -16,7 +17,7 @@ import pytest
 from pytest_mock import mocker, MockerFixture
 
 from cider.datastore import DataStore, DataType, OptDataStore
-from helpers.utils import get_project_root, get_spark_session
+from helpers.utils import get_spark_session
 
 malformed_dataframes_and_errors = {
     'cdr': [(pd.DataFrame(
@@ -41,6 +42,8 @@ malformed_dataframes_and_errors = {
                (pd.DataFrame(data={'label': ['50']}), ValueError)]
 }
 
+PROJECT_ROOT = Path(__file__).parent.parent
+
 
 @pytest.mark.parametrize("datastore_class", [DataStore, OptDataStore])
 class TestDatastoreClasses:
@@ -59,7 +62,7 @@ class TestDatastoreClasses:
     ) -> None:
         """Test that each config file is not stale and can initialize without raising an error."""
         datastore = datastore_class(
-            cfg_dir=os.path.join(get_project_root(), config_file_path)
+            config_file_path_string=str(PROJECT_ROOT / config_file_path)
         )
 
     @pytest.mark.unit_test
@@ -74,7 +77,7 @@ class TestDatastoreClasses:
             expected_exception: Type[Exception],
     ) -> None:
         with pytest.raises(expected_exception):
-            datastore = datastore_class(cfg_dir=config_file_path)
+            datastore = datastore_class(config_file_path_string=config_file_path)
 
     @pytest.fixture()
     def mock_dataframe_reader(self, mocker: MockerFixture):
@@ -83,7 +86,7 @@ class TestDatastoreClasses:
 
     @pytest.fixture()
     def ds(self, datastore_class: Type[DataStore]) -> DataStore:
-        out = datastore_class(cfg_dir="configs/test_config.yml")
+        out = datastore_class(config_file_path_string="configs/test_config.yml")
         return out
 
     @pytest.mark.unit_test
@@ -500,7 +503,7 @@ class TestOptDatastoreClass:
 
     @pytest.fixture()
     def ds(self) -> OptDataStore:
-        out = OptDataStore(cfg_dir="configs/test_config.yml")
+        out = OptDataStore(config_file_path_string="configs/test_config.yml")
         return out
 
     @pytest.mark.unit_test

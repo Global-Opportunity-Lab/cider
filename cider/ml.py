@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor  # type: ignore[import]
+from helpers.ml_utils import (DropMissing, Winsorizer, auc_overall, load_model,
+                              metrics)
+from helpers.plot_utils import clean_plot
+from helpers.utils import make_dir
 from joblib import dump, load  # type: ignore[import]
 from lightgbm import LGBMRegressor  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
@@ -23,11 +27,6 @@ from sklearn.preprocessing import MinMaxScaler  # type: ignore[import]
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from skmisc.loess import loess  # type: ignore[import]
 
-from helpers.ml_utils import (DropMissing, Winsorizer, auc_overall, load_model,
-                              metrics)
-from helpers.plot_utils import clean_plot
-from helpers.utils import make_dir
-
 from .datastore import DataStore, DataType
 
 
@@ -36,12 +35,12 @@ class Learner:
     def __init__(self, datastore: DataStore, clean_folders: bool = False, kfold: int = 5) -> None:
         self.cfg = datastore.cfg
         self.ds = datastore
-        self.outputs = datastore.outputs + 'ml/'
+        self.outputs = self.cfg.path.working.directory_path / 'ml'
 
         # Prepare working directories
         make_dir(self.outputs, clean_folders)
-        make_dir(self.outputs + '/outputs/')
-        make_dir(self.outputs + '/tables/')
+        make_dir(self.outputs / 'outputs')
+        make_dir(self.outputs / 'tables')
 
         self.kfold = KFold(n_splits=kfold, shuffle=True, random_state=100)
 
@@ -149,7 +148,7 @@ class Learner:
         Returns: A dict of R2 and RMSE scores obtained on training and test sets.
         """
 
-        make_dir(self.outputs + '/untuned_models/' + model_name)
+        make_dir(self.outputs / 'untuned_models' / model_name)
 
         raw_scores = cross_validate(self.untuned_models[model_name], self.ds.x, self.ds.y,
                                     cv=self.kfold,
@@ -163,7 +162,7 @@ class Learner:
                                                  -raw_scores['train_neg_root_mean_squared_error'].std()),
                   'test_rmse': '%.2f (%.2f)' % (-raw_scores['test_neg_root_mean_squared_error'].mean(),
                                                 -raw_scores['test_neg_root_mean_squared_error'].std())}
-        with open(self.outputs + '/untuned_models/' + model_name + '/results.json', 'w') as f:
+        with open(self.outputs / 'untuned_models' / model_name / 'results.json', 'w') as f:
             json.dump(scores, f)
 
         if raw_scores['test_r2'].mean() < 0.1:
@@ -172,7 +171,7 @@ class Learner:
 
         # Save model
         model = self.untuned_models[model_name].fit(self.ds.x, self.ds.y, model__sample_weight=self.ds.weights)
-        dump(model, self.outputs + '/untuned_models/' + model_name + '/model')
+        dump(model, self.outputs / 'untuned_models' / model_name / 'model')
 
         # Feature importances
         self.feature_importances(model_name=model_name, kind='untuned')
@@ -192,7 +191,7 @@ class Learner:
         Returns: A dict of R2 and RMSE scores obtained on training and test sets by the best model.
         """
 
-        make_dir(self.outputs + '/tuned_models/' + model_name)
+        make_dir(self.outputs / 'tuned_models' / model_name)
 
         model = GridSearchCV(estimator=self.tuned_models[model_name],
                              param_grid=self.grids[model_name],
@@ -208,7 +207,7 @@ class Learner:
         # Save tuning results
         tuning_results = pd.DataFrame(model.cv_results_)
         tuning_results.drop(['mean_fit_time', 'std_fit_time', 'mean_score_time', 'std_fit_time'], axis=1) \
-            .to_csv(self.outputs + '/tuned_models/' + model_name + '/tuning.csv', index=False)
+            .to_csv(self.outputs / 'tuned_models' / model_name / 'tuning.csv', index=False)
 
         # Save accuracy results for best model
         best_model = tuning_results.iloc[tuning_results['mean_test_r2'].argmax()]
@@ -219,7 +218,7 @@ class Learner:
                       -best_model['std_train_neg_root_mean_squared_error']), 'test_rmse': '%.2f (%.2f)' % (
                 -best_model['mean_test_neg_root_mean_squared_error'],
                 -best_model['std_test_neg_root_mean_squared_error'])}
-        with open(self.outputs + '/tuned_models/' + model_name + '/results.json', 'w') as f:
+        with open(self.outputs / 'tuned_models' / model_name / 'results.json', 'w') as f:
             json.dump(scores, f)
 
         if best_model['mean_test_r2'] < 0.1:
@@ -228,7 +227,7 @@ class Learner:
                 "performance; it is recommended to investigate any data issues before proceeding further.")
 
         # Save model
-        dump(model, self.outputs + '/tuned_models/' + model_name + '/model')
+        dump(model, self.outputs / 'tuned_models' / model_name / 'model')
 
         # Feature importances
         self.feature_importances(model_name=model_name, kind='tuned')
@@ -245,7 +244,7 @@ class Learner:
         """
         # Make sure model_name is correct, get relevant cfg
         assert model_name in ['autogluon']
-        make_dir(self.outputs + '/automl_models/' + model_name)
+        make_dir(self.outputs/ 'automl_models' / model_name)
 
         if model_name == 'autogluon':
             cfg = self.cfg.params.automl.autogluon
@@ -254,7 +253,7 @@ class Learner:
                                      eval_metric=cfg.eval_metric,
                                      sample_weight=cfg.sample_weight,
                                      weight_evaluation=True,
-                                     path=self.outputs + '/automl_models/' + model_name + '/model')
+                                     path=self.outputs / 'automl_models' / model_name / 'model')
             model.fit(train_data,
                       presets='best_quality',
                       auto_stack=True,
@@ -279,7 +278,7 @@ class Learner:
         Returns: The pandas df with all features and their importance.
         """
         # Load model
-        subdir = '/' + kind + '_models/'
+        subdir = kind + '_models'
         model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
 
         # TODO: improve performance of autogluon's feature importance computation
@@ -296,7 +295,7 @@ class Learner:
             imports.columns = ['Feature', 'Importance']
             
         imports = imports.sort_values('Importance', ascending=False)
-        imports.to_csv(self.outputs + subdir + model_name + '/feature_importances.csv', index=False)
+        imports.to_csv(self.outputs / subdir / model_name / 'feature_importances.csv', index=False)
         return imports
 
     def oos_predictions(self, model_name: str, kind: str = 'tuned') -> PandasDataFrame:
@@ -311,7 +310,7 @@ class Learner:
 
         """
         # Load model
-        subdir = '/' + kind + '_models/'
+        subdir = kind + '_models'
         model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
 
         if model_name == 'autogluon':
@@ -321,7 +320,7 @@ class Learner:
         oos = pd.DataFrame([list(self.ds.merged['name']), list(self.ds.y), oos]).T
         oos.columns = ['name', 'true', 'predicted']
         oos['weight'] = self.ds.weights
-        oos.to_csv(self.outputs + subdir + model_name + '/oos_predictions.csv', index=False)
+        oos.to_csv(self.outputs / subdir/ model_name / 'oos_predictions.csv', index=False)
         return oos
 
     def population_predictions(self, model_name: str, kind: str = 'tuned', n_chunks: int = 100) -> PandasDataFrame:
@@ -336,12 +335,13 @@ class Learner:
         Returns: The pandas df with predicted values.
         """
         # Load model
-        subdir = '/' + kind + '_models/'
+        subdir = kind + '_models'
         model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
+        
+        features_path = self.cfg.path.working.directory_path / 'featurizer' / 'datasets' / 'features.csv'
+        columns = pd.read_csv(features_path, nrows=1).columns
 
-        columns = pd.read_csv(self.cfg.path.features, nrows=1).columns
-
-        chunksize = int(len(pd.read_csv(self.cfg.path.features, usecols=['name'])) / n_chunks)
+        chunksize = int(len(pd.read_csv(features_path, usecols=['name'])) / n_chunks)
 
         results = []
         for chunk in range(n_chunks):
@@ -352,7 +352,7 @@ class Learner:
             results.append(results_chunk)
         results_df = pd.concat(results)
 
-        results_df.to_csv(self.outputs + subdir + model_name + '/population_predictions.csv', index=False)
+        results_df.to_csv(self.outputs / subdir / model_name / 'population_predictions.csv', index=False)
         return results_df
 
     def scatter_plot(self, model_name: str, kind: str = 'tuned') -> None:
@@ -365,8 +365,8 @@ class Learner:
             kind: The type of model, i.e. untuned, tuned, or automl.
         """
         # Load model
-        subdir = '/' + kind + '_models/'
-        oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
+        subdir = kind + '_models'
+        oos = pd.read_csv(self.outputs / subdir / model_name / 'oos_predictions.csv')
         oos['weight'] = 100 * ((oos['weight'] - oos['weight'].min()) / (oos['weight'].max() - oos['weight'].min()))
         oos_repeat = pd.DataFrame(np.repeat(oos.values, oos['weight'], axis=0), columns=oos.columns).astype(oos.dtypes)
         corr = np.corrcoef(oos_repeat['true'], oos_repeat['predicted'])[0][1]
@@ -391,7 +391,7 @@ class Learner:
         ax.legend(loc='best')
         clean_plot(ax)
 
-        plt.savefig(self.outputs + subdir + model_name + '/scatterplot.png', dpi=300)
+        plt.savefig(self.outputs / subdir / model_name / 'scatterplot.png', dpi=300)
         plt.show()
 
     def feature_importances_plot(self, model_name: str, kind: str = 'tuned', n_features: int = 20) -> None:
@@ -404,8 +404,8 @@ class Learner:
             n_features: The number of top features to use in the plot.
         """
         # Load model
-        subdir = '/' + kind + '_models/'
-        importances = pd.read_csv(self.outputs + subdir + model_name + '/feature_importances.csv')
+        subdir =  kind + '_models'
+        importances = pd.read_csv(self.outputs / subdir / model_name / 'feature_importances.csv')
 
         importances = importances.sort_values('Importance', ascending=False)
         importances = importances[:n_features].sort_values('Importance', ascending=True)
@@ -435,7 +435,7 @@ class Learner:
         ax.set_xlabel('Feature Importance')
         clean_plot(ax)
 
-        plt.savefig(self.outputs + subdir + model_name + '/feature_importances.png', dpi=300)
+        plt.savefig(self.outputs / subdir / model_name / 'feature_importances.png', dpi=300)
         plt.show()
 
     def targeting_table(self, model_name: str, kind: str = 'tuned') -> PandasDataFrame:
@@ -451,8 +451,8 @@ class Learner:
         percentile of the population, where p = [0, 10, ..., 90].
         """
 
-        subdir = '/' + kind + '_models/'
-        oos = pd.read_csv(self.outputs + subdir + model_name + '/oos_predictions.csv')
+        subdir = kind + '_models'
+        oos = pd.read_csv(self.outputs / subdir / model_name / 'oos_predictions.csv')
         oos['weight'] = 100 * (oos['weight'] - oos['weight'].min()) / (oos['weight'].max() - oos['weight'].min())
         oos_repeat = pd.DataFrame(np.repeat(oos.values, oos['weight'], axis=0), columns=oos.columns).astype(oos.dtypes)
 
@@ -469,5 +469,5 @@ class Learner:
         table['Recall'] = [('%i' % (g[2] * 100)) + '%' for g in metric_grid]
 
         table = table.round(2)
-        table.to_csv(self.outputs + subdir + model_name + '/targeting_table.csv', index=False)
+        table.to_csv(self.outputs / subdir / model_name / 'targeting_table.csv', index=False)
         return table

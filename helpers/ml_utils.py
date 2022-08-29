@@ -9,6 +9,7 @@ import pandas as pd
 from pandas import DataFrame as PandasDataFrame, Series
 from sklearn.base import BaseEstimator, TransformerMixin, clone  # type: ignore[import]
 from sklearn.metrics import confusion_matrix, auc, r2_score  # type: ignore[import]
+from pathlib import Path
 from typing import Optional, Tuple, Union
 
 
@@ -136,7 +137,7 @@ class Winsorizer(TransformerMixin, BaseEstimator):
         return X_t
 
 
-def load_model(model: str, out_path: str, kind: str = 'tuned'):
+def load_model(model: str, out_path: Path, kind: str = 'tuned'):
     """
     Loads trained ML model. If tuned, the best performing model will be loaded.
 
@@ -147,18 +148,20 @@ def load_model(model: str, out_path: str, kind: str = 'tuned'):
 
     Returns: The loaded model.
     """
-    subdir = '/' + kind + '_models/'
+    subdir = kind + '_models'
+    
+    full_path = out_path / subdir / model / 'model'
 
-    if os.path.isfile(out_path + subdir + model + '/model'):
+    if full_path.is_file():
         model_name = model
-        model = load(out_path + subdir + model + '/model')
-    elif os.path.isdir(out_path + subdir + model + '/model'):
+        model = load(full_path)
+    elif full_path.is_dir():
         model_name = model
-        model = TabularPredictor.load(out_path + subdir + model + '/model')
+        model = TabularPredictor.load(full_path)
     elif os.path.isfile(model):
         model_name = model.split('/')[-1]
         model = load(model)
-        make_dir(out_path + subdir + model_name)
+        make_dir(out_path / subdir / model_name)
     else:
         raise ValueError("The 'model' argument should be a path or a recognized model name")
 
