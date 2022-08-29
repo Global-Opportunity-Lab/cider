@@ -13,7 +13,7 @@ from scipy.stats import spearmanr  # type: ignore[import]
 from sklearn.metrics import (auc, roc_auc_score,  # type: ignore[import]
                              roc_curve)
 
-from datastore import DataStore, DataType
+from .datastore import DataStore, DataType
 
 
 class Targeting:
@@ -21,7 +21,7 @@ class Targeting:
     def __init__(self, datastore: DataStore, clean_folders: bool = False) -> None:
         self.cfg = datastore.cfg
         self.ds = datastore
-        self.outputs = datastore.outputs + 'targeting/'
+        self.outputs = self.cfg.path.working.directory_path / 'targeting'
 
         # Prepare working directories, set color palette
         make_dir(self.outputs, clean_folders)

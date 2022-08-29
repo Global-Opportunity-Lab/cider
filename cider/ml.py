@@ -35,7 +35,7 @@ class Learner:
     def __init__(self, datastore: DataStore, clean_folders: bool = False, kfold: int = 5) -> None:
         self.cfg = datastore.cfg
         self.ds = datastore
-        self.outputs = self.cfg.path.working.directory_path / 'ml
+        self.outputs = self.cfg.path.working.directory_path / 'ml'
 
         # Prepare working directories
         make_dir(self.outputs, clean_folders)
@@ -338,7 +338,7 @@ class Learner:
         subdir = kind + '_models'
         model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
         
-        features_path = self.cfg.path.working.directory_path / 'datasets' / 'features.csv'
+        features_path = self.cfg.path.working.directory_path / 'featurizer' / 'datasets' / 'features.csv'
         columns = pd.read_csv(features_path, nrows=1).columns
 
         chunksize = int(len(pd.read_csv(features_path, usecols=['name'])) / n_chunks)

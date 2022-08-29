@@ -50,7 +50,7 @@ class DataStore(InitializerInterface):
         self.working_directory_path = cfg.path.working.directory_path
         self.input_data_file_paths = cfg.path.input_data.file_paths
 
-        # Create directories
+        # Create directories TODO(leo): Is this necessary?
         make_dir(self.working_directory_path / 'datasets')
 
         # Parameters
@@ -201,7 +201,7 @@ class DataStore(InitializerInterface):
         """
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
-        self.features = read_csv(self.spark, self.cfg.path.working.directory_path / 'features.csv', header=True)
+        self.features = read_csv(self.spark, self.cfg.path.working.directory_path / 'featurizer' / 'datasets' / 'features.csv', header=True)
         if 'name' not in self.features.columns:
             raise ValueError('Features dataframe must include name column')
 

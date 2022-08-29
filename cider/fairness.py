@@ -25,7 +25,7 @@ class Fairness:
         self.data = pd.read_csv(data_path)
         self.data['random'] = np.random.rand(len(self.data))
 
-        outputs = self.cfg.path.outputs
+        outputs = self.cfg.path.working.directory_path
         self.outputs = outputs
         self.default_colors = sns.color_palette('Set2', 100)
 
@@ -218,7 +218,7 @@ class Fairness:
         table.set_index(characteristic, inplace=True)
         
         # Save and return
-        table.to_csv(self.outputs + '/rank_residuals_table_' + characteristic + '.png', index=False)
+        table.to_csv(self.outputs / f'rank_residuals_table_{characteristic}.png', index=False)
         return table
 
     def demographic_parity_table(self, groundtruth, proxies, characteristic, p, weighted=False, format_table=True):
@@ -250,7 +250,7 @@ class Fairness:
             table.set_index(characteristic, inplace=True)
 
         # Save and return
-        table.to_csv(self.outputs + '/demographic_parity_table_' + characteristic + '_' + str(p) + '%.png', index=False)
+        table.to_csv(self.outputs / ('demographic_parity_table_' + characteristic + '_' + str(p) + '%.png'), index=False)
         return table
 
     def create_table(self, function, name, groundtruth, proxies, characteristic, p, weighted=False, format_table=True):
@@ -281,7 +281,7 @@ class Fairness:
             table.set_index(characteristic, inplace=True)
 
         # Save and return
-        table.to_csv(self.outputs + f'/{name}_table_' + characteristic + '_' + str(p) + '%.png', index=False)
+        table.to_csv(self.outputs / (f'{name}_table_' + characteristic + '_' + str(p) + '%.png'), index=False)
         return table
     
     def independence_table(self, *args, **kwargs):
@@ -348,7 +348,7 @@ class Fairness:
         plt.suptitle('Rank Fairness: ' + characteristic, fontsize='x-large')
 
         # Save and show
-        plt.savefig(self.outputs + '/rank_residuals_plot_' + characteristic + '.png', dpi=400)
+        plt.savefig(self.outputs / f'rank_residuals_plot_{characteristic}.png', dpi=400)
         plt.show()
 
     def create_plot(self, table, name, groundtruth, proxies, characteristic, p, weighted=False):
@@ -428,7 +428,7 @@ class Fairness:
         plt.tight_layout()
 
         # Save and show
-        plt.savefig(self.outputs + f'/{name}_plot_' + characteristic + '_' + str(p) + '%.png')
+        plt.savefig(self.outputs / (f'{name}_plot_' + characteristic + '_' + str(p) + '%.png'))
         plt.show()
     
     def demographic_parity_plot(self, *args, **kwargs):

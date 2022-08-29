@@ -24,7 +24,7 @@ from sklearn.preprocessing import MinMaxScaler  # type: ignore[import]
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from wpca import WPCA  # type: ignore[import]
 
-from datastore import DataStore, DataType
+from .datastore import DataStore, DataType
 
 
 class SurveyOutcomeGenerator:

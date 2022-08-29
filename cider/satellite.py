@@ -18,7 +18,7 @@ from rasterio.mask import mask  # type: ignore[import]
 from rasterio.merge import merge  # type: ignore[import]
 from shapely.geometry import mapping  # type: ignore[import]
 
-from datastore import DataStore, DataType
+from .datastore import DataStore, DataType
 
 
 class Satellite:
