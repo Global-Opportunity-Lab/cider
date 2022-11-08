@@ -32,7 +32,7 @@ path:
       targeting: 'targeting.csv'
       user_consent: null
   working:
-    directory_path: "./outputs/"
+    directory_path: "../outputs/"
 
 
 col_names:

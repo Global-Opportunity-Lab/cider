@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pyspark.sql.functions as F
 from geopandas import GeoDataFrame  # type: ignore[import]
-from helpers.io_utils import (load_antennas, load_cdr, load_mobiledata,
+from helpers.io_utils import (load_antennas, load_cdr, load_labels, load_mobiledata,
                               load_mobilemoney, load_recharges, load_shapefile)
 from helpers.opt_utils import generate_user_consent_list
 from helpers.utils import (build_config_from_file, filter_dates_dataframe,
@@ -90,6 +90,14 @@ class DataStore(InitializerInterface):
         self.rwi: PandasDataFrame
         # survey
         self.survey_data: PandasDataFrame
+        
+        # If the user specified a location for the features, use it. Otherwise, use the default location where
+        # features are written by the featurizer.
+        if 'features' in self.input_data_file_paths:
+            self.features_path = self.input_data_file_paths.features
+            
+        else:
+            self.features_path = self.cfg.path.working.directory_path / 'featurizer' / 'datasets' / 'features.csv'
 
         # Define mapping between data types and loading methods
         self.data_type_to_fn_map: Dict[DataType, Callable] = {DataType.CDR: self._load_cdr,
@@ -201,7 +209,8 @@ class DataStore(InitializerInterface):
         """
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
-        self.features = read_csv(self.spark, self.cfg.path.working.directory_path / 'featurizer' / 'datasets' / 'features.csv', header=True)
+        
+        self.features = read_csv(self.spark, self.features_path, header=True)
         if 'name' not in self.features.columns:
             raise ValueError('Features dataframe must include name column')
 
@@ -209,14 +218,7 @@ class DataStore(InitializerInterface):
         """
         Load labels to train ML model on
         """
-        self.labels = read_csv(self.spark, self.input_data_file_paths.labels, header=True)
-        if 'name' not in self.labels.columns:
-            raise ValueError('Labels dataframe must include name column')
-        if 'label' not in self.labels.columns:
-            raise ValueError('Labels dataframe must include label column')
-        if 'weight' not in self.labels.columns:
-            self.labels = self.labels.withColumn('weight', lit(1))
-        self.labels = self.labels.select(['name', 'label', 'weight'])
+        self.labels = load_labels(self.cfg, self.input_data_file_paths.labels)
 
     def _load_targeting(self) -> None:
         """
