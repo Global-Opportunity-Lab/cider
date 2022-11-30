@@ -1,4 +1,6 @@
+import io
 import json
+from math import ceil
 from typing import Dict, Optional, Tuple
 
 import matplotlib.pyplot as plt  # type: ignore[import]
@@ -32,7 +34,7 @@ from .datastore import DataStore, DataType
 
 class Learner:
 
-    def __init__(self, datastore: DataStore, clean_folders: bool = False, kfold: int = 5) -> None:
+    def __init__(self, datastore: DataStore, clean_folders: bool = False, kfold_tune: int = 3, kfold_predict: int = 5) -> None:
         self.cfg = datastore.cfg
         self.ds = datastore
         self.outputs = self.cfg.path.working.directory_path / 'ml'
@@ -42,7 +44,9 @@ class Learner:
         make_dir(self.outputs / 'outputs')
         make_dir(self.outputs / 'tables')
 
-        self.kfold = KFold(n_splits=kfold, shuffle=True, random_state=100)
+        self.kfold_tune = KFold(n_splits=kfold_tune, shuffle=True, random_state=100)
+        self.kfold_predict = KFold(n_splits=kfold_predict, shuffle=True, random_state=101)
+
 
         # Define models
         self.untuned_models = {
@@ -151,7 +155,7 @@ class Learner:
         make_dir(self.outputs / 'untuned_models' / model_name)
 
         raw_scores = cross_validate(self.untuned_models[model_name], self.ds.x, self.ds.y,
-                                    cv=self.kfold,
+                                    cv=self.kfold_predict,
                                     return_train_score=True,
                                     scoring=['r2', 'neg_root_mean_squared_error'],
                                     fit_params={'model__sample_weight': self.ds.weights})
@@ -195,7 +199,7 @@ class Learner:
 
         model = GridSearchCV(estimator=self.tuned_models[model_name],
                              param_grid=self.grids[model_name],
-                             cv=self.kfold,
+                             cv=self.kfold_tune,
                              verbose=0,
                              scoring=['r2', 'neg_root_mean_squared_error'],
                              return_train_score=True,
@@ -312,18 +316,19 @@ class Learner:
         # Load model
         subdir = kind + '_models'
         model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
-
+        
         if model_name == 'autogluon':
             oos = model.get_oof_pred()
         else:
-            oos = cross_val_predict(model, self.ds.x, self.ds.y, cv=self.kfold)
+            oos = cross_val_predict(model, self.ds.x, self.ds.y, cv=self.kfold_predict)
+
         oos = pd.DataFrame([list(self.ds.merged['name']), list(self.ds.y), oos]).T
         oos.columns = ['name', 'true', 'predicted']
         oos['weight'] = self.ds.weights
         oos.to_csv(self.outputs / subdir/ model_name / 'oos_predictions.csv', index=False)
         return oos
 
-    def population_predictions(self, model_name: str, kind: str = 'tuned', n_chunks: int = 100) -> PandasDataFrame:
+    def population_predictions(self, model_name: str, kind: str = 'tuned', chunksize: int = 100) -> PandasDataFrame:
         """
         Computes predictions for all population samples, i.e. those samples that do not have ground-truth data.
 
@@ -338,14 +343,15 @@ class Learner:
         subdir = kind + '_models'
         model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
         
-        features_path = self.cfg.path.working.directory_path / 'featurizer' / 'datasets' / 'features.csv'
+        features_path = self.ds.features_path
         columns = pd.read_csv(features_path, nrows=1).columns
-
-        chunksize = int(len(pd.read_csv(features_path, usecols=['name'])) / n_chunks)
+        
+        total_len = len(pd.read_csv(features_path, usecols=['name']))
+        n_chunks = ceil(total_len / chunksize)
 
         results = []
         for chunk in range(n_chunks):
-            x = pd.read_csv(self.cfg.path.features, skiprows=1 + chunk * chunksize, nrows=chunksize, header=None)
+            x = pd.read_csv(features_path, skiprows=1 + chunk * chunksize, nrows=chunksize, header=None)
             x.columns = columns
             results_chunk = x[['name']].copy()
             results_chunk['predicted'] = model.predict(x[self.ds.x.columns])
@@ -387,7 +393,7 @@ class Learner:
         ax.set_xlim(grid.min(), grid.max())
         ax.set_xlabel('True Value')
         ax.set_ylabel('Predicted Value')
-        ax.set_title('True vs. Predicted Values (' + r'$\rho$' + ' = %.2f)' % corr)
+        ax.set_title(f'True vs. Predicted Values (r = {corr})')
         ax.legend(loc='best')
         clean_plot(ax)
 
@@ -419,7 +425,7 @@ class Learner:
                    else 'grey')
 
         importances['Feature'] = importances['Feature'] \
-            .apply(lambda x: ' '.join(x.split('_')[1:])
+            .apply(lambda x: ' '.join(x.split('_'))
                    .replace('percent', '%')
                    .replace('callandtext', '')
                    .replace('weekday', 'WD')
@@ -452,7 +458,12 @@ class Learner:
         """
 
         subdir = kind + '_models'
-        oos = pd.read_csv(self.outputs / subdir / model_name / 'oos_predictions.csv')
+        try:
+            oos = pd.read_csv(self.outputs / subdir / model_name / 'oos_predictions.csv')
+            
+        except FileNotFoundError:
+            raise ValueError('Must perform oos prediction in order to compile targeting table') # TODO(leo): clarify this error
+
         oos['weight'] = 100 * (oos['weight'] - oos['weight'].min()) / (oos['weight'].max() - oos['weight'].min())
         oos_repeat = pd.DataFrame(np.repeat(oos.values, oos['weight'], axis=0), columns=oos.columns).astype(oos.dtypes)
 

@@ -89,7 +89,8 @@ def standardize_col_names(df: SparkDataFrame, col_names: Dict[str, str]) -> Spar
     col_mapping = {v: k for k, v in col_names.items()}
 
     for col in df.columns:
-        df = df.withColumnRenamed(col, col_mapping[col])
+        if col in col_mapping:
+            df = df.withColumnRenamed(col, col_mapping[col])
 
     return df
 
@@ -147,7 +148,33 @@ def load_cdr(cfg: Box,
 
     return cdr
 
+def load_labels(
+    cfg: Box,
+    fpath: Path = None,
+    verify: bool = True
+) -> SparkDataFrame:
 
+        """
+        Load labels on which to train ML model.
+        """
+        
+        spark = get_spark_session(cfg)
+        
+        # If the user specified column names for labels file, rename columns accordingly
+        labels = load_generic(cfg, fpath=fpath)
+        if 'labels' in cfg.col_names:
+            labels = standardize_col_names(labels, cfg.col_names.labels)
+        if verify:
+            required_cols = ['name', 'label']
+            error_msg = f'Labels must include columns {required_cols}.'
+            check_cols(labels, required_cols, error_msg)
+
+        if 'weight' not in labels.columns:
+            labels = labels.withColumn('weight', lit(1))
+
+        return labels.select(['name', 'label', 'weight'])
+
+                             
 def load_antennas(cfg: Box,
                   fpath: Optional[Path] = None,
                   df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
