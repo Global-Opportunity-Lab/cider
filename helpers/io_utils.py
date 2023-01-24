@@ -6,7 +6,8 @@ from box import Box
 from geopandas import GeoDataFrame
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import col, date_trunc, to_timestamp
+from pyspark.sql.functions import col, date_trunc, to_timestamp, lit
+
 
 from helpers.utils import get_spark_session
 
@@ -32,7 +33,7 @@ def load_generic(cfg: Box,
 
         # Load data if in chunks
         else:
-            df = spark.read.csv(str(fpath + '/*.csv'), header=True)
+            df = spark.read.csv(str(fpath / '*.csv'), header=True)
 
     # Load from pandas dataframe
     elif df is not None:

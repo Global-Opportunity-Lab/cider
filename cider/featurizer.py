@@ -19,8 +19,9 @@ from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (array, col, count, countDistinct, explode,
                                    first, lit, max, mean, min, stddev, sum)
-from pyspark.sql.types import StringType
+from pyspark.sql.types import StringType, DoubleType
 from pyspark.sql.utils import AnalysisException
+
 
 from .datastore import DataStore, DataType
 
@@ -417,6 +418,12 @@ class Featurizer:
         if self.ds.mobilemoney is None:
             raise ValueError('Mobile money file must be loaded to calculate mobile money features.')
         print('Calculating mobile money features...')
+        
+        # create dummy columns for missing field (resulting features will all take value N/A, so be
+        #  ignored during model-fitting). This logic should eventually be refined.
+        for col_name in ['sender_balance_before', 'sender_balance_after', 'recipient_balance_before', 'recipient_balance_after']:
+            if col_name not in self.ds.mobilemoney.columns:
+                self.ds.mobilemoney = self.ds.mobilemoney.withColumn(col_name, lit(None).cast(DoubleType()))
 
         # Get outgoing transactions
         sender_cols = ['txn_type', 'caller_id', 'recipient_id', 'day', 'amount', 'sender_balance_before',
