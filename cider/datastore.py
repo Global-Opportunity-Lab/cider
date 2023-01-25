@@ -237,6 +237,9 @@ class DataStore(InitializerInterface):
         self.features = read_csv(self.spark, self.features_path, header=True)
         if 'name' not in self.features.columns:
             raise ValueError('Features dataframe must include name column')
+            
+        if 'features_to_use' in self.cfg.params:
+            self.features = self.features.select(self.cfg.params.features_to_use)
 
     def _load_labels(self) -> None:
         """

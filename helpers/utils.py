@@ -26,6 +26,7 @@ import os
 import shutil
 from pathlib import Path
 from typing import List, Tuple, Union
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -45,14 +46,51 @@ def get_spark_session(cfg: Box) -> SparkSession:
     Gets or creates spark session, with context and logging preferences set
     """
     # Build spark session
-    spark = SparkSession \
-        .builder \
-        .appName(cfg.spark.app_name) \
-        .config("spark.sql.files.maxPartitionBytes", cfg.spark.files.max_partition_bytes) \
-        .config("spark.driver.memory", cfg.spark.driver.memory) \
-        .config("spark.driver.maxResultSize", cfg.spark.driver.max_result_size)\
-        .getOrCreate()
+    
+    # Recursively get all specified spark options
+    def all_spark_options(config: Box):
+        for key, value in config.items():
+            if value is None:
+                return None
+
+            elif isinstance(value, Box):
+                for r_key, r_value in all_spark_options(value):
+                    yield f'{key}.{r_key}', r_value
+        
+            else:
+                yield key, value
+
+    spark_session_builder = SparkSession.builder.config("spark.executorEnv.SPARK_LOG_DIR", "/home/nanoloans/spark_logs")
+    for spark_option, value in all_spark_options(cfg.spark):
+        spark_session_builder = spark_session_builder.config(f'spark.{spark_option}', value)
+    
+    # Cider config used to expect some Spark config specified a little differently - check for those entries
+    # for backwards compatibility. Throw warnings because this config file can't be understood using Spark
+    # documentation.
+    if 'app_name' in cfg.spark:
+        spark_session_builder = spark_session_builder.appName(cfg.spark.app_name)
+        warnings.warn('Please specify app name using spark: app: name rather than spark: app_name.')
+        
+    if ('files' in cfg.spark) and ('max_partition_bytes' in cfg.spark.files):
+        spark_session_builder = spark_session_builder.config("spark.sql.files.maxPartitionBytes", cfg.spark.files.max_partition_bytes) 
+        warnings.warn(
+            'Please specify max bytes per partition using variable name(s) specified at '
+            'https://spark.apache.org/docs/latest/configuration.html#available-properties'
+        )
+        
+    if ('driver' in cfg.spark) and ('max_result_size' in cfg.spark.driver):
+        spark_session_builder = (
+            spark_session_builder.config("spark.driver.maxResultSize", cfg.spark.driver.max_result_size)
+        )
+        warnings.warn(
+            'Please specify max result size using variable name(s) specified at '
+            'https://spark.apache.org/docs/latest/configuration.html#available-properties'
+        )
+
+    # Create the Spark session
+    spark = spark_session_builder.getOrCreate()
     spark.sparkContext.setLogLevel(cfg.spark.loglevel)
+    
     return spark
 
 
