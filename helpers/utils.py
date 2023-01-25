@@ -2,6 +2,7 @@ import os
 import shutil
 from pathlib import Path
 from typing import List, Tuple, Union
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -44,12 +45,12 @@ def get_spark_session(cfg: Box) -> SparkSession:
     # documentation.
     if 'app_name' in cfg.spark:
         spark_session_builder = spark_session_builder.appName(cfg.spark.app_name)
-        print('WARNING: Please specify app name using spark: app: name rather than spark: app_name.')
+        warnings.warn('Please specify app name using spark: app: name rather than spark: app_name.')
         
     if ('files' in cfg.spark) and ('max_partition_bytes' in cfg.spark.files):
         spark_session_builder = spark_session_builder.config("spark.sql.files.maxPartitionBytes", cfg.spark.files.max_partition_bytes) 
-        print(
-            'WARNING: Please specify max bytes per partition using variable name(s) specified at '
+        warnings.warn(
+            'Please specify max bytes per partition using variable name(s) specified at '
             'https://spark.apache.org/docs/latest/configuration.html#available-properties'
         )
         
@@ -57,8 +58,8 @@ def get_spark_session(cfg: Box) -> SparkSession:
         spark_session_builder = (
             spark_session_builder.config("spark.driver.maxResultSize", cfg.spark.driver.max_result_size)
         )
-        print(
-            'WARNING: Please specify max result size using variable name(s) specified at '
+        warnings.warn(
+            'Please specify max result size using variable name(s) specified at '
             'https://spark.apache.org/docs/latest/configuration.html#available-properties'
         )
 
