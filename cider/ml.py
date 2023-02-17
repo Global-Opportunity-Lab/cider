@@ -246,9 +246,9 @@ class Learner:
                   'test_r2': '%.2f (%.2f)' % (best_model['mean_test_r2'], best_model['std_test_r2']),
                   'train_rmse': '%.2f (%.2f)' % (
                       -best_model['mean_train_neg_root_mean_squared_error'],
-                      -best_model['std_train_neg_root_mean_squared_error']), 'test_rmse': '%.2f (%.2f)' % (
+                      best_model['std_train_neg_root_mean_squared_error']), 'test_rmse': '%.2f (%.2f)' % (
                 -best_model['mean_test_neg_root_mean_squared_error'],
-                -best_model['std_test_neg_root_mean_squared_error'])}
+                best_model['std_test_neg_root_mean_squared_error'])}
         with open(self.outputs / 'tuned_models' / model_name / 'results.json', 'w') as f:
             json.dump(scores, f)
 
