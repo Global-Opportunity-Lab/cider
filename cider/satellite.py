@@ -56,13 +56,12 @@ class Satellite:
                  clean_folders: bool = False):
         self.cfg = datastore.cfg
         self.ds = datastore
-        self.outputs = datastore.outputs + 'satellite/'
-
+        self.outputs = datastore.working_directory_path / 'satellite'
         # Prepare working directories
         make_dir(self.outputs, clean_folders)
-        make_dir(self.outputs + '/outputs/')
-        make_dir(self.outputs + '/maps/')
-        make_dir(self.outputs + '/tables/')
+        make_dir(self.outputs / 'outputs')
+        make_dir(self.outputs / 'maps')
+        make_dir(self.outputs / 'tables')
 
         # Spark setup
         spark = get_spark_session(self.cfg)
@@ -120,7 +119,7 @@ class Satellite:
         pop_fpath = self.cfg.input_data.file_paths.population
         pop_score_fpath = self.outputs + f'/pop_{dataset}.tif'
         if not os.path.isfile(pop_score_fpath):
-            temp_folder = self.outputs + '/temp'
+            temp_folder = self.outputs / 'temp'
             make_dir(temp_folder, remove=True)
             with rasterio.open(pop_fpath) as src:
                 meta = src.meta
@@ -149,7 +148,7 @@ class Satellite:
                             dst.write_band(idx + 1, band)
 
             # Open one raster to get metadata
-            new_raster_paths = glob.glob(temp_folder + '/*.tif')
+            new_raster_paths = glob.glob(temp_folder / '*.tif')
             src = rasterio.open(new_raster_paths[0])
 
             # Merge all rasters
@@ -166,7 +165,7 @@ class Satellite:
                 dest.write(mosaic)
 
         # Remove folder with intermediate rasters
-        shutil.rmtree(self.outputs + '/temp', ignore_errors=True)
+        shutil.rmtree(self.outputs / 'temp', ignore_errors=True)
 
         # Read raster with population and score bands, mask with admin shapes and aggregate
         out_data = []
@@ -185,7 +184,7 @@ class Satellite:
                               geometry='geometry')
 
         # Save shapefile
-        df.to_file(self.outputs + '/maps/' + geo + '_' + dataset + '.geojson', driver='GeoJSON')
+        df.to_file(self.outputs / 'maps' / f'{geo}_{dataset}.geojson', driver='GeoJSON')
 
         # Plot map
         fig, ax = plt.subplots(1, figsize=(10, 10))
@@ -195,5 +194,5 @@ class Satellite:
 
         ax.axis('off')
         plt.tight_layout()
-        plt.savefig(self.outputs + '/maps/' + geo + '_' + dataset + '.png', dpi=300)
+        plt.savefig(self.outputs / 'maps' / f'{geo}_{dataset}.png', dpi=300)
         plt.show()
