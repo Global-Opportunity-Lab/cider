@@ -576,6 +576,11 @@ class Featurizer:
         """
         if read_from_disk:
             self.load_features()
+            
+        # Recompute set of all features if it was already computed (perhaps the user has computed more 
+        # features since then)
+        if 'all' in self.features.keys():
+            del self.features['all']
 
         all_features_list = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         if all_features_list:
@@ -594,49 +599,84 @@ class Featurizer:
         Args:
             read_from_disk: whether to load features from disk
         """
+        
+        def check_feature_existence(keys, names, feature_dataframe):
+            existing_keys = []
+            existing_names = []
+            for key, name in zip(keys, names):
+                if key in feature_dataframe.columns:
+                    existing_keys.append(key)
+                    existing_names.append(name)
+                    
+            return existing_keys, existing_names
+
         if read_from_disk:
             self.load_features()
 
         # Plot of distributions of CDR features
         if self.features['cdr'] is not None:
-            features = ['cdr_active_days__allweek__day__callandtext', 'cdr_call_duration__allweek__allday__call__mean',
-                        'cdr_number_of_antennas__allweek__allday']
+            
+            # Features are given different names by spark and bandicoot featurization logic; here we check
+            # which exists.
+            active_days_key = (
+                'cdr_active_days__allweek__day__callandtext' 
+                if 'cdr_active_days__allweek__day__callandtext' in self.features['cdr'].columns
+                else 'active_days_allweek_allday'
+            )
+            mean_call_duration_key = (
+                'cdr_call_duration__allweek__allday__call__mean' 
+                if 'cdr_call_duration__allweek__allday__call__mean' in self.features['cdr'].columns
+                else 'call_duration_allweek_allday_call_mean'
+            )
+            number_of_antennas_key = (
+                'cdr_number_of_antennas__allweek__allday' 
+                if 'cdr_number_of_antennas__allweek__allday' in self.features['cdr'].columns
+                else 'number_of_antennas_allweek_allday'
+            )
+            feature_keys = [active_days_key, mean_call_duration_key, number_of_antennas_key]
             names = ['Active Days', 'Mean Call Duration', 'Number of Antennas']
-            distributions_plot(self.features['cdr'], features, names, color='indianred')
+            feature_keys, names = check_feature_existence(feature_keys, names, self.features['cdr'])
+            distributions_plot(self.features['cdr'], feature_keys, names, color='indianred')
             plt.savefig(self.outputs_path / 'plots' / 'cdr.png', dpi=300)
             plt.show()
 
         # Plot of distributions of international features
         if self.features['international'] is not None:
-            features = ['international_all__recipient_id__count', 'international_all__recipient_id__nunique',
+            feature_keys = ['international_all__recipient_id__count', 'international_all__recipient_id__nunique',
                         'international_call__duration__sum']
             names = ['International Transactions', 'International Contacts', 'Total International Call Time']
-            distributions_plot(self.features['international'], features, names, color='darkorange')
+            feature_keys, names = check_feature_existence(feature_keys, names, self.features['international'])
+
+            distributions_plot(self.features['international'], feature_keys, names, color='darkorange')
             plt.savefig(self.outputs_path / 'plots' / 'internation.png', dpi=300)
             plt.show()
 
         # Plot of distributions of recharges features
         if self.features['recharges'] is not None:
-            features = ['recharges_mean', 'recharges_count', 'recharges_days']
+            feature_keys = ['recharges_mean', 'recharges_count', 'recharges_days']
             names = ['Mean Recharge Amount', 'Number of Recharges', 'Number of Days with Recharges']
-            distributions_plot(self.features['recharges'], features, names, color='mediumseagreen')
+            feature_keys, names = check_feature_existence(feature_keys, names, self.features['recharges'])
+
+            distributions_plot(self.features['recharges'], feature_keys, names, color='mediumseagreen')
             plt.savefig(self.outputs_path / 'plots' / 'recharges.png', dpi=300)
             plt.show()
 
         # Plot of distributions of mobile data features
         if self.features['mobiledata'] is not None:
-            features = ['mobiledata_total_volume', 'mobiledata_mean_volume', 'mobiledata_num_days']
+            feature_keys = ['mobiledata_total_volume', 'mobiledata_mean_volume', 'mobiledata_num_days']
             names = ['Total Volume (MB)', 'Mean Transaction Volume (MB)', 'Number of Days with Data Usage']
-            distributions_plot(self.features['mobiledata'], features, names, color='dodgerblue')
+            feature_keys, names = check_feature_existence(feature_keys, names, self.features['mobiledata'])
+            distributions_plot(self.features['mobiledata'], feature_keys, names, color='dodgerblue')
             plt.savefig(self.outputs_path / 'plots' / 'mobiledata.png', dpi=300)
             plt.show()
 
         # Plot of distributions of mobile money features
         if self.features['mobilemoney'] is not None:
-            features = ['mobilemoney_all_all_amount_mean', 'mobilemoney_all_all_balance_before_mean',
+            feature_keys = ['mobilemoney_all_all_amount_mean', 'mobilemoney_all_all_balance_before_mean',
                         'mobilemoney_all_all_txns', 'mobilemoney_all_cashout_txns']
             names = ['Mean Amount', 'Mean Balance', 'Transactions', 'Cashout Transactions']
-            distributions_plot(self.features['mobilemoney'], features, names, color='orchid')
+            feature_keys, names = check_feature_existence(feature_keys, names, self.features['mobilemoney'])
+            distributions_plot(self.features['mobilemoney'], feature_keys, names, color='orchid')
             plt.savefig(self.outputs_path / 'plots' / 'mobilemoney.png', dpi=300)
             plt.show()
 
