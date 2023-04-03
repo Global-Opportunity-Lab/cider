@@ -330,6 +330,11 @@ class Fairness:
 
         # Set up figure
         fig, ax = plt.subplots(1, len(proxies), figsize=(20, 7), sharey=True)
+        # Ensure that ax is subscriptable even if there's just one proxy
+        try:
+            ax[0]
+        except TypeError:
+            ax = [ax]
         max_resid = 0
 
         # Set up color palette

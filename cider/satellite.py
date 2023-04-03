@@ -117,7 +117,7 @@ class Satellite:
 
         # Read raster with population data, mask with scores and create new score band, write multiband output
         pop_fpath = self.cfg.input_data.file_paths.population
-        pop_score_fpath = self.outputs + f'/pop_{dataset}.tif'
+        pop_score_fpath = self.outputs / 'pop_{dataset}.tif'
         if not os.path.isfile(pop_score_fpath):
             temp_folder = self.outputs / 'temp'
             make_dir(temp_folder, remove=True)
@@ -143,7 +143,7 @@ class Satellite:
                                      'nodata': 0})
 
                     # Write to out file
-                    with rasterio.open(temp_folder + f'/{i}.tif', 'w', **new_meta) as dst:
+                    with rasterio.open(temp_folder / f'{i}.tif', 'w', **new_meta) as dst:
                         for idx, band in enumerate([out_image, new_band]):
                             dst.write_band(idx + 1, band)
 

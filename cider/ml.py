@@ -190,9 +190,9 @@ class Learner:
         scores = {'train_r2': '%.2f (%.2f)' % (raw_scores['train_r2'].mean(), raw_scores['train_r2'].std()),
                   'test_r2': '%.2f (%.2f)' % (raw_scores['test_r2'].mean(), raw_scores['test_r2'].std()),
                   'train_rmse': '%.2f (%.2f)' % (-raw_scores['train_neg_root_mean_squared_error'].mean(),
-                                                 -raw_scores['train_neg_root_mean_squared_error'].std()),
+                                                 raw_scores['train_neg_root_mean_squared_error'].std()),
                   'test_rmse': '%.2f (%.2f)' % (-raw_scores['test_neg_root_mean_squared_error'].mean(),
-                                                -raw_scores['test_neg_root_mean_squared_error'].std())}
+                                                raw_scores['test_neg_root_mean_squared_error'].std())}
         with open(self.outputs / 'untuned_models' / model_name / 'results.json', 'w') as f:
             json.dump(scores, f)
 
@@ -427,7 +427,13 @@ class Learner:
         plt.savefig(self.outputs / subdir / model_name / 'scatterplot.png', dpi=300)
         plt.show()
 
-    def feature_importances_plot(self, model_name: str, kind: str = 'tuned', n_features: int = 20) -> None:
+    def feature_importances_plot(
+        self,
+        model_name: str, 
+        kind: str = 'tuned', 
+        n_features: int = 20,
+        plot_title = 'Feature Importances'
+    ) -> None:
         """
         Produces horizontal bar plots of already calculated feature importances.
 
@@ -464,7 +470,7 @@ class Learner:
 
         ax.barh(importances['Feature'], importances['Importance'], color=importances['color'])
 
-        ax.set_title('Feature Importances', fontsize='large')
+        ax.set_title(plot_title, fontsize='large')
         ax.set_xlabel('Feature Importance')
         clean_plot(ax)
 
