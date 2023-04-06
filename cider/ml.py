@@ -279,7 +279,9 @@ class Learner:
             from autogluon.tabular import TabularPredictor  # type: ignore[import]
         except ModuleNotFoundError:
             raise ImportError(
-                "Optional dependency autogluon is required for automl. Please install it (e.g. using pip)."
+                "Optional dependency autogluon is required for automl. Please install it (e.g. using pip). "
+                "Note that autogluon does not support python 3.9, so you must be using python 3.8 for this "
+                "to work.
             )
         make_dir(self.outputs/ 'automl_models' / model_name)
 
