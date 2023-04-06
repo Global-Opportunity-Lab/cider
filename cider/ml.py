@@ -33,7 +33,6 @@ from typing import Dict, Optional, Tuple
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
-from autogluon.tabular import TabularPredictor  # type: ignore[import]
 from helpers.ml_utils import (DropMissing, Winsorizer, auc_overall, load_model,
                               metrics)
 from helpers.plot_utils import clean_plot
@@ -273,8 +272,15 @@ class Learner:
         Args:
             model_name: The name of the AutoML library to use - currently it only supports 'autogluon' (AutoGluon).
         """
+
         # Make sure model_name is correct, get relevant cfg
         assert model_name in ['autogluon']
+        try:
+            from autogluon.tabular import TabularPredictor  # type: ignore[import]
+        except ModuleNotFoundError:
+            raise ImportError(
+                "Optional dependency autogluon is required for automl. Please install it (e.g. using pip)."
+            )
         make_dir(self.outputs/ 'automl_models' / model_name)
 
         if model_name == 'autogluon':

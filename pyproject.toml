@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "Poverty prediction and location inference with mobile phone call data records"
 authors = ["Emily Aiken, Lucio Melito, Andrew Vaziri"]
 
+
 [tool.poetry.dependencies]
-python = ">=3.8,<3.9"
+python = ">=3.8,<3.10"
 pandas = "^1.3.3"
 numpy = "^1.21.2"
 bandicoot = "^0.6.0"
@@ -30,8 +31,8 @@ pandas-stubs = "^1.2.0"
 setuptools = "^58.2.0"
 wheel = "^0.37.0"
 mxnet = ">=1.7.0, <2.0.0"
-autogluon = "^0.3.1"
 Rtree = "^0.9.7"
+autogluon = { version = "^0.3.1", optional = true }
 
 [tool.poetry.dev-dependencies]
 ipykernel = "^6.4.1"
