@@ -150,7 +150,7 @@ class DataStore(InitializerInterface):
             dataframe: spark/pandas df to assign if available
         """
 
-        fpath = self.input_data_file_paths.cdr
+        fpath = self._get_input_data_file_path('cdr')
         if fpath or dataframe is not None:
             print('Loading CDR...')
             cdr = load_cdr(self.cfg, fpath, df=dataframe)
@@ -163,7 +163,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.input_data_file_paths.antennas
+        fpath = self._get_input_data_file_path('antennas')
         if fpath or dataframe is not None:
             print('Loading antennas...')
             self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
@@ -175,7 +175,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.input_data_file_paths.recharges
+        fpath = self._get_input_data_file_path('recharges')
         if fpath or dataframe is not None:
             print('Loading recharges...')
             self.recharges = load_recharges(self.cfg, fpath, df=dataframe)
@@ -188,7 +188,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.input_data_file_paths.mobiledata
+        fpath = self._get_input_data_file_path('mobiledata')
         if fpath or dataframe is not None:
             print('Loading mobile data...')
             self.mobiledata = load_mobiledata(self.cfg, fpath, df=dataframe)
@@ -200,7 +200,7 @@ class DataStore(InitializerInterface):
         Args:
             dataframe: spark/pandas df to assign if available
         """
-        fpath = self.input_data_file_paths.mobilemoney
+        fpath = self._get_input_data_file_path('mobilemoney')
         if fpath or dataframe is not None:
             print('Loading mobile data...')
             self.mobilemoney = load_mobilemoney(self.cfg, fpath, df=dataframe)
@@ -210,7 +210,7 @@ class DataStore(InitializerInterface):
         Iterate through shapefiles specified in config and load them in self.shapefiles dictionary
         """
         # Load shapefiles
-        shapefiles = self.input_data_file_paths.shapefiles
+        shapefiles = self._get_input_data_file_path('shapefiles', missing_allowed=False)
         for shapefile_name, shapefile_fpath in shapefiles.items():
             self.shapefiles[shapefile_name] = load_shapefile(shapefile_fpath)
 
@@ -218,17 +218,16 @@ class DataStore(InitializerInterface):
         """
         Load ground truth data for home locations
         """
-        if self.input_data_file_paths.home_ground_truth is not None:
-            self.home_ground_truth = pd.read_csv(self.input_data_file_paths.home_ground_truth)
-        else:
-            print('No ground truth data for home locations has been specified.')
-
+        home_ground_truth_fpath = self._get_input_data_file_path('home_ground_truth', missing_allowed=False)
+        self.home_ground_truth = pd.read_csv(home_ground_truth_fpath)
+        
     def _load_poverty_scores(self) -> None:
         """
         Load poverty scores (e.g. those produced by the ML module)
         """
-        if self.input_data_file_paths.poverty_scores is not None:
-            self.poverty_scores = pd.read_csv(self.input_data_file_paths.poverty_scores)
+        poverty_scores_fpath = self._get_input_data_file_path('poverty_scores')
+        if poverty_scores_fpath is not None:
+            self.poverty_scores = pd.read_csv(poverty_scores_fpath)
         else:
             self.poverty_scores = pd.DataFrame()
 
@@ -248,13 +247,16 @@ class DataStore(InitializerInterface):
         """
         Load labels to train ML model on
         """
-        self.labels = load_labels(self.cfg, self.input_data_file_paths.labels)
+        print('running')
+        labels_fpath = self._get_input_data_file_path('labels', missing_allowed=True)
+        if labels_fpath is not None:
+            self.labels = load_labels(self.cfg, labels_fpath)
 
     def _load_targeting(self) -> None:
         """
         Load targeting data.
         """
-        self.targeting = pd.read_csv(self.input_data_file_paths.targeting)
+        self.targeting = pd.read_csv(self._get_input_data_file_path('targeting', missing_allowed=False))
         self.targeting['random'] = np.random.rand(len(self.targeting))
 
         # TODO: use decorator
@@ -279,7 +281,7 @@ class DataStore(InitializerInterface):
         """
         Load fairness data.
         """
-        self.fairness = pd.read_csv(self.input_data_file_paths.fairness)
+        self.fairness = pd.read_csv(self._get_input_data_file_path('fairness', missing_allowed=False))
         self.fairness['random'] = np.random.rand(len(self.fairness))
 
         # TODO: use decorator
@@ -302,19 +304,18 @@ class DataStore(InitializerInterface):
 
     def _load_wealth_map(self) -> None:
         # Load wealth/income map
-        if self.input_data_file_paths.rwi:
-            self.rwi = pd.read_csv(self.input_data_file_paths.rwi)
-        else:
-            raise ValueError("Missing path to wealth map in config file.")
+        rwi_fpath = self._get_input_data_file_path('rwi', missing_allowed=False)
+        self.rwi = pd.read_csv(rwi_fpath)
 
     def _load_survey(self, dataframe: Optional[PandasDataFrame] = None) -> None:
         # Load survey data from disk if dataframe not available
         if dataframe is not None:
             self.survey_data = dataframe
-        elif self.input_data_file_paths.survey is not None:
-            self.survey_data = pd.read_csv(self.input_data_file_paths.survey)
         else:
-            raise ValueError("Missing path to survey data in config file.")
+            self.survey_data = pd.read_csv(
+                self._get_input_data_file_path('survey', missing_allowed=False)
+            )
+        
         # Add weights column if missing
         if 'weight' not in self.survey_data.columns:
             self.survey_data['weight'] = 1
@@ -341,12 +342,17 @@ class DataStore(InitializerInterface):
         # Make the smallest weight 1
         self.weights = self.merged['weight'] / self.merged['weight'].min()
 
-    def load_data(self, data_type_map: Mapping[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
+    def load_data(
+        self, 
+        data_type_map: Mapping[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]],
+        all_required: bool = True
+    ) -> None:
         """
         Load all datasets defined by data_type_map; raise an error if any of them failed to load
 
         Args:
             data_type_map: mapping between DataType(s) and dataframes, if provided. If None look at config file
+            all_required: If True, throws an error if any dataset specified fails to load or is not provided.
         """
         # Iterate through provided dtypes and load respective datasets
         for key, value in data_type_map.items():
@@ -356,14 +362,19 @@ class DataStore(InitializerInterface):
             else:
                 fn()
 
-        # Check if any datasets failed to load, raise an error if true
-        failed_load = []
-        for key in data_type_map:
-            dataset = key.name.lower()
-            if getattr(self, dataset) is None:
-                failed_load.append(dataset)
-        if failed_load:
-            raise ValueError(f"The following datasets failed to load: {', '.join(failed_load)}")
+        # If needed, check if any datasets failed to load, raise an error if true
+        if all_required:
+            failed_load = []
+            for key in data_type_map:
+                dataset_name = key.name.lower()
+                try:
+                    dataset = getattr(self, dataset_name)
+                except AttributeError:
+                    failed_load.append(dataset_name)
+            if failed_load:
+                raise ValueError(
+                    f"The following datasets failed to load. Perhaps no path is specified in config?: {', '.join(failed_load)}"
+                )
 
     def filter_dates(self, start_date: str, end_date: str) -> None:
         """
@@ -497,6 +508,16 @@ class DataStore(InitializerInterface):
 
         return outliers
 
+    def _get_input_data_file_path(self, key, missing_allowed=True):
+
+        if key in self.input_data_file_paths:
+            return self.input_data_file_paths[key]
+
+        elif missing_allowed:
+            return None
+
+        raise ValueError(f'Missing path to {key} in config.')
+
 
 class OptDataStore(DataStore):
     def __init__(self, config_file_path_string: str):
@@ -550,8 +571,9 @@ class OptDataStore(DataStore):
                                                        opt_in=self.cfg.params.opt_in_default)
 
         # Check if a user consent file has been provided, and if so set consent flags appropriately
-        if read_from_file and self.input_data_file_paths.user_consent is not None:
-            user_consent_df = pd.read_csv(self.input_data_file_paths.user_consent)
+        user_consent_fpath = self._get_input_data_file_path('user_consent')
+        if read_from_file and user_consent_fpath is not None:
+            user_consent_df = pd.read_csv(user_consent_fpath)
             if 'user_id' not in user_consent_df.columns:
                 raise ValueError("The user consent table should have a 'user_id' column")
             # If there's just a user id column, set those user ids' consent to the opposite of opt_in_default
