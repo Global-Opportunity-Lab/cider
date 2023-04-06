@@ -247,13 +247,16 @@ class DataStore(InitializerInterface):
         """
         Load labels to train ML model on
         """
-        self.labels = load_labels(self.cfg, self._get_input_data_file_path('labels'))
+        print('running')
+        labels_fpath = self._get_input_data_file_path('labels', missing_allowed=True)
+        if labels_fpath is not None:
+            self.labels = load_labels(self.cfg, labels_fpath)
 
     def _load_targeting(self) -> None:
         """
         Load targeting data.
         """
-        self.targeting = pd.read_csv(self._get_input_data_file_path('targeting'))
+        self.targeting = pd.read_csv(self._get_input_data_file_path('targeting', missing_allowed=False))
         self.targeting['random'] = np.random.rand(len(self.targeting))
 
         # TODO: use decorator
@@ -278,7 +281,7 @@ class DataStore(InitializerInterface):
         """
         Load fairness data.
         """
-        self.fairness = pd.read_csv(self._get_input_data_file_path('fairness'))
+        self.fairness = pd.read_csv(self._get_input_data_file_path('fairness', missing_allowed=False))
         self.fairness['random'] = np.random.rand(len(self.fairness))
 
         # TODO: use decorator
@@ -342,7 +345,7 @@ class DataStore(InitializerInterface):
     def load_data(
         self, 
         data_type_map: Mapping[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]],
-        all_required = True
+        all_required: bool = True
     ) -> None:
         """
         Load all datasets defined by data_type_map; raise an error if any of them failed to load
@@ -368,9 +371,6 @@ class DataStore(InitializerInterface):
                     dataset = getattr(self, dataset_name)
                 except AttributeError:
                     failed_load.append(dataset_name)
-                else:
-                    if dataset is None:
-                        failed_load.append(dataset_name)
             if failed_load:
                 raise ValueError(
                     f"The following datasets failed to load. Perhaps no path is specified in config?: {', '.join(failed_load)}"

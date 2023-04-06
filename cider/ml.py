@@ -440,7 +440,7 @@ class Learner:
         model_name: str, 
         kind: str = 'tuned', 
         n_features: int = 20,
-        plot_title = 'Feature Importances'
+        plot_title: str = 'Feature Importances'
     ) -> None:
         """
         Produces horizontal bar plots of already calculated feature importances.
