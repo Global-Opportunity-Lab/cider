@@ -723,8 +723,7 @@ class Featurizer:
             else:
                 mobilemoney_subscribers = None
 
-            features = ['cdr_active_days__allweek__day__callandtext', 'cdr_call_duration__allweek__allday__call__mean',
-                        'cdr_number_of_antennas__allweek__allday']
+            features = [active_days_key, mean_call_duration_key, number_of_antennas_key]
             names = ['Active Days', 'Mean Call Duration', 'Number of Antennas']
 
             fig, ax = plt.subplots(1, len(features), figsize=(20, 5))
