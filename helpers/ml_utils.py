@@ -26,7 +26,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import annotations
-from autogluon.tabular import TabularPredictor  # type: ignore[import]
 from helpers.utils import make_dir, strictly_increasing
 from joblib import load  # type: ignore[import]
 import numpy as np
@@ -183,6 +182,15 @@ def load_model(model: str, out_path: Path, kind: str = 'tuned'):
         model_name = model
         model = load(full_path)
     elif full_path.is_dir():
+        try:
+            from autogluon.tabular import TabularPredictor  # type: ignore[import]
+        except ModuleNotFoundError:
+            raise ImportError(
+                "Specified model appears to be an automl model. Optional dependency autogluon is required for automl." 
+                "Please install it (e.g. using pip). "
+                "Note that autogluon does not support python 3.9, so you must be using python 3.8 for this "
+                "to work."
+            )
         model_name = model
         model = TabularPredictor.load(full_path)
     elif os.path.isfile(model):
