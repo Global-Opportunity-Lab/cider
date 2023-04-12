@@ -33,7 +33,6 @@ path:
       survey: 'survey.csv'
       targeting: 'targeting.csv'
       user_consent: null
-      features: 'features.csv'
   working:
     directory_path: "walkthrough_outputs/"
 
