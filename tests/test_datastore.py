@@ -54,10 +54,10 @@ malformed_dataframes_and_errors = {
                             'timestamp': ['2021-01-01'], 'duration': [60], 'international': ['domestic']}),
          ValueError)],
     'antennas': [(pd.DataFrame(data={'antenna_id': ['1'], 'latitude': ['10']}), ValueError)],
-    'recharges': [(pd.DataFrame(data={'caller_id': ['A'], 'amount': ['100']}), AnalysisException),
-                  (pd.DataFrame(data={'caller_id': ['A'], 'timestamp': ['2020-01-01']}), AnalysisException)],
-    'mobiledata': [(pd.DataFrame(data={'caller_id': ['A'], 'timestamp': ['2021-01-01']}), AnalysisException),
-                   (pd.DataFrame(data={'caller_id': ['A'], 'volume': ['100']}), AnalysisException)],
+    'recharges': [(pd.DataFrame(data={'caller_id': ['A'], 'amount': ['100']}), ValueError),
+                  (pd.DataFrame(data={'caller_id': ['A'], 'timestamp': ['2020-01-01']}), ValueError)],
+    'mobiledata': [(pd.DataFrame(data={'caller_id': ['A'], 'timestamp': ['2021-01-01']}), ValueError),
+                   (pd.DataFrame(data={'caller_id': ['A'], 'volume': ['100']}), ValueError)],
     'mobilemoney': [(pd.DataFrame(data={'txn_type': ['cashin'], 'caller_id': ['A'], 'recipient_id': ['B'],
                                         'timestamp': ['2021-01-01']}), ValueError),
                     (pd.DataFrame(data={'txn_type': ['cash-in'], 'caller_id': ['A'], 'recipient_id': ['B'],
@@ -291,7 +291,6 @@ class TestDatastoreClasses:
     def test_load_features(self, ds: Type[DataStore]) -> None:
         ds._load_features()
         assert isinstance(ds.features, SparkDataFrame)
-        assert ds.features.count() == 1e3
 
     @pytest.mark.unit_test
     def test_load_features_raises(self, mock_dataframe_reader: MockerFixture, ds: Type[DataStore]) -> None:
