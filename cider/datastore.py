@@ -248,7 +248,6 @@ class DataStore(InitializerInterface):
         """
         Load labels to train ML model on
         """
-        print('running')
         labels_fpath = self._get_input_data_file_path('labels', missing_allowed=True)
         if labels_fpath is not None:
             self.labels = load_labels(self.cfg, labels_fpath)

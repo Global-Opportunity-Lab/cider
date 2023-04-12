@@ -125,20 +125,15 @@ class Anonymizer:
         
         dataset_with_anonymized_columns = dataset
         
-        # reverse iteration order to get the new columns in the specified order, at the beginning
-        # of the dataframe.
-        for column_name in reversed(column_names):
+        for column_name in column_names:
             
             if column_name in dataset.columns:
                 
                 new_column = udf(
                     lambda raw: Anonymizer._check_identifier_format_and_hash(raw, encoder, format_checker), StringType()
-                )(dataset[column_name]).alias(f'{column_name}_anonymized')
+                )(dataset[column_name])
                 
-                # using the select function (instead of withColumn) places the new column at the beginning of the df
-                dataset_with_anonymized_columns = (
-                    dataset_with_anonymized_columns.select(new_column, '*').drop(column_name)
-                )
+                dataset_with_anonymized_columns = dataset_with_anonymized_columns.withColumn(column_name, new_column)
 
         save_df(dataset_with_anonymized_columns, self.outputs_path / 'outputs' / f'{dataset_name}.csv')
 
