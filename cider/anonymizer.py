@@ -34,7 +34,8 @@ from hashids import Hashids
 from numpy import isnan
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import udf
+from pyspark.sql.functions import col, date_format, udf
+
 from pyspark.sql.types import StringType
 
 from helpers.utils import make_dir, save_df
@@ -134,7 +135,12 @@ class Anonymizer:
                 )(dataset[column_name])
                 
                 dataset_with_anonymized_columns = dataset_with_anonymized_columns.withColumn(column_name, new_column)
-
+        
+        # Make sure timestamp column is formatted properly to be read back in
+        if 'timestamp' in dataset_with_anonymized_columns.columns:
+            dataset_with_anonymized_columns = (
+                dataset_with_anonymized_columns.withColumn("timestamp",  date_format(col("timestamp"), 'yyyy-MM-dd HH:mm:ss')))
+        
         save_df(dataset_with_anonymized_columns, self.outputs_path / 'outputs' / f'{dataset_name}.csv')
 
         
