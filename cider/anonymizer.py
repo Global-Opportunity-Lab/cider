@@ -140,6 +140,11 @@ class Anonymizer:
         if 'timestamp' in dataset_with_anonymized_columns.columns:
             dataset_with_anonymized_columns = (
                 dataset_with_anonymized_columns.withColumn("timestamp",  date_format(col("timestamp"), 'yyyy-MM-dd HH:mm:ss')))
+
+        # Cider adds a 'day' column by extracting the day from the timestamp. Remove it; it's not expected to be present in input files.
+        # TODO: Perhaps we should add suffixes or otherwise distinguish generated columns in Cider, to make this robust.
+        if 'day' in dataset_with_anonymized_columns.columns:
+            dataset_with_anonymized_columns = dataset_with_anonymized_columns.drop(col('day'))
         
         save_df(dataset_with_anonymized_columns, self.outputs_path / 'outputs' / f'{dataset_name}.csv')
 

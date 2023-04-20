@@ -16,15 +16,15 @@ path:
     directory_path: "synthetic_data"
     file_paths:
       antennas: 'antennas.csv'
-      cdr: 'cdr.csv'
+      cdr: 'anonymized/cdr.csv'
       fairness: 'fairness.csv'
       home_ground_truth: 'home_locations.csv'
-      labels: 'labels.csv'
-      mobiledata: 'mobiledata.csv'
-      mobilemoney: 'mobilemoney.csv'
+      labels: 'anonymized/labels.csv'
+      mobiledata: 'anonymized/mobiledata.csv'
+      mobilemoney: 'anonymized/mobilemoney.csv'
       population: 'population_tgo_2019-07-01.tif'
       poverty_scores: null
-      recharges: 'recharges.csv'
+      recharges: 'anonymized/recharges.csv'
       rwi: 'TGO_relative_wealth_index.csv'
       shapefiles:
         regions: 'regions.geojson'
@@ -33,7 +33,6 @@ path:
       survey: 'survey.csv'
       targeting: 'targeting.csv'
       user_consent: null
-      features: 'features.csv'
   working:
     directory_path: "walkthrough_outputs/"
 
