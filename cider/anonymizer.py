@@ -67,7 +67,15 @@ class Anonymizer:
         make_dir(self.outputs_path, clean_folders)
         make_dir(self.outputs_path / 'outputs')
 
-        with open(self.cfg.path.input_data.file_paths.anonymization_salt, 'r') as saltfile:
+        try:
+            salt_file_path = self.cfg.path.input_data.file_paths.anonymization_salt
+        except KeyError:
+            raise ValueError(
+                'Anonymization requires a salt. Please include a path to a salt in your configuration file '
+                'using the `path:input_data:file_paths:salt` key.'
+            )
+
+        with open(salt_file_path, 'r') as saltfile:
             salt = saltfile.read().strip() 
 
         self.encoder = Hashids(salt=salt, min_length=16)
