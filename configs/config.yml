@@ -1,10 +1,12 @@
 spark:
-  app_name: "mm"
-  files:
-    max_partition_bytes: 67108864
+  app:
+    name: "mm"
+  sql:
+    files:
+      maxPartitionBytes: 67108864
   driver:
     memory: "8g"
-    max_result_size: "2g"
+    maxResultSize: "2g"
   loglevel: "ERROR"
 
 

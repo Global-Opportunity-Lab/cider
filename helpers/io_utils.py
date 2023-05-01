@@ -33,8 +33,7 @@ from box import Box
 from geopandas import GeoDataFrame
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import col, date_trunc, to_timestamp, lit
-
+from pyspark.sql.functions import col, date_trunc, lit, to_timestamp
 
 from helpers.utils import get_spark_session
 
@@ -156,7 +155,10 @@ def load_cdr(cfg: Box,
     if verify:
         # Check that required columns are present
         required_cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'duration', 'international']
-        error_msg = 'CDR format incorrect. CDR must include the following columns: ' + ', '.join(required_cols)
+        error_msg = (
+            f"CDR data format incorrect. CDR must include the following columns: {', '.join(required_cols)}, "
+            f"instead found {', '.join(cdr.columns)}"
+        )
         check_cols(cdr, required_cols, error_msg)
 
         # Check txn_type column
@@ -194,7 +196,10 @@ def load_labels(
             labels = standardize_col_names(labels, cfg.col_names.labels)
         if verify:
             required_cols = ['name', 'label']
-            error_msg = f'Labels must include columns {required_cols}.'
+            error_msg = (
+                f"Labels data format incorrect. Labels must include the following columns: {', '.join(required_cols)}, "
+                f"instead found {', '.join(labels.columns)}"
+            )
             check_cols(labels, required_cols, error_msg)
 
         if 'weight' not in labels.columns:
@@ -235,8 +240,10 @@ def load_antennas(cfg: Box,
 
     if verify:
         required_cols = ['antenna_id', 'latitude', 'longitude']
-        error_msg = 'Antenna format incorrect. Antenna dataset must include the following columns: ' + ', '.join(
-            required_cols)
+        error_msg = (
+            f"Antenna data format incorrect. Antenna data must include the following columns: {', '.join(required_cols)}, "
+            f"instead found {', '.join(antennas.columns)}"
+        )
         check_cols(antennas, required_cols, error_msg)
 
         antennas = antennas.withColumn('latitude', col('latitude').cast('float')).withColumn('longitude',
@@ -276,11 +283,17 @@ def load_recharges(cfg: Box,
         raise ValueError('No filename or pandas/spark dataframe provided.')
     recharges = standardize_col_names(recharges, cfg.col_names.recharges)
 
+    required_cols = ['caller_id', 'amount', 'timestamp']
+    error_msg = (
+        f"Recharges data format incorrect. Recharges must include the following columns: {', '.join(required_cols)}, "
+        f"instead found {', '.join(recharges.columns)}"
+    )
+    check_cols(recharges, required_cols, error_msg)
     # Clean timestamp column
     recharges = recharges.withColumn('timestamp', to_timestamp('timestamp', 'yyyy-MM-dd HH:mm:ss')) \
         .withColumn('day', date_trunc('day', col('timestamp')))
 
-    # Clean duration column
+    # Clean amount column
     recharges = recharges.withColumn('amount', col('amount').cast('float'))
 
     return recharges
@@ -314,6 +327,13 @@ def load_mobiledata(cfg: Box,
         raise ValueError('No filename or pandas/spark dataframe provided.')
 
     mobiledata = standardize_col_names(mobiledata, cfg.col_names.mobiledata)
+
+    required_cols = ['caller_id', 'volume', 'timestamp']
+    error_msg = (
+        f"Mobile data format incorrect. Mobile data records must include the following columns: {', '.join(required_cols)}, "
+        f"instead found {', '.join(mobiledata.columns)}"
+    )
+    check_cols(mobiledata, required_cols, error_msg)
 
     # Clean timestamp column
     mobiledata = mobiledata.withColumn('timestamp', to_timestamp('timestamp', 'yyyy-MM-dd HH:mm:ss')) \
@@ -358,8 +378,11 @@ def load_mobilemoney(cfg: Box,
     if verify:
         # Check that required columns are present
         required_cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'amount']
-        error_msg = 'Mobile money format incorrect. Mobile money records must include the following columns: ' + \
-                    ', '.join(required_cols)
+        error_msg = (
+            f"Mobiile money data format incorrect. Mobile money must include the following columns: {', '.join(required_cols)}, "
+            f"instead found {', '.join(mobilemoney.columns)}"
+        )
+
         check_cols(mobilemoney, required_cols, error_msg)
 
         # Check txn_type column
@@ -396,7 +419,10 @@ def load_shapefile(fpath: Path) -> GeoDataFrame:
 
     # Verify that columns are correct
     required_cols = ['region', 'geometry']
-    error_msg = 'Shapefile format incorrect. Shapefile must include the following columns: ' + ', '.join(required_cols)
+    error_msg = (
+        f"Shapefile data format incorrect. Shapefile must include the following columns: {', '.join(required_cols)}, "
+        f"instead found {', '.join(shapefile.columns)}"
+    )
     check_cols(shapefile, required_cols, error_msg)
 
     # Verify that the geometry column has been loaded correctly

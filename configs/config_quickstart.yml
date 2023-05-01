@@ -33,8 +33,13 @@ path:
       survey: 'survey.csv'
       targeting: 'targeting.csv'
       user_consent: null
+      anonymization_salt: 'salt.txt'
+      # A pre-existing set of features has been copied to the input
+      # directory. Comment this line to instead use outputs from the
+      # featurization notebook.
+      features: 'features.csv'
   working:
-    directory_path: "../outputs/"
+    directory_path: "synthetic_outputs/"
 
 
 col_names:

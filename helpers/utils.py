@@ -380,7 +380,11 @@ def build_config_from_file(config_file_path_string: str) -> Box:
     processed_path_dict['input_data'] = recursively_convert_to_path_and_resolve(input_path_dict['input_data'], input_data_directory_path)
     processed_path_dict['working'] = recursively_convert_to_path_and_resolve(input_path_dict['working'], working_directory_path)
 
-        
+    # Correct the top-level directorypaths which should be interpreted differently: Otherwise the final leg of the directory
+    # path will be repeated.
+    processed_path_dict['input_data']['directory_path'] = input_data_directory_path
+    processed_path_dict['working']['directory_path'] = working_directory_path
+
     config_dict['path'] = processed_path_dict
     
     return Box(config_dict)

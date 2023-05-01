@@ -35,15 +35,17 @@ import numpy as np
 import pandas as pd
 import pyspark.sql.functions as F
 from geopandas import GeoDataFrame  # type: ignore[import]
-from helpers.io_utils import (load_antennas, load_cdr, load_labels, load_mobiledata,
-                              load_mobilemoney, load_recharges, load_shapefile)
-from helpers.opt_utils import generate_user_consent_list
-from helpers.utils import (build_config_from_file, filter_dates_dataframe,
-                           get_spark_session, make_dir, read_csv, save_df)
 from pandas import DataFrame as PandasDataFrame
 from pandas import Series
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import col, count, countDistinct, lit
+
+from helpers.io_utils import (load_antennas, load_cdr, load_labels,
+                              load_mobiledata, load_mobilemoney,
+                              load_recharges, load_shapefile)
+from helpers.opt_utils import generate_user_consent_list
+from helpers.utils import (build_config_from_file, filter_dates_dataframe,
+                           get_spark_session, make_dir, read_csv, save_df)
 
 
 class DataType(Enum):
@@ -125,7 +127,6 @@ class DataStore(InitializerInterface):
             
         else:
             self.features_path = self.cfg.path.working.directory_path / 'featurizer' / 'datasets' / 'features.csv'
-
         # Define mapping between data types and loading methods
         self.data_type_to_fn_map: Dict[DataType, Callable] = {DataType.CDR: self._load_cdr,
                                                               DataType.ANTENNAS: self._load_antennas,
@@ -202,7 +203,7 @@ class DataStore(InitializerInterface):
         """
         fpath = self._get_input_data_file_path('mobilemoney')
         if fpath or dataframe is not None:
-            print('Loading mobile data...')
+            print('Loading mobile money...')
             self.mobilemoney = load_mobilemoney(self.cfg, fpath, df=dataframe)
 
     def _load_shapefiles(self) -> None:
@@ -235,19 +236,18 @@ class DataStore(InitializerInterface):
         """
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
-        
-        self.features = read_csv(self.spark, self.features_path, header=True)
-        if 'name' not in self.features.columns:
-            raise ValueError('Features dataframe must include name column')
-            
-        if 'features_to_use' in self.cfg.params:
-            self.features = self.features.select(self.cfg.params.features_to_use)
+        if self.features_path.exists():
+            self.features = read_csv(self.spark, self.features_path, header=True)
+            if 'name' not in self.features.columns:
+                raise ValueError('Features dataframe must include name column')
+
+            if 'features_to_use' in self.cfg.params:
+                self.features = self.features.select(self.cfg.params.features_to_use)
 
     def _load_labels(self) -> None:
         """
         Load labels to train ML model on
         """
-        print('running')
         labels_fpath = self._get_input_data_file_path('labels', missing_allowed=True)
         if labels_fpath is not None:
             self.labels = load_labels(self.cfg, labels_fpath)
@@ -373,7 +373,7 @@ class DataStore(InitializerInterface):
                     failed_load.append(dataset_name)
             if failed_load:
                 raise ValueError(
-                    f"The following datasets failed to load. Perhaps no path is specified in config?: {', '.join(failed_load)}"
+                    f"The following datasets have no specified location or failed to load: {', '.join(failed_load)}"
                 )
 
     def filter_dates(self, start_date: str, end_date: str) -> None:
