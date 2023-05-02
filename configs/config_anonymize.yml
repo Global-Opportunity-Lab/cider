@@ -33,6 +33,7 @@ path:
       survey: 'survey.csv'
       targeting: 'targeting.csv'
       user_consent: null
+      features: 'features.csv'
       # this file can contain any string - it will function as a hash salt for anonymization
       anonymization_salt: 'salt.txt'
   working:
