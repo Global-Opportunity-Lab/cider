@@ -288,9 +288,7 @@ class Featurizer:
                                             ('reporting' not in col) or (col == 'reporting__number_of_records')])
         cdr_features = cdr_features.toDF(*[c if c == 'name' else 'cdr_' + c for c in cdr_features.columns])
         save_df(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all.csv')
-        self.features['cdr'] = read_csv(
-            self.spark, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all.csv', header=True, inferSchema=True
-        )
+        self.features['cdr'] = cdr_features
 
     def cdr_features_spark(self) -> None:
         """
@@ -306,9 +304,7 @@ class Featurizer:
         cdr_features_df = cdr_features_df.withColumnRenamed('caller_id', 'name')
 
         save_df(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all.csv')
-        self.features['cdr'] = read_csv(
-            self.spark, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all.csv', header=True, inferSchema=True
-        )
+        self.features['cdr'] = cdr_features_df
 
     def international_features(self) -> None:
         # Check that CDR is present to calculate international features
@@ -321,7 +317,7 @@ class Featurizer:
         save_df(international_trans, self.outputs_path / 'datasets' / 'international_transactions.csv')
 
         # Read international calls
-        inter = pd.read_csv(self.outputs_path / 'datasets' / 'international_transactions.csv')
+        inter = pd.read_csv(self.outputs_path / 'datasets' / 'international_transactions.csv', dtype={'caller_id': 'str'})
 
         # Calculate list of aggregations by subscriber
         inter_voice = inter[inter['txn_type'] == 'call']
@@ -343,9 +339,7 @@ class Featurizer:
         feats_df['name'] = feats_df.index
         feats_df.columns = [c if c == 'name' else 'international_' + c for c in feats_df.columns]
         feats_df.to_csv(self.outputs_path / 'datasets' / 'international_feats.csv', index=False)
-        self.features['international'] = read_csv(
-            self.spark, self.outputs_path / 'datasets' / 'international_feats.csv', header=True, inferSchema=True
-        )
+        self.features['international'] = self.spark.createDataFrame(feats_df)
 
     def location_features(self) -> None:
 
@@ -361,7 +355,7 @@ class Featurizer:
             self.ds.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
 
         # Get dataframe of antennas located within regions
-        antennas = pd.read_csv(self.cfg.path.input_data.file_paths.antennas)
+        antennas = pd.read_csv(self.cfg.path.input_data.file_paths.antennas, dtype={'name': 'str'})
         antennas = gpd.GeoDataFrame(antennas, geometry=gpd.points_from_xy(antennas['longitude'], antennas['latitude']))
         antennas.crs = {"init": "epsg:4326"}
         antennas = antennas[antennas.is_valid]
@@ -394,7 +388,8 @@ class Featurizer:
         count_by_region_compiled = []
         for shapefile_name in self.ds.shapefiles.keys():
             count_by_region = pd.read_csv(
-                self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv'
+                self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv',
+                dtype={'name': 'str'}
             ).pivot(index='name', columns=shapefile_name, values='count').fillna(0)
             count_by_region['total'] = count_by_region.sum(axis=1)
             for c in set(count_by_region.columns) - {'total', 'name'}:
@@ -407,15 +402,13 @@ class Featurizer:
         count_by_region = count_by_region.drop([c for c in count_by_region.columns if 'total' in c], axis=1)
 
         # Read in the unique regions
-        unique_regions = pd.read_csv(self.outputs_path / 'datasets' / 'uniqueregions.csv')
+        unique_regions = pd.read_csv(self.outputs_path / 'datasets' / 'uniqueregions.csv', dtype={'name': 'str'})
 
         # Merge counts and unique counts together, write to file
         feats = count_by_region.merge(unique_regions, on='name', how='outer')
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
         feats.to_csv(self.outputs_path /'datasets' / 'location_features.csv', index=False)
-        self.features['location'] = read_csv(
-            self.spark, self.outputs_path /'datasets' / 'location_features.csv', header=True, inferSchema=True
-        )
+        self.features['location'] = self.spark.createDataFrame(feats)
 
     def mobiledata_features(self) -> None:
 
@@ -524,9 +517,7 @@ class Featurizer:
         feats = long_join_pyspark(features, on='name', how='outer')
         feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
         save_df(feats, self.outputs_path / 'datasets' / 'mobilemoney_feats.csv')
-        self.features['mobilemoney'] = read_csv(
-            self.spark, self.outputs_path / 'datasets' / 'mobilemoney_feats.csv', header=True, inferSchema=True
-        )
+        self.features['mobilemoney'] = feats
 
     def recharges_features(self) -> None:
 
@@ -544,9 +535,7 @@ class Featurizer:
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
         save_df(feats, self.outputs_path / 'datasets' / 'recharges_feats.csv')
-        self.features['recharges'] = read_csv(
-            self.spark, self.outputs_path / 'datasets' / 'recharges_feats.csv', header=True, inferSchema=True
-        )
+        self.features['recharges'] = feats
 
     def load_features(self) -> None:
         """
@@ -561,9 +550,8 @@ class Featurizer:
         for feature, path_to_dataset in zip(features, paths_to_datasets):
             if not self.features[feature]:
                 try:
-                    self.features[feature] = read_csv(
-                        self.spark, data_path / f'{path_to_dataset}.csv', header=True, inferSchema=True
-                    )
+                    pandas_df = pd.read_csv(data_path / f'{path_to_dataset}.csv', dtype={'caller_id': 'str', 'name': 'str'})
+                    self.features[feature] = self.spark.createDataFrame(pandas_df)
                 except AnalysisException:
                     print(f"Could not locate or read data for '{path_to_dataset}'")
 
@@ -586,9 +574,7 @@ class Featurizer:
         if all_features_list:
             all_features = long_join_pyspark(all_features_list, how='left', on='name')
             save_df(all_features, self.outputs_path / 'datasets' / 'features.csv')
-            self.features['all'] = read_csv(
-                self.spark, self.outputs_path / 'datasets' / 'features.csv', header=True, inferSchema=True
-            )
+            self.features['all'] = all_features
         else:
             print('No features have been computed yet.')
 
