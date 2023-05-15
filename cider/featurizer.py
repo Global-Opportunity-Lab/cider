@@ -42,6 +42,7 @@ from helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
 from helpers.utils import (cdr_bandicoot_format, flatten_folder, flatten_lst,
                            long_join_pandas, long_join_pyspark, make_dir,
                            read_csv, save_df, save_parquet)
+from numpy import nan
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (array, col, count, countDistinct, explode,
@@ -550,7 +551,19 @@ class Featurizer:
         for feature, path_to_dataset in zip(features, paths_to_datasets):
             if not self.features[feature]:
                 try:
+                    # reading through pandas to prevent phone numbers being read as integers without either having to specify
+                    # the whole schema or having to read twice with spark.
+                    # Alternatives if this ends up being too slow:
+                    #  - use pyspark.pandas (would require spark 3.2 upgrde)
+                    #  - do a limited read, grab schema, edit and re-read
                     pandas_df = pd.read_csv(data_path / f'{path_to_dataset}.csv', dtype={'caller_id': 'str', 'name': 'str'})
+
+                    # spark chokes on NaN in str columns, so replace with expected None
+                    if "caller_id" in pandas_df:
+                        pandas_df.caller_id = pandas_df.caller_id.replace(nan, None)
+                    if "name" in pandas_df:
+                        pandas_df.name = pandas_df.name.replace(nan, None)
+
                     self.features[feature] = self.spark.createDataFrame(pandas_df)
                 except AnalysisException:
                     print(f"Could not locate or read data for '{path_to_dataset}'")
