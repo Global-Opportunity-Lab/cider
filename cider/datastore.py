@@ -336,7 +336,7 @@ class DataStore(InitializerInterface):
               (merged.count(), merged.select('name').distinct().count()))
 
         save_df(merged, self.working_directory_path / 'merged.csv')
-        self.merged = pd.read_csv(self.working_directory_path / 'merged.csv')
+        self.merged = pd.read_csv(self.working_directory_path / 'merged.csv', dtype={'name': 'str'})
         self.x = self.merged.drop(['name', 'label', 'weight'], axis=1)
         self.y = self.merged['label']
         # Make the smallest weight 1

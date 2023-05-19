@@ -356,7 +356,8 @@ class Learner:
             oos = model.get_oof_pred()
         else:
             oos = cross_val_predict(model, self.ds.x, self.ds.y, cv=self.kfold_predict)
-
+#         import pdb
+#         pdb.set_trace()
         oos = pd.DataFrame([list(self.ds.merged['name']), list(self.ds.y), oos]).T
         oos.columns = ['name', 'true', 'predicted']
         oos['weight'] = self.ds.weights
@@ -379,15 +380,14 @@ class Learner:
         model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
         
         features_path = self.ds.features_path
-        columns = pd.read_csv(features_path, nrows=1).columns
+        columns = pd.read_csv(features_path, nrows=1, dtype={'name': 'str'}).columns
         
         total_len = len(pd.read_csv(features_path, usecols=['name']))
         n_chunks = ceil(total_len / chunksize)
 
         results = []
         for chunk in range(n_chunks):
-            x = pd.read_csv(features_path, skiprows=1 + chunk * chunksize, nrows=chunksize, header=None)
-            x.columns = columns
+            x = pd.read_csv(features_path, skiprows=1 + chunk * chunksize, nrows=chunksize, header=None, names=columns, dtype={'name': 'str'})
             results_chunk = x[['name']].copy()
             results_chunk['predicted'] = model.predict(x[self.ds.x.columns])
             results.append(results_chunk)
