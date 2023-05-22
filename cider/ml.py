@@ -356,8 +356,7 @@ class Learner:
             oos = model.get_oof_pred()
         else:
             oos = cross_val_predict(model, self.ds.x, self.ds.y, cv=self.kfold_predict)
-#         import pdb
-#         pdb.set_trace()
+
         oos = pd.DataFrame([list(self.ds.merged['name']), list(self.ds.y), oos]).T
         oos.columns = ['name', 'true', 'predicted']
         oos['weight'] = self.ds.weights
