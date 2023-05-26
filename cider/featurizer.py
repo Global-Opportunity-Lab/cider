@@ -48,8 +48,6 @@ from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (array, col, count, countDistinct, explode,
                                    first, lit, max, mean, min, stddev, sum)
 from pyspark.sql.types import StringType, DoubleType
-from pyspark.sql.utils import AnalysisException
-
 
 from .datastore import DataStore, DataType
 
@@ -565,7 +563,7 @@ class Featurizer:
                         pandas_df.name = pandas_df.name.replace(nan, None)
 
                     self.features[feature] = self.spark.createDataFrame(pandas_df)
-                except AnalysisException:
+                except FileNotFoundError:
                     print(f"Could not locate or read data for '{path_to_dataset}'")
 
     def all_features(self, read_from_disk: bool = False) -> None:
