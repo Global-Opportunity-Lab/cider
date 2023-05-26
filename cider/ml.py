@@ -379,15 +379,14 @@ class Learner:
         model_name, model = load_model(model_name, out_path=self.outputs, kind=kind)
         
         features_path = self.ds.features_path
-        columns = pd.read_csv(features_path, nrows=1).columns
+        columns = pd.read_csv(features_path, nrows=1, dtype={'name': 'str'}).columns
         
         total_len = len(pd.read_csv(features_path, usecols=['name']))
         n_chunks = ceil(total_len / chunksize)
 
         results = []
         for chunk in range(n_chunks):
-            x = pd.read_csv(features_path, skiprows=1 + chunk * chunksize, nrows=chunksize, header=None)
-            x.columns = columns
+            x = pd.read_csv(features_path, skiprows=1 + chunk * chunksize, nrows=chunksize, header=None, names=columns, dtype={'name': 'str'})
             results_chunk = x[['name']].copy()
             results_chunk['predicted'] = model.predict(x[self.ds.x.columns])
             results.append(results_chunk)
