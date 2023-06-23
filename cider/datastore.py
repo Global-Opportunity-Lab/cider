@@ -211,9 +211,10 @@ class DataStore(InitializerInterface):
         Iterate through shapefiles specified in config and load them in self.shapefiles dictionary
         """
         # Load shapefiles
-        shapefiles = self._get_input_data_file_path('shapefiles', missing_allowed=False)
-        for shapefile_name, shapefile_fpath in shapefiles.items():
-            self.shapefiles[shapefile_name] = load_shapefile(shapefile_fpath)
+        shapefiles = self._get_input_data_file_path('shapefiles', missing_allowed=True)
+        if shapefiles is not None:
+            for shapefile_name, shapefile_fpath in shapefiles.items():
+                self.shapefiles[shapefile_name] = load_shapefile(shapefile_fpath)
 
     def _load_home_ground_truth(self) -> None:
         """
