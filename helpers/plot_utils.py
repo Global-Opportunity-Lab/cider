@@ -127,9 +127,24 @@ def voronoi_tessellation(points: PandasDataFrame, shapefile: GeoDataFrame, key: 
     shapefile['nation'] = 1
     shapefile = shapefile.dissolve(by='nation')['geometry'].values[0]
 
-    voronoi = geovoronoi.voronoi_regions_from_coords(coords, shapefile)
-    voronoi = PandasDataFrame([list(voronoi[0].values()),
-                               [labels[i] for i in flatten_lst(list(voronoi[1].values()))]]).T
+    # geovoronoi returns two dictionaries. Both have arbitrary indices as keys.
+    # One maps these to regions, the other to one or more indices into the list 
+    # of labels, representing towers in that given region. In theory we have
+    # de-duped so there should only be one tower per region, but in practice
+    # towers can vary in location by tiny amounts that escape the de-duping but
+    # still result in sharing a region. In those cases, we arbitrarily associate
+    # one of the towers with the region.
+    regions, label_indices = geovoronoi.voronoi_regions_from_coords(coords, shapefile)
+
+    ordered_regions = []
+    ordered_labels = []
+
+    for i in regions.keys():
+        ordered_regions.append(regions[i])
+        ordered_labels.append(labels[label_indices[i][0]])
+
+    voronoi = PandasDataFrame(data=[ordered_regions, ordered_labels]).T
+
     voronoi.columns = ['geometry', key]
     voronoi = gpd.GeoDataFrame(voronoi, geometry='geometry')
     voronoi['geometry'] = voronoi['geometry'].convex_hull

@@ -87,7 +87,7 @@ class Featurizer:
                          DataType.ANTENNAS: dataframes['antennas'],
                          DataType.SHAPEFILES: None}
         # Load data into datastore, initialize bandicoot attribute
-        self.ds.load_data(data_type_map=data_type_map)
+        self.ds.load_data(data_type_map=data_type_map, all_required=False)
         self.ds.cdr_bandicoot = None
 
     def diagnostic_statistics(self, write: bool = True) -> Dict[str, Dict[str, int]]:
