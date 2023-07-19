@@ -171,6 +171,7 @@ class Featurizer:
                     timeseries['day'] = pd.to_datetime(timeseries['day'])
                     timeseries = timeseries.sort_values('day', ascending=True)
                     fig, ax = plt.subplots(1, figsize=(20, 6))
+                    for txn_type in timeseries['txn_type'].unique():
                         subset = timeseries[timeseries['txn_type'] == txn_type]
                         ax.plot(subset['day'], subset['count'], label=txn_type)
                         ax.scatter(subset['day'], subset['count'], label='')
