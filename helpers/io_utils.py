@@ -27,6 +27,7 @@
 
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+import re
 
 import geopandas as gpd  # type: ignore[import]
 from box import Box
@@ -170,8 +171,7 @@ def load_cdr(cfg: Box,
         check_colvalues(cdr, 'international', ['domestic', 'international', 'other'], error_msg)
 
     # Clean timestamp column
-    cdr = cdr.withColumn('timestamp', to_timestamp(cdr['timestamp'], 'yyyy-MM-dd HH:mm:ss')) \
-        .withColumn('day', date_trunc('day', col('timestamp')))
+    cdr = clean_timestamp_and_add_day_column(cdr, 'timestamp')
 
     # Clean duration column
     cdr = cdr.withColumn('duration', col('duration').cast('float'))
@@ -290,8 +290,7 @@ def load_recharges(cfg: Box,
     )
     check_cols(recharges, required_cols, error_msg)
     # Clean timestamp column
-    recharges = recharges.withColumn('timestamp', to_timestamp('timestamp', 'yyyy-MM-dd HH:mm:ss')) \
-        .withColumn('day', date_trunc('day', col('timestamp')))
+    recharges = clean_timestamp_and_add_day_column(recharges, 'timestamp')
 
     # Clean amount column
     recharges = recharges.withColumn('amount', col('amount').cast('float'))
@@ -336,8 +335,7 @@ def load_mobiledata(cfg: Box,
     check_cols(mobiledata, required_cols, error_msg)
 
     # Clean timestamp column
-    mobiledata = mobiledata.withColumn('timestamp', to_timestamp('timestamp', 'yyyy-MM-dd HH:mm:ss')) \
-        .withColumn('day', date_trunc('day', col('timestamp')))
+    mobiledata = clean_timestamp_and_add_day_column(mobiledata, 'timestamp')
 
     # Clean duration column
     mobiledata = mobiledata.withColumn('volume', col('volume').cast('float'))
@@ -391,8 +389,7 @@ def load_mobilemoney(cfg: Box,
         check_colvalues(mobilemoney, 'txn_type', txn_types, error_msg)
 
     # Clean timestamp column
-    mobilemoney = mobilemoney.withColumn('timestamp', to_timestamp(mobilemoney['timestamp'], 'yyyy-MM-dd HH:mm:ss')) \
-        .withColumn('day', date_trunc('day', col('timestamp')))
+    mobilemoney = clean_timestamp_and_add_day_column(mobilemoney, 'timestamp')
 
     # Clean duration column
     mobilemoney = mobilemoney.withColumn('amount', col('amount').cast('float'))
@@ -432,3 +429,27 @@ def load_shapefile(fpath: Path) -> GeoDataFrame:
 
     return shapefile
 
+
+def clean_timestamp_and_add_day_column(
+    df: SparkDataFrame,
+    existing_timestamp_column_name: str
+):
+
+    # Check the first row for time info, and assume the format is consistent
+    existing_timestamp_sample = df.take(1)[0][existing_timestamp_column_name]
+    timestamp_with_time_regex = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
+
+    has_time_info = bool(re.match(timestamp_with_time_regex, existing_timestamp_sample))
+
+    timestamp_format = (
+        'yyyy-MM-dd HH:mm:ss' if has_time_info else 'yyyy-MM-dd'
+    )
+
+    return (
+        df
+        .withColumn(
+            'timestamp',
+            to_timestamp(existing_timestamp_column_name, timestamp_format)
+        )
+        .withColumn('day', date_trunc('day', col('timestamp')))
+    )

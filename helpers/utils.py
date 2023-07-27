@@ -27,6 +27,7 @@
 
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import List, Tuple, Union
 import warnings
@@ -49,7 +50,14 @@ def get_spark_session(cfg: Box) -> SparkSession:
     Gets or creates spark session, with context and logging preferences set
     """
     # Build spark session
-    
+
+    # Prevents python version mismatches between spark driver and executor,
+    # assuming the executable python binary is available via sys.
+    python_executable = sys.executable
+    if python_executable:
+        os.environ['PYSPARK_PYTHON'] = python_executable
+        os.environ['PYSPARK_DRIVER_PYTHON'] = python_executable
+
     # Recursively get all specified spark options
     def all_spark_options(config: Box):
         for key, value in config.items():
