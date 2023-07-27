@@ -137,10 +137,11 @@ class Featurizer:
         Args:
             plot: whether to plot graphs
         """
-        for name, df in [('CDR', self.ds.cdr),
-                         ('Recharges', self.ds.recharges),
-                         ('Mobile Data', self.ds.mobiledata),
-                         ('Mobile Money', self.ds.mobilemoney)]:
+
+        for name, df in [('CDR', getattr(self.ds, 'cdr', None)),
+                         ('Recharges', getattr(self.ds, 'recharges', None)),
+                         ('Mobile Data', getattr(self.ds, 'mobiledata', None)),
+                         ('Mobile Money', getattr(self.ds, 'mobilemoney', None))]:
             if df is not None:
                 
                 name_without_spaces = name.replace(' ', '')
@@ -162,6 +163,7 @@ class Featurizer:
 
                 if plot:
                     # Plot timeseries of transactions by day
+
                     timeseries = pd.read_csv(
                         self.outputs_path / 'datasets' / f'{name_without_spaces}_transactionsbyday.csv'
                     )
@@ -176,6 +178,7 @@ class Featurizer:
                     if len(timeseries['txn_type'].unique()) > 1:
                         ax.legend(loc='best')
                     ax.set_title(name + ' Transactions by Day', fontsize='large')
+                    ax.set_xticks(ax.get_xticks(), ax.get_xticklabels(), rotation=90)
                     dates_xaxis(ax, frequency='week')
                     clean_plot(ax)
                     plt.savefig(self.outputs_path / 'plots' / f'{name_without_spaces}_transactionsbyday.png', dpi=300)
@@ -194,6 +197,7 @@ class Featurizer:
                     if len(timeseries['txn_type'].unique()) > 1:
                         ax.legend(loc='best')
                     ax.set_title(name + ' Subscribers by Day', fontsize='large')
+                    ax.set_xticks(ax.get_xticks(), ax.get_xticklabels(), rotation=90)
                     dates_xaxis(ax, frequency='week')
                     clean_plot(ax)
                     plt.savefig(self.outputs_path / 'plots' / f'{name_without_spaces}_subscribersbyday.png', dpi=300)
