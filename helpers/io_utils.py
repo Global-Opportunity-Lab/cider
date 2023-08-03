@@ -379,7 +379,7 @@ def load_mobilemoney(cfg: Box,
         # Check that required columns are present
         required_cols = ['txn_type', 'caller_id', 'recipient_id', 'timestamp', 'amount']
         error_msg = (
-            f"Mobiile money data format incorrect. Mobile money must include the following columns: {', '.join(required_cols)}, "
+            f"Mobile money data format incorrect. Mobile money must include the following columns: {', '.join(required_cols)}, "
             f"instead found {', '.join(mobilemoney.columns)}"
         )
 
@@ -432,3 +432,26 @@ def load_shapefile(fpath: Path) -> GeoDataFrame:
 
     return shapefile
 
+
+def load_phone_numbers_to_featurize(
+    cfg: Box,
+    fpath: Optional[Path] = None,
+    df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
+    verify: bool = True
+) -> SparkDataFrame:
+
+    phone_numbers_to_featurize = load_generic(cfg, fpath=fpath, df=df)
+
+    phone_numbers_to_featurize = standardize_col_names(phone_numbers_to_featurize, cfg.col_names.phone_numbers_to_featurize)
+
+    if verify:
+        # Check that required columns are present
+        required_cols = ['phone_number']
+        error_msg = (
+            f"Phone numbers to featurize data format incorrect. Must include the following columns: {', '.join(required_cols)}, "
+            f"instead found {', '.join(phone_numbers_to_featurize.columns)}"
+        )
+
+        check_cols(phone_numbers_to_featurize, required_cols, error_msg)
+
+    return phone_numbers_to_featurize.select('phone_number')
