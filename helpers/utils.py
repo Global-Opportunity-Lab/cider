@@ -29,7 +29,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Optional
 import warnings
 
 import numpy as np
@@ -396,3 +396,57 @@ def build_config_from_file(config_file_path_string: str) -> Box:
     config_dict['path'] = processed_path_dict
     
     return Box(config_dict)
+
+
+def filter_by_phone_numbers_to_featurize(
+    phone_numbers_to_featurize: Optional[SparkDataFrame],
+    df,
+    phone_number_column_name: str
+):
+
+    if phone_numbers_to_featurize is None:
+        return df
+
+    elif isinstance(df, SparkDataFrame):
+        return df.join(
+            phone_numbers_to_featurize,
+            df[phone_number_column_name] == phone_numbers_to_featurize.phone_number,
+            'inner'
+        ).drop(phone_numbers_to_featurize.phone_number)
+
+    else:
+        # TODO(leo): Consider storing this
+        phone_numbers_to_featurize_pandas = phone_numbers_to_featurize.toPandas()
+
+        return df.merge(
+            phone_numbers_to_featurize_pandas,
+            left_on=phone_number_column_name,
+            right_on='phone_number',
+            how='inner'
+        ).drop(columns='phone_number')
+
+# For testing only: Compare two dataframes that are expected to be similar or identical.
+def compare_dataframes(left: pd.DataFrame, right: pd.DataFrame, left_on: str, right_on: str):
+
+    merged = left.merge(right, how='outer', left_on=left_on, right_on=right_on, indicator=True)
+
+    print(f'Merge indicator column: {merged._merge.value_counts()}')
+
+    columns_left = {c for c in left.columns if c != left_on}
+    columns_right = {c for c in right.columns if c != right_on}
+
+    print(f'Columns left only: {columns_left - columns_right}')
+    print(f'Columns right only: {columns_right - columns_left}')
+
+    mismatches = dict()
+
+    for c in columns_left.intersection(columns_right):
+
+        equalities = np.isclose(merged[f'{c}_x'], merged[f'{c}_y'], rtol=1e-05, equal_nan=True)
+
+        mismatches[c] = len(equalities) - equalities.sum()
+
+    mismatches = pd.DataFrame.from_dict(data=mismatches, orient='index', columns=['mismatches'])
+    print(mismatches.sort_values('mismatches', ascending=False))
+
+    return merged

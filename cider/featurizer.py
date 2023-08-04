@@ -39,7 +39,8 @@ import seaborn as sns  # type: ignore[import]
 from helpers.features import all_spark
 from helpers.io_utils import get_spark_session
 from helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
-from helpers.utils import (cdr_bandicoot_format, flatten_folder, flatten_lst,
+from helpers.utils import (cdr_bandicoot_format, filter_by_phone_numbers_to_featurize,
+                           flatten_folder, flatten_lst,
                            long_join_pandas, long_join_pyspark, make_dir,
                            read_csv, save_df, save_parquet)
 from numpy import nan
@@ -80,15 +81,21 @@ class Featurizer:
 
         # Create default dicts to avoid key errors
         dataframes = dataframes if dataframes else defaultdict(lambda: None)
-        data_type_map = {DataType.CDR: dataframes['cdr'],
-                         DataType.RECHARGES: dataframes['recharges'],
-                         DataType.MOBILEDATA: dataframes['mobiledata'],
-                         DataType.MOBILEMONEY: dataframes['mobilemoney'],
-                         DataType.ANTENNAS: dataframes['antennas'],
-                         DataType.SHAPEFILES: None}
+        data_type_map = {
+            DataType.CDR: dataframes['cdr'],
+            DataType.RECHARGES: dataframes['recharges'],
+            DataType.MOBILEDATA: dataframes['mobiledata'],
+            DataType.MOBILEMONEY: dataframes['mobilemoney'],
+            DataType.ANTENNAS: dataframes['antennas'],
+            DataType.SHAPEFILES: None,
+            DataType.PHONE_NUMBERS_TO_FEATURIZE: None
+        }
         # Load data into datastore, initialize bandicoot attribute
         self.ds.load_data(data_type_map=data_type_map, all_required=False)
         self.ds.cdr_bandicoot = None
+
+        self.phone_numbers_to_featurize = getattr(self.ds, 'phone_numbers_to_featurize', None)
+
 
     def diagnostic_statistics(self, write: bool = True) -> Dict[str, Dict[str, int]]:
         """
@@ -202,6 +209,7 @@ class Featurizer:
                     clean_plot(ax)
                     plt.savefig(self.outputs_path / 'plots' / f'{name_without_spaces}_subscribersbyday.png', dpi=300)
 
+
     def cdr_features(self, bc_chunksize: int = 500000, bc_processes: int = 55) -> None:
         """
         Compute CDR features using bandicoot library and save to disk
@@ -221,6 +229,8 @@ class Featurizer:
         # Get list of unique subscribers, write to file
         save_df(self.ds.cdr_bandicoot.select('name').distinct(), self.outputs_path / 'datasets' / 'subscribers.csv')
         subscribers = self.ds.cdr_bandicoot.select('name').distinct().rdd.map(lambda r: r[0]).collect()
+
+        subscribers = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, subscribers, 'name')
 
         # Make adjustments to chunk size and parallelization if necessary
         if bc_chunksize > len(subscribers):
@@ -291,8 +301,10 @@ class Featurizer:
         cdr_features = cdr_features.select([col for col in cdr_features.columns if
                                             ('reporting' not in col) or (col == 'reporting__number_of_records')])
         cdr_features = cdr_features.toDF(*[c if c == 'name' else 'cdr_' + c for c in cdr_features.columns])
+
         save_df(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all.csv')
         self.features['cdr'] = cdr_features
+
 
     def cdr_features_spark(self) -> None:
         """
@@ -303,7 +315,12 @@ class Featurizer:
             raise ValueError('CDR file must be loaded to calculate CDR features.')
         print('Calculating CDR features...')
 
-        cdr_features = all_spark(self.ds.cdr, self.ds.antennas, cfg=self.cfg.params.cdr)
+        cdr_features = all_spark(
+            self.ds.cdr,
+            self.ds.antennas,
+            cfg=self.cfg.params.cdr,
+            phone_numbers_to_featurize=self.phone_numbers_to_featurize
+        )
         cdr_features_df = long_join_pyspark(cdr_features, on='caller_id', how='outer')
         cdr_features_df = cdr_features_df.withColumnRenamed('caller_id', 'name')
 
@@ -339,8 +356,11 @@ class Featurizer:
                 feats.append(grouped)
 
         # Combine all aggregations together, write to file
-        feats_df= long_join_pandas(feats, on='caller_id', how='outer').rename({'caller_id': 'name'}, axis=1)
+        feats_df = long_join_pandas(feats, on='caller_id', how='outer').rename({'caller_id': 'name'}, axis=1)
         feats_df['name'] = feats_df.index
+
+        feats_df = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats_df, 'name')
+
         feats_df.columns = [c if c == 'name' else 'international_' + c for c in feats_df.columns]
         feats_df.to_csv(self.outputs_path / 'datasets' / 'international_feats.csv', index=False)
         self.features['international'] = self.spark.createDataFrame(feats_df)
@@ -410,7 +430,11 @@ class Featurizer:
 
         # Merge counts and unique counts together, write to file
         feats = count_by_region.merge(unique_regions, on='name', how='outer')
+
+        feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
+
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
+
         feats.to_csv(self.outputs_path /'datasets' / 'location_features.csv', index=False)
         self.features['location'] = self.spark.createDataFrame(feats)
 
@@ -433,6 +457,9 @@ class Featurizer:
         # Save to file
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'mobiledata_' + c for c in feats.columns])
+
+        feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
+
         self.features['mobiledata'] = feats
         save_df(feats, self.outputs_path / 'datasets' / 'mobiledata_features.csv')
 
@@ -520,6 +547,9 @@ class Featurizer:
         # Combine all mobile money features together and save them
         feats = long_join_pyspark(features, on='name', how='outer')
         feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
+
+        feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
+
         save_df(feats, self.outputs_path / 'datasets' / 'mobilemoney_feats.csv')
         self.features['mobilemoney'] = feats
 
@@ -538,6 +568,9 @@ class Featurizer:
 
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
+
+        feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
+
         save_df(feats, self.outputs_path / 'datasets' / 'recharges_feats.csv')
         self.features['recharges'] = feats
 

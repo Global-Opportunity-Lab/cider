@@ -42,6 +42,7 @@ from pyspark.sql.functions import col, count, countDistinct, lit
 
 from helpers.io_utils import (load_antennas, load_cdr, load_labels,
                               load_mobiledata, load_mobilemoney,
+                              load_phone_numbers_to_featurize,
                               load_recharges, load_shapefile)
 from helpers.opt_utils import generate_user_consent_list
 from helpers.utils import (build_config_from_file, filter_dates_dataframe,
@@ -63,6 +64,7 @@ class DataType(Enum):
     FAIRNESS = 11
     RWI = 12
     SURVEY_DATA = 13
+    PHONE_NUMBERS_TO_FEATURIZE = 14
 
 
 class InitializerInterface(ABC):
@@ -119,6 +121,7 @@ class DataStore(InitializerInterface):
         self.rwi: PandasDataFrame
         # survey
         self.survey_data: PandasDataFrame
+        self.phone_numbers_to_featurize: SparkDataFrame
         
         # If the user specified a location for the features, use it. Otherwise, use the default location where
         # features are written by the featurizer.
@@ -128,20 +131,23 @@ class DataStore(InitializerInterface):
         else:
             self.features_path = self.cfg.path.working.directory_path / 'featurizer' / 'datasets' / 'features.csv'
         # Define mapping between data types and loading methods
-        self.data_type_to_fn_map: Dict[DataType, Callable] = {DataType.CDR: self._load_cdr,
-                                                              DataType.ANTENNAS: self._load_antennas,
-                                                              DataType.RECHARGES: self._load_recharges,
-                                                              DataType.MOBILEDATA: self._load_mobiledata,
-                                                              DataType.MOBILEMONEY: self._load_mobilemoney,
-                                                              DataType.SHAPEFILES: self._load_shapefiles,
-                                                              DataType.HOME_GROUND_TRUTH: self._load_home_ground_truth,
-                                                              DataType.POVERTY_SCORES: self._load_poverty_scores,
-                                                              DataType.FEATURES: self._load_features,
-                                                              DataType.LABELS: self._load_labels,
-                                                              DataType.TARGETING: self._load_targeting,
-                                                              DataType.FAIRNESS: self._load_fairness,
-                                                              DataType.RWI: self._load_wealth_map,
-                                                              DataType.SURVEY_DATA: self._load_survey}
+        self.data_type_to_fn_map: Dict[DataType, Callable] = {
+            DataType.CDR: self._load_cdr,
+            DataType.ANTENNAS: self._load_antennas,
+            DataType.RECHARGES: self._load_recharges,
+            DataType.MOBILEDATA: self._load_mobiledata,
+            DataType.MOBILEMONEY: self._load_mobilemoney,
+            DataType.SHAPEFILES: self._load_shapefiles,
+            DataType.HOME_GROUND_TRUTH: self._load_home_ground_truth,
+            DataType.POVERTY_SCORES: self._load_poverty_scores,
+            DataType.FEATURES: self._load_features,
+            DataType.LABELS: self._load_labels,
+            DataType.TARGETING: self._load_targeting,
+            DataType.FAIRNESS: self._load_fairness,
+            DataType.RWI: self._load_wealth_map,
+            DataType.SURVEY_DATA: self._load_survey,
+            DataType.PHONE_NUMBERS_TO_FEATURIZE: self._load_phone_numbers_to_featurize
+        }
 
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -320,6 +326,15 @@ class DataStore(InitializerInterface):
         # Add weights column if missing
         if 'weight' not in self.survey_data.columns:
             self.survey_data['weight'] = 1
+
+
+    def _load_phone_numbers_to_featurize(self, dataframe: Optional[PandasDataFrame]) -> None:
+
+        fpath = self._get_input_data_file_path('phone_numbers_to_featurize', missing_allowed=True)
+        if fpath or dataframe is not None:
+            print('Loading phone numbers of interest...')
+            self.phone_numbers_to_featurize = load_phone_numbers_to_featurize(self.cfg, fpath, df=dataframe)
+
 
     def merge(self) -> None:
         """
