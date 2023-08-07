@@ -37,6 +37,7 @@ import pandas as pd
 from box import Box
 from numpy import ndarray
 from pandas import DataFrame as PandasDataFrame
+from pandas.api.types import is_numeric_dtype
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, date_format, lit
@@ -425,8 +426,10 @@ def filter_by_phone_numbers_to_featurize(
             how='inner'
         ).drop(columns='phone_number')
 
-# For testing only: Compare two dataframes that are expected to be similar or identical.
-def compare_dataframes(left: pd.DataFrame, right: pd.DataFrame, left_on: str, right_on: str):
+
+# For testing only. Compare two dataframes that are expected to be similar or identical. Obtain info
+# about matches/mismatches row- and column-wise.
+def testonly_compare_dataframes(left: pd.DataFrame, right: pd.DataFrame, left_on: str = 'name', right_on: str = 'name'):
 
     merged = left.merge(right, how='outer', left_on=left_on, right_on=right_on, indicator=True)
 
@@ -442,11 +445,27 @@ def compare_dataframes(left: pd.DataFrame, right: pd.DataFrame, left_on: str, ri
 
     for c in columns_left.intersection(columns_right):
 
-        equalities = np.isclose(merged[f'{c}_x'], merged[f'{c}_y'], rtol=1e-05, equal_nan=True)
+        c_left = f'{c}_x'
+        c_right = f'{c}_y'
+
+        if merged[c_left].dtype != merged[c_right].dtype:
+
+            print(f'Column {c} has dtype {merged[c_left].dtype} on left, dtype {merged[c_right].dtype} on right.')
+
+        if is_numeric_dtype(merged[c_left]) and is_numeric_dtype(merged[c_right]):
+
+            equalities = np.isclose(merged[c_left], merged[c_right], rtol=1e-05, equal_nan=True)
+
+        else:
+
+            equalities = (merged[c_left] == merged[c_right])
+
+        # If a row is only in one dataframe, we don't count it as a mismatch - we're reported row discrepancy
+        # already and we're now looking for inequality.
+        equalities = equalities | (merged._merge != 'both')
 
         mismatches[c] = len(equalities) - equalities.sum()
 
     mismatches = pd.DataFrame.from_dict(data=mismatches, orient='index', columns=['mismatches'])
-    print(mismatches.sort_values('mismatches', ascending=False))
 
-    return merged
+    return merged.sort_index(axis=1), mismatches
