@@ -25,11 +25,20 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from typing import Optional
+
 from box import Box
 from helpers.features_utils import *
+from helpers.utils import filter_by_phone_numbers_to_featurize
 
 
-def all_spark(df: SparkDataFrame, antennas: SparkDataFrame, cfg: Box) -> List[SparkDataFrame]:
+
+def all_spark(
+    df: SparkDataFrame,
+    antennas: SparkDataFrame,
+    cfg: Box,
+    phone_numbers_to_featurize: Optional[SparkDataFrame]
+) -> List[SparkDataFrame]:
     """
     Compute cdr features starting from raw interaction data
 
@@ -62,6 +71,9 @@ def all_spark(df: SparkDataFrame, antennas: SparkDataFrame, cfg: Box) -> List[Sp
           .withColumn('recipient_antenna',
                       F.when(col('direction') == 'in', col('caller_antenna_copy')).otherwise(col('recipient_antenna')))
           .drop('directions', 'caller_id_copy', 'recipient_antenna_copy'))
+
+    # 'caller_id' contains the subscriber in question for featurization purposes; that's what we'll filter by.
+    df = filter_by_phone_numbers_to_featurize(phone_numbers_to_featurize, df, 'caller_id')
 
     # Assign interactions to conversations if relevant
     df = tag_conversations(df)

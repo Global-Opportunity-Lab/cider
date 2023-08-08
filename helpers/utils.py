@@ -27,8 +27,9 @@
 
 import os
 import shutil
+import sys
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Optional
 import warnings
 
 import numpy as np
@@ -36,6 +37,7 @@ import pandas as pd
 from box import Box
 from numpy import ndarray
 from pandas import DataFrame as PandasDataFrame
+from pandas.api.types import is_numeric_dtype
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, date_format, lit
@@ -49,7 +51,14 @@ def get_spark_session(cfg: Box) -> SparkSession:
     Gets or creates spark session, with context and logging preferences set
     """
     # Build spark session
-    
+
+    # Prevents python version mismatches between spark driver and executor,
+    # assuming the executable python binary is available via sys.
+    python_executable = sys.executable
+    if python_executable:
+        os.environ['PYSPARK_PYTHON'] = python_executable
+        os.environ['PYSPARK_DRIVER_PYTHON'] = python_executable
+
     # Recursively get all specified spark options
     def all_spark_options(config: Box):
         for key, value in config.items():
@@ -388,3 +397,75 @@ def build_config_from_file(config_file_path_string: str) -> Box:
     config_dict['path'] = processed_path_dict
     
     return Box(config_dict)
+
+
+def filter_by_phone_numbers_to_featurize(
+    phone_numbers_to_featurize: Optional[SparkDataFrame],
+    df,
+    phone_number_column_name: str
+):
+
+    if phone_numbers_to_featurize is None:
+        return df
+
+    elif isinstance(df, SparkDataFrame):
+        return df.join(
+            phone_numbers_to_featurize,
+            df[phone_number_column_name] == phone_numbers_to_featurize.phone_number,
+            'inner'
+        ).drop(phone_numbers_to_featurize.phone_number)
+
+    else:
+        # TODO(leo): Consider storing this
+        phone_numbers_to_featurize_pandas = phone_numbers_to_featurize.toPandas()
+
+        return df.merge(
+            phone_numbers_to_featurize_pandas,
+            left_on=phone_number_column_name,
+            right_on='phone_number',
+            how='inner'
+        ).drop(columns='phone_number')
+
+
+# For testing only. Compare two dataframes that are expected to be similar or identical. Obtain info
+# about matches/mismatches row- and column-wise.
+def testonly_compare_dataframes(left: pd.DataFrame, right: pd.DataFrame, left_on: str = 'name', right_on: str = 'name'):
+
+    merged = left.merge(right, how='outer', left_on=left_on, right_on=right_on, indicator=True)
+
+    print(f'Merge indicator column: {merged._merge.value_counts()}')
+
+    columns_left = {c for c in left.columns if c != left_on}
+    columns_right = {c for c in right.columns if c != right_on}
+
+    print(f'Columns left only: {columns_left - columns_right}')
+    print(f'Columns right only: {columns_right - columns_left}')
+
+    mismatches = dict()
+
+    for c in columns_left.intersection(columns_right):
+
+        c_left = f'{c}_x'
+        c_right = f'{c}_y'
+
+        if merged[c_left].dtype != merged[c_right].dtype:
+
+            print(f'Column {c} has dtype {merged[c_left].dtype} on left, dtype {merged[c_right].dtype} on right.')
+
+        if is_numeric_dtype(merged[c_left]) and is_numeric_dtype(merged[c_right]):
+
+            equalities = np.isclose(merged[c_left], merged[c_right], rtol=1e-05, equal_nan=True)
+
+        else:
+
+            equalities = (merged[c_left] == merged[c_right])
+
+        # If a row is only in one dataframe, we don't count it as a mismatch - we're reported row discrepancy
+        # already and we're now looking for inequality.
+        equalities = equalities | (merged._merge != 'both')
+
+        mismatches[c] = len(equalities) - equalities.sum()
+
+    mismatches = pd.DataFrame.from_dict(data=mismatches, orient='index', columns=['mismatches'])
+
+    return merged.sort_index(axis=1), mismatches
