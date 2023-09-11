@@ -419,8 +419,12 @@ class Featurizer:
             antennas[shapefile_name] = antennas[shapefile_name].fillna('Unknown')
         antennas = self.spark.createDataFrame(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''))
 
+        cdr_bandicoot_filtered = filter_by_phone_numbers_to_featurize(
+            self.phone_numbers_to_featurize, self.ds.cdr_bandicoot, 'name'
+        )
+
         # Merge CDR to antennas
-        cdr = self.ds.cdr_bandicoot.join(antennas, on='antenna_id', how='left') \
+        cdr = cdr_bandicoot_filtered.join(antennas, on='antenna_id', how='left') \
             .na.fill({shapefile_name: 'Unknown' for shapefile_name in self.ds.shapefiles.keys()})
 
         # Get counts by region
@@ -470,8 +474,6 @@ class Featurizer:
 
         # Merge counts and unique counts together, write to file
         feats = count_by_region.merge(unique_regions, on='name', how='outer')
-
-        feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
 
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
         if self.output_format == _OutputFormat.CSV:
@@ -681,6 +683,7 @@ class Featurizer:
         all_features_list = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         if all_features_list:
             all_features = long_join_pyspark(all_features_list, how='left', on='name')
+
             if self.output_format == _OutputFormat.CSV:
                 save_df(all_features, self.outputs_path / 'datasets' / 'features.csv', single_file=False)
             else:

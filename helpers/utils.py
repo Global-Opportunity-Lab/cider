@@ -156,8 +156,8 @@ def save_parquet(df, out_directory_path: Path) -> None:
     
     elif isinstance(df, PandasDataFrame):
         
-        out_directory_path.mkdir(parents=False, exist_ok=False)
-        df.to_parquet(out_directory_path / '0.parquet')
+        out_directory_path.mkdir(parents=False, exist_ok=True)
+        df.to_parquet(out_directory_path / '0.parquet', index=False)
 
 
 def filter_dates_dataframe(df: SparkDataFrame,
