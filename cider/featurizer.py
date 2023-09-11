@@ -445,11 +445,21 @@ class Featurizer:
                 self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv',
                 dtype={'name': 'str'}
             ).pivot(index='name', columns=shapefile_name, values='count').fillna(0)
+
             count_by_region['total'] = count_by_region.sum(axis=1)
+
+            # Concatenate the existing dataframe with a list of columns containing percent by region info
+            count_by_region_to_concat = [count_by_region]
             for c in set(count_by_region.columns) - {'total', 'name'}:
-                count_by_region[c + '_percent'] = count_by_region[c] / count_by_region['total']
+                count_by_region_percentage = count_by_region[c] / count_by_region['total']
+                count_by_region_percentage.name = c + '_percent'
+                count_by_region_to_concat.append(count_by_region_percentage)
+
+            count_by_region = pd.concat(count_by_region_to_concat, axis=1)
+
             count_by_region = count_by_region.rename(
                 {region: shapefile_name + '_' + region for region in count_by_region.columns}, axis=1)
+
             count_by_region_compiled.append(count_by_region)
 
         count_by_region = long_join_pandas(count_by_region_compiled, on='name', how='outer')
