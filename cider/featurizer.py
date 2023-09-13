@@ -25,6 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from enum import Enum
 import json
 import os
 from collections import defaultdict
@@ -42,7 +43,7 @@ from helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
 from helpers.utils import (cdr_bandicoot_format, filter_by_phone_numbers_to_featurize,
                            flatten_folder, flatten_lst,
                            long_join_pandas, long_join_pyspark, make_dir,
-                           read_csv, save_df, save_parquet)
+                           read_csv, read_parquet, save_parquet, save_df)
 from numpy import nan
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
@@ -52,6 +53,11 @@ from pyspark.sql.types import StringType, DoubleType
 
 
 from .datastore import DataStore, DataType
+
+class _OutputFormat(Enum):
+
+    CSV = 1
+    PARQUET = 2
 
 
 class Featurizer:
@@ -95,6 +101,18 @@ class Featurizer:
         self.ds.cdr_bandicoot = None
 
         self.phone_numbers_to_featurize = getattr(self.ds, 'phone_numbers_to_featurize', None)
+        
+        if 'params' in self.cfg and 'feature_output_format' in self.cfg.params:
+
+            output_format_string = self.cfg.params.feature_output_format
+            if output_format_string == 'parquet':
+                self.output_format = _OutputFormat.PARQUET
+            elif output_format_string == 'csv':
+                self.output_format = _OutputFormat.CSV
+            else:
+                raise ValueError(f'Unknown feature output format {output_format_string}.')
+        else:
+            self.output_format = _OutputFormat.CSV
 
 
     def diagnostic_statistics(self, write: bool = True) -> Dict[str, Dict[str, int]]:
@@ -301,8 +319,11 @@ class Featurizer:
         cdr_features = cdr_features.select([col for col in cdr_features.columns if
                                             ('reporting' not in col) or (col == 'reporting__number_of_records')])
         cdr_features = cdr_features.toDF(*[c if c == 'name' else 'cdr_' + c for c in cdr_features.columns])
-
-        save_df(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all.csv')
+        
+        if self.output_format == _OutputFormat.CSV:
+            save_df(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all.csv', single_file=False)
+        else:
+            save_parquet(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all')
         self.features['cdr'] = cdr_features
 
 
@@ -324,7 +345,10 @@ class Featurizer:
         cdr_features_df = long_join_pyspark(cdr_features, on='caller_id', how='outer')
         cdr_features_df = cdr_features_df.withColumnRenamed('caller_id', 'name')
 
-        save_df(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all.csv')
+        if self.output_format == _OutputFormat.CSV:
+            save_df(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all.csv', single_file=False)
+        else:
+            save_parquet(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all')
         self.features['cdr'] = cdr_features_df
 
     def international_features(self) -> None:
@@ -362,8 +386,14 @@ class Featurizer:
         feats_df = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats_df, 'name')
 
         feats_df.columns = [c if c == 'name' else 'international_' + c for c in feats_df.columns]
-        feats_df.to_csv(self.outputs_path / 'datasets' / 'international_feats.csv', index=False)
-        self.features['international'] = self.spark.createDataFrame(feats_df)
+
+        if self.output_format == _OutputFormat.CSV:
+            feats_df.to_csv(self.outputs_path / 'datasets' / 'international_feats.csv', index=False)
+            self.features['international'] = self.spark.createDataFrame(feats_df)
+        else:
+            save_parquet(feats_df, self.outputs_path / 'datasets' / 'international_feats')
+            self.features['international'] = read_parquet(self.spark, self.outputs_path / 'datasets' / 'international_feats')
+        
 
     def location_features(self) -> None:
 
@@ -389,8 +419,12 @@ class Featurizer:
             antennas[shapefile_name] = antennas[shapefile_name].fillna('Unknown')
         antennas = self.spark.createDataFrame(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''))
 
+        cdr_bandicoot_filtered = filter_by_phone_numbers_to_featurize(
+            self.phone_numbers_to_featurize, self.ds.cdr_bandicoot, 'name'
+        )
+
         # Merge CDR to antennas
-        cdr = self.ds.cdr_bandicoot.join(antennas, on='antenna_id', how='left') \
+        cdr = cdr_bandicoot_filtered.join(antennas, on='antenna_id', how='left') \
             .na.fill({shapefile_name: 'Unknown' for shapefile_name in self.ds.shapefiles.keys()})
 
         # Get counts by region
@@ -415,11 +449,21 @@ class Featurizer:
                 self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv',
                 dtype={'name': 'str'}
             ).pivot(index='name', columns=shapefile_name, values='count').fillna(0)
+
             count_by_region['total'] = count_by_region.sum(axis=1)
+
+            # Concatenate the existing dataframe with a list of columns containing percent by region info
+            count_by_region_to_concat = [count_by_region]
             for c in set(count_by_region.columns) - {'total', 'name'}:
-                count_by_region[c + '_percent'] = count_by_region[c] / count_by_region['total']
+                count_by_region_percentage = count_by_region[c] / count_by_region['total']
+                count_by_region_percentage.name = c + '_percent'
+                count_by_region_to_concat.append(count_by_region_percentage)
+
+            count_by_region = pd.concat(count_by_region_to_concat, axis=1)
+
             count_by_region = count_by_region.rename(
                 {region: shapefile_name + '_' + region for region in count_by_region.columns}, axis=1)
+
             count_by_region_compiled.append(count_by_region)
 
         count_by_region = long_join_pandas(count_by_region_compiled, on='name', how='outer')
@@ -431,12 +475,14 @@ class Featurizer:
         # Merge counts and unique counts together, write to file
         feats = count_by_region.merge(unique_regions, on='name', how='outer')
 
-        feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
-
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
+        if self.output_format == _OutputFormat.CSV:
+            feats.to_csv(self.outputs_path /'datasets' / 'location_features.csv', index=False)
+            self.features['location'] = self.spark.createDataFrame(feats)
+        else:
+            save_parquet(feats, self.outputs_path /'datasets' / 'location_features')
+            self.features['location'] = read_parquet(self.spark, self.outputs_path /'datasets' / 'location_features')
 
-        feats.to_csv(self.outputs_path /'datasets' / 'location_features.csv', index=False)
-        self.features['location'] = self.spark.createDataFrame(feats)
 
     def mobiledata_features(self) -> None:
 
@@ -461,7 +507,11 @@ class Featurizer:
         feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
 
         self.features['mobiledata'] = feats
-        save_df(feats, self.outputs_path / 'datasets' / 'mobiledata_features.csv')
+        if self.output_format == _OutputFormat.CSV:
+            save_df(feats, self.outputs_path / 'datasets' / 'mobiledata_features.csv')
+            
+        else:
+            save_parquet(feats, self.outputs_path / 'datasets' / 'mobiledata_features')
 
     def mobilemoney_features(self) -> None:
 
@@ -472,7 +522,9 @@ class Featurizer:
         
         # create dummy columns for missing field (resulting features will all take value N/A, so be
         #  ignored during model-fitting). This logic should eventually be refined.
-        for col_name in ['sender_balance_before', 'sender_balance_after', 'recipient_balance_before', 'recipient_balance_after']:
+        for col_name in [
+            'sender_balance_before', 'sender_balance_after', 'recipient_balance_before', 'recipient_balance_after'
+        ]:
             if col_name not in self.ds.mobilemoney.columns:
                 self.ds.mobilemoney = self.ds.mobilemoney.withColumn(col_name, lit(None).cast(DoubleType()))
 
@@ -549,8 +601,10 @@ class Featurizer:
         feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
 
         feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
-
-        save_df(feats, self.outputs_path / 'datasets' / 'mobilemoney_feats.csv')
+        if self.output_format == _OutputFormat.CSV:
+            save_df(feats, self.outputs_path / 'datasets' / 'mobilemoney_feats.csv')
+        else:
+            save_parquet(feats, self.outputs_path / 'datasets' / 'mobilemoney_feats')
         self.features['mobilemoney'] = feats
 
     def recharges_features(self) -> None:
@@ -570,8 +624,10 @@ class Featurizer:
         feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
 
         feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
-
-        save_df(feats, self.outputs_path / 'datasets' / 'recharges_feats.csv')
+        if self.output_format == _OutputFormat.CSV:
+            save_df(feats, self.outputs_path / 'datasets' / 'recharges_feats.csv')
+        else:
+            save_parquet(feats, self.outputs_path / 'datasets' / 'recharge_feats')
         self.features['recharges'] = feats
 
     def load_features(self) -> None:
@@ -583,6 +639,11 @@ class Featurizer:
         features = ['cdr', 'cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
         paths_to_datasets = ['bandicoot_features/all', 'cdr_features_spark/all', 'international_feats', 'location_features',
                     'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
+        if self.output_format == _OutputFormat.PARQUET:
+            print(
+                'WARNING: output data may be in parquet format, in which case loading features will fail. '
+                'TODO (leo): Implement.'
+            )
         # Read data from disk if requested
         for feature, path_to_dataset in zip(features, paths_to_datasets):
             if not self.features[feature]:
@@ -622,7 +683,13 @@ class Featurizer:
         all_features_list = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         if all_features_list:
             all_features = long_join_pyspark(all_features_list, how='left', on='name')
-            save_df(all_features, self.outputs_path / 'datasets' / 'features.csv')
+
+            if self.output_format == _OutputFormat.CSV:
+                save_df(all_features, self.outputs_path / 'datasets' / 'features.csv', single_file=False)
+            else:
+                all_features.write.parquet(
+                    path=str(self.outputs_path / 'datasets' / 'features'), mode="overwrite"
+                )
             self.features['all'] = all_features
         else:
             print('No features have been computed yet.')

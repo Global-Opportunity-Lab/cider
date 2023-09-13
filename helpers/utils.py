@@ -72,7 +72,7 @@ def get_spark_session(cfg: Box) -> SparkSession:
             else:
                 yield key, value
 
-    spark_session_builder = SparkSession.builder.config("spark.executorEnv.SPARK_LOG_DIR", "/home/nanoloans/spark_logs")
+    spark_session_builder = SparkSession.builder
     for spark_option, value in all_spark_options(cfg.spark):
         spark_session_builder = spark_session_builder.config(f'spark.{spark_option}', value)
     
@@ -106,28 +106,32 @@ def get_spark_session(cfg: Box) -> SparkSession:
     return spark
 
 
-def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',') -> None:
+def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',', single_file=True) -> None:
     """
     Saves spark dataframe to csv file.
     """
-    # we need to work around spark's automatic partitioning/naming
+    if single_file: 
+        # we need to work around spark's automatic partitioning/naming
 
-    # create a temporary folder in the directory where the output will ultimately live
-    temp_folder = out_file_path.parent / 'temp'
-    
-    # Ask spark to write output there. The repartition(1) call will tell spark to write a single file.
-    # It will name it with some meaningless partition name, but we can find it easily bc it's the only
-    # csv in the temp directory.
-    df.repartition(1).write.csv(path=str(temp_folder), mode="overwrite", header="true", sep=sep)
-    spark_generated_file_name = [
-        fname for fname in os.listdir(temp_folder) if os.path.splitext(fname)[1] == '.csv'
-    ][0]
-    
-    # move the file out of the temporary directory and rename it
-    os.rename(temp_folder / spark_generated_file_name, out_file_path)
-    
-    # delete the temp directory and everything in it
-    shutil.rmtree(temp_folder)
+        # create a temporary folder in the directory where the output will ultimately live
+        temp_folder = out_file_path.parent / 'temp'
+
+        # Ask spark to write output there. The repartition(1) call will tell spark to write a single file.
+        # It will name it with some meaningless partition name, but we can find it easily bc it's the only
+        # csv in the temp directory.
+        df.repartition(1).write.csv(path=str(temp_folder), mode="overwrite", header="true", sep=sep)
+        spark_generated_file_name = [
+            fname for fname in os.listdir(temp_folder) if os.path.splitext(fname)[1] == '.csv'
+        ][0]
+
+        # move the file out of the temporary directory and rename it
+        os.rename(temp_folder / spark_generated_file_name, out_file_path)
+
+        # delete the temp directory and everything in it
+        shutil.rmtree(temp_folder)
+
+    else:
+        df.write.csv(path=str(out_file_path), mode="overwrite", header="true", sep=sep)
 
 def read_csv(spark_session, file_path: Path, **kwargs):
     """
@@ -136,11 +140,24 @@ def read_csv(spark_session, file_path: Path, **kwargs):
     return spark_session.read.csv(str(file_path), **kwargs)
 
 
-def save_parquet(df: SparkDataFrame, out_file_path: Path) -> None:
+def read_parquet(spark_session, file_path: Path, **kwargs):
     """
-    Save spark dataframe to parquet file
+    A wrapper around spark.read.parquet which accepts pathlib.Path objects as input.
     """
-    df.write.mode('overwrite').parquet(str(out_file_path))
+    return spark_session.read.parquet(str(file_path), **kwargs)
+
+
+def save_parquet(df, out_directory_path: Path) -> None:
+    """
+    Save spark or pandas dataframe to parquet file(s).
+    """
+    if isinstance(df, SparkDataFrame):
+        df.write.parquet(str(out_directory_path), mode='overwrite')
+    
+    elif isinstance(df, PandasDataFrame):
+        
+        out_directory_path.mkdir(parents=False, exist_ok=True)
+        df.to_parquet(out_directory_path / '0.parquet', index=False)
 
 
 def filter_dates_dataframe(df: SparkDataFrame,
@@ -254,6 +271,8 @@ def long_join_pandas(dfs: List[PandasDataFrame], on: str,
 
     Returns: single joined pandas df
     """
+    if len(dfs) == 0:
+        return None
     df = dfs[0]
     for i in range(1, len(dfs)):
         df = df.merge(dfs[i], on=on, how=how)
@@ -271,6 +290,8 @@ def long_join_pyspark(dfs: List[SparkDataFrame], on: str, how: str) -> SparkData
 
     Returns: single joined spark df
     """
+    if len(dfs) == 0:
+        return None
     df = dfs[0]
     for i in range(1, len(dfs)):
         df = df.join(dfs[i], on=on, how=how)
