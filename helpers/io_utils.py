@@ -35,6 +35,8 @@ from geopandas import GeoDataFrame
 from pandas import DataFrame as PandasDataFrame
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import col, date_trunc, lit, to_timestamp
+from pyspark.sql.types import StringType
+
 
 from helpers.utils import get_spark_session
 
@@ -169,6 +171,11 @@ def load_cdr(cfg: Box,
         # Clean international column
         error_msg = 'CDR format incorrect. Column international can only include domestic, international, and other.'
         check_colvalues(cdr, 'international', ['domestic', 'international', 'other'], error_msg)
+        
+        # if no recipient antennas are present, add a null column to enable the featurizer to work
+        # TODO(leo): Consider cleaning up featurizer logic so this isn't needed.
+        if 'recipient_antenna' not in cdr.columns:
+            cdr = cdr.withColumn('recipient_antenna', lit(None).cast(StringType()))
 
     # Clean timestamp column
     cdr = clean_timestamp_and_add_day_column(cdr, 'timestamp')
@@ -237,7 +244,6 @@ def load_antennas(cfg: Box,
     else:
         raise ValueError('No filename or pandas/spark dataframe provided.')
     antennas = standardize_col_names(antennas, cfg.col_names.antennas)
-
     if verify:
         required_cols = ['antenna_id', 'latitude', 'longitude']
         error_msg = (

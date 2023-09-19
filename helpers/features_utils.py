@@ -78,6 +78,9 @@ def pivot_df(df: SparkDataFrame,
     Returns:
         df: pivoted spark dataframe
     """
+    if df.rdd.isEmpty():
+        return df.select('caller_id')
+
     # Iterate through columns
     while columns:
         column = columns.pop()

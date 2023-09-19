@@ -51,7 +51,7 @@ def all_spark(
         features: list of features as spark dataframes
     """
     features = []
-
+    df_input = df
     df = (df
           # Add weekday and daytime columns for subsequent groupby(s)
           .withColumn('weekday', F.when(F.dayofweek('day').isin(cfg.weekend), 'weekend').otherwise('weekday'))
@@ -77,8 +77,8 @@ def all_spark(
 
     # Assign interactions to conversations if relevant
     df = tag_conversations(df)
-
     # Compute features and append them to list
+
     features.append(active_days(df))
     features.append(number_of_contacts(df))
     features.append(call_duration(df))
@@ -174,14 +174,15 @@ def percent_initiated_conversations(df: SparkDataFrame) -> SparkDataFrame:
     """
     Returns the percentage of conversations initiated by the user, disaggregated by type and time of day
     """
+
     df = add_all_cat(df, cols='week_day')
+
 
     out = (df
            .where(col('conversation') == col('timestamp').cast('long'))
            .withColumn('initiated', F.when(col('direction') == 'out', 1).otherwise(0))
            .groupby('caller_id', 'weekday', 'daytime')
            .agg(F.mean('initiated').alias('percent_initiated_conversations')))
-
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['percent_initiated_conversations'],
                    indicator_name='percent_initiated_conversations')
 
@@ -276,18 +277,28 @@ def balance_of_contacts(df: SparkDataFrame) -> SparkDataFrame:
     disaggregated by type and time of day, and transaction type
     """
     df = add_all_cat(df, cols='week_day')
+    
+    out = (
+        df
+       .groupby('caller_id', 'recipient_id', 'direction', 'weekday', 'daytime', 'txn_type')
+       .agg(F.count(lit(0)).alias('n'))
+       .groupby('caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type')
+       .pivot('direction')
+       .agg(F.first('n').alias('n'))
+       .fillna(0)
+    )
+    
+    for direction in ('in', 'out'):
+        if direction not in out.columns:
+            out = out.withColumn(direction, lit(0))
 
-    out = (df
-           .groupby('caller_id', 'recipient_id', 'direction', 'weekday', 'daytime', 'txn_type')
-           .agg(F.count(lit(0)).alias('n'))
-           .groupby('caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type')
-           .pivot('direction')
-           .agg(F.first('n').alias('n'))
-           .fillna(0)
-           .withColumn('n_total', col('in')+col('out'))
-           .withColumn('n', (col('out')/col('n_total')))
-           .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
-           .agg(*summary_stats('n')))
+    out = (
+        out
+       .withColumn('n_total', col('in')+col('out'))
+       .withColumn('n', (col('out')/col('n_total')))
+       .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
+       .agg(*summary_stats('n'))
+    )
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],

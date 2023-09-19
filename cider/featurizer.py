@@ -409,7 +409,7 @@ class Featurizer:
             self.ds.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
 
         # Get dataframe of antennas located within regions
-        antennas = pd.read_csv(self.cfg.path.input_data.file_paths.antennas, dtype={'name': 'str'})
+        antennas = self.ds.antennas.toPandas()
         antennas = gpd.GeoDataFrame(antennas, geometry=gpd.points_from_xy(antennas['longitude'], antennas['latitude']))
         antennas.crs = {"init": "epsg:4326"}
         antennas = antennas[antennas.is_valid]
@@ -441,39 +441,41 @@ class Featurizer:
             unique_regions = unique_regions.join(cdr.groupby('name').agg(countDistinct('tower_id')), on='name',
                                                  how='left')
         save_df(unique_regions, self.outputs_path / 'datasets' / 'uniqueregions.csv')
+        feats = pd.read_csv(self.outputs_path / 'datasets' / 'uniqueregions.csv', dtype={'name': 'str'})
 
-        # Pivot counts by region
-        count_by_region_compiled = []
-        for shapefile_name in self.ds.shapefiles.keys():
-            count_by_region = pd.read_csv(
-                self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv',
-                dtype={'name': 'str'}
-            ).pivot(index='name', columns=shapefile_name, values='count').fillna(0)
 
-            count_by_region['total'] = count_by_region.sum(axis=1)
+        if len(self.ds.shapefiles) > 0:
 
-            # Concatenate the existing dataframe with a list of columns containing percent by region info
-            count_by_region_to_concat = [count_by_region]
-            for c in set(count_by_region.columns) - {'total', 'name'}:
-                count_by_region_percentage = count_by_region[c] / count_by_region['total']
-                count_by_region_percentage.name = c + '_percent'
-                count_by_region_to_concat.append(count_by_region_percentage)
+            count_by_region_compiled = []
+            
+            # Pivot counts by region
+            for shapefile_name in self.ds.shapefiles.keys():
+                count_by_region = pd.read_csv(
+                    self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv',
+                    dtype={'name': 'str'}
+                ).pivot(index='name', columns=shapefile_name, values='count').fillna(0)
 
-            count_by_region = pd.concat(count_by_region_to_concat, axis=1)
+                count_by_region['total'] = count_by_region.sum(axis=1)
 
-            count_by_region = count_by_region.rename(
-                {region: shapefile_name + '_' + region for region in count_by_region.columns}, axis=1)
+                # Concatenate the existing dataframe with a list of columns containing percent by region info
+                count_by_region_to_concat = [count_by_region]
+                for c in set(count_by_region.columns) - {'total', 'name'}:
+                    count_by_region_percentage = count_by_region[c] / count_by_region['total']
+                    count_by_region_percentage.name = c + '_percent'
+                    count_by_region_to_concat.append(count_by_region_percentage)
 
-            count_by_region_compiled.append(count_by_region)
+                count_by_region = pd.concat(count_by_region_to_concat, axis=1)
 
-        count_by_region = long_join_pandas(count_by_region_compiled, on='name', how='outer')
-        count_by_region = count_by_region.drop([c for c in count_by_region.columns if 'total' in c], axis=1)
+                count_by_region = count_by_region.rename(
+                    {region: shapefile_name + '_' + region for region in count_by_region.columns}, axis=1)
 
-        # Read in the unique regions
-        unique_regions = pd.read_csv(self.outputs_path / 'datasets' / 'uniqueregions.csv', dtype={'name': 'str'})
+                count_by_region_compiled.append(count_by_region)
 
-        # Merge counts and unique counts together, write to file
-        feats = count_by_region.merge(unique_regions, on='name', how='outer')
+            count_by_region = long_join_pandas(count_by_region_compiled, on='name', how='outer')
+            count_by_region = count_by_region.drop([c for c in count_by_region.columns if 'total' in c], axis=1)
+
+            # Merge counts and unique counts together, write to file
+            feats = count_by_region.merge(feats, on='name', how='outer')
 
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
         if self.output_format == _OutputFormat.CSV:
