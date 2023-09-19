@@ -492,21 +492,29 @@ class Featurizer:
         if self.ds.mobiledata is None:
             raise ValueError('Mobile data file must be loaded to calculate mobile data features.')
         print('Calculating mobile data features...')
+        
+        # Aggregate mobiledata use by day, to control for different definitions of "one transaction."
+        mobiledata_aggregated_by_day = (
+            self.ds.mobiledata.groupby('caller_id', 'day').agg(sum('volume').alias('volume'))
+        )
+        
+        mobiledata_aggregated_by_day = filter_by_phone_numbers_to_featurize(
+            self.phone_numbers_to_featurize, mobiledata_aggregated_by_day, 'caller_id'
+        )
 
-        # Perform set of aggregations on mobile data 
-        feats = self.ds.mobiledata.groupby('caller_id').agg(sum('volume').alias('total_volume'),
-                                                            mean('volume').alias('mean_volume'),
-                                                            min('volume').alias('min_volume'),
-                                                            max('volume').alias('max_volume'),
-                                                            stddev('volume').alias('std_volume'),
-                                                            countDistinct('day').alias('num_days'),
-                                                            count('volume').alias('num_transactions'))
+        # Aggregate to obtain features
+        feats = mobiledata_aggregated_by_day.groupby('caller_id').agg(
+            sum('volume').alias('total_volume'),
+            mean('volume').alias('mean_daily_volume'),
+            min('volume').alias('min_daily_volume'),
+            max('volume').alias('max_daily_volume'),
+            stddev('volume').alias('std_daily_volume'),
+            countDistinct('day').alias('num_days')
+        )
 
         # Save to file
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'mobiledata_' + c for c in feats.columns])
-
-        feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
 
         self.features['mobiledata'] = feats
         if self.output_format == _OutputFormat.CSV:
