@@ -637,7 +637,7 @@ class Featurizer:
         if self.output_format == _OutputFormat.CSV:
             save_df(feats, self.outputs_path / 'datasets' / 'recharges_feats.csv')
         else:
-            save_parquet(feats, self.outputs_path / 'datasets' / 'recharge_feats')
+            save_parquet(feats, self.outputs_path / 'datasets' / 'recharges_feats')
         self.features['recharges'] = feats
 
     def load_features(self) -> None:
@@ -692,7 +692,7 @@ class Featurizer:
 
         all_features_list = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         if all_features_list:
-            all_features = long_join_pyspark(all_features_list, how='left', on='name')
+            all_features = long_join_pyspark(all_features_list, how='outer', on='name')
 
             if self.output_format == _OutputFormat.CSV:
                 save_df(all_features, self.outputs_path / 'datasets' / 'features.csv', single_file=False)
