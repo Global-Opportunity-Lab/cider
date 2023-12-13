@@ -31,7 +31,6 @@ Evaluates fairness of a machine learning module across a characteristic
 """
 import yaml
 from box import Box
-from helpers.io_utils import *
 from helpers.ml_utils import *
 from helpers.plot_utils import *
 from helpers.utils import *

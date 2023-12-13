@@ -40,14 +40,12 @@ from pandas import Series
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import col, count, countDistinct, lit
 
-from helpers.io_utils import (load_antennas, load_cdr, load_labels,
-                              load_mobiledata, load_mobilemoney,
-                              load_phone_numbers_to_featurize,
-                              load_recharges, load_shapefile)
+from helpers.io_utils import IOUtils
 from helpers.opt_utils import generate_user_consent_list
-from helpers.utils import (build_config_from_file, filter_dates_dataframe,
-                           get_spark_session, make_dir, read_csv, save_df)
-
+from helpers.utils import (
+    build_config_from_file, filter_dates_dataframe,
+    get_data_format, get_spark_session, make_dir, read_csv, save_df
+)
 
 class DataType(Enum):
     CDR = 0
@@ -75,9 +73,14 @@ class InitializerInterface(ABC):
 
 class DataStore(InitializerInterface):
     def __init__(self, config_file_path_string: str, spark: bool = True):
+
         # Read config file and store paths
         cfg = build_config_from_file(config_file_path_string)
         self.cfg = cfg
+
+        self.data_format = get_data_format()
+        self.io_utils = IOUtils(cfg, self.data_format)
+
         self.working_directory_path = cfg.path.working.directory_path
         self.input_data_file_paths = cfg.path.input_data.file_paths
 
@@ -149,6 +152,7 @@ class DataStore(InitializerInterface):
             DataType.PHONE_NUMBERS_TO_FEATURIZE: self._load_phone_numbers_to_featurize
         }
 
+
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load cdr data: use file path specified in config as default, or spark/pandas df
@@ -160,7 +164,7 @@ class DataStore(InitializerInterface):
         fpath = self._get_input_data_file_path('cdr')
         if fpath or dataframe is not None:
             print('Loading CDR...')
-            cdr = load_cdr(self.cfg, fpath, df=dataframe)
+            cdr = self.io_utils.load_cdr(fpath, df=dataframe)
             self.cdr = cdr
 
     def _load_antennas(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
@@ -173,7 +177,7 @@ class DataStore(InitializerInterface):
         fpath = self._get_input_data_file_path('antennas')
         if fpath or dataframe is not None:
             print('Loading antennas...')
-            self.antennas = load_antennas(self.cfg, fpath, df=dataframe)
+            self.antennas = self.io_utils.load_antennas(fpath, df=dataframe)
 
     def _load_recharges(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -185,7 +189,7 @@ class DataStore(InitializerInterface):
         fpath = self._get_input_data_file_path('recharges')
         if fpath or dataframe is not None:
             print('Loading recharges...')
-            self.recharges = load_recharges(self.cfg, fpath, df=dataframe)
+            self.recharges = self.io_utils.load_recharges(fpath, df=dataframe)
             print("SUCCESS!")
 
     def _load_mobiledata(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
@@ -198,7 +202,7 @@ class DataStore(InitializerInterface):
         fpath = self._get_input_data_file_path('mobiledata')
         if fpath or dataframe is not None:
             print('Loading mobile data...')
-            self.mobiledata = load_mobiledata(self.cfg, fpath, df=dataframe)
+            self.mobiledata = self.io_utils.load_mobiledata(fpath, df=dataframe)
 
     def _load_mobilemoney(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -210,7 +214,7 @@ class DataStore(InitializerInterface):
         fpath = self._get_input_data_file_path('mobilemoney')
         if fpath or dataframe is not None:
             print('Loading mobile money...')
-            self.mobilemoney = load_mobilemoney(self.cfg, fpath, df=dataframe)
+            self.mobilemoney = self.io_utils.load_mobilemoney(fpath, df=dataframe)
 
     def _load_shapefiles(self) -> None:
         """
@@ -220,7 +224,7 @@ class DataStore(InitializerInterface):
         shapefiles = self._get_input_data_file_path('shapefiles', missing_allowed=True)
         if shapefiles is not None:
             for shapefile_name, shapefile_fpath in shapefiles.items():
-                self.shapefiles[shapefile_name] = load_shapefile(shapefile_fpath)
+                self.shapefiles[shapefile_name] = self.io_utils.load_shapefile(shapefile_fpath)
 
     def _load_home_ground_truth(self) -> None:
         """
@@ -257,7 +261,7 @@ class DataStore(InitializerInterface):
         """
         labels_fpath = self._get_input_data_file_path('labels', missing_allowed=True)
         if labels_fpath is not None:
-            self.labels = load_labels(self.cfg, labels_fpath)
+            self.labels = self.io_utils.load_labels(labels_fpath)
 
     def _load_targeting(self) -> None:
         """
@@ -333,7 +337,9 @@ class DataStore(InitializerInterface):
         fpath = self._get_input_data_file_path('phone_numbers_to_featurize', missing_allowed=True)
         if fpath or dataframe is not None:
             print('Loading phone numbers of interest...')
-            self.phone_numbers_to_featurize = load_phone_numbers_to_featurize(self.cfg, fpath, df=dataframe)
+            self.phone_numbers_to_featurize = self.io_utils.load_phone_numbers_to_featurize(
+                fpath, df=dataframe
+            )
 
 
     def merge(self) -> None:

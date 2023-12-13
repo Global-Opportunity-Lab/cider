@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import List, Tuple, Union, Optional
 import warnings
 
+from importlib_resources import files as importlib_resources_files
 import numpy as np
 import pandas as pd
 from box import Box
@@ -353,6 +354,16 @@ def weighted_cov(x: ndarray, y: ndarray, w: ndarray) -> float:
 
 def weighted_corr(x: ndarray, y: ndarray, w: ndarray) -> float:
     return weighted_cov(x, y, w) / np.sqrt(weighted_cov(x, x, w) * weighted_cov(y, y, w))
+
+
+def get_data_format():
+
+    data_format_path = importlib_resources_files('data_format') / 'data_format.yml'
+
+    with open(data_format_path, 'r') as data_format_file:
+        data_format_dict = yaml_load(data_format_file, Loader=FullLoader)
+
+    return Box(data_format_dict)
 
 
 def build_config_from_file(config_file_path_string: str) -> Box:
