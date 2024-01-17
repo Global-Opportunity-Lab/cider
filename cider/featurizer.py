@@ -38,10 +38,9 @@ import matplotlib.pyplot as plt  # type: ignore[import]
 import pandas as pd
 import seaborn as sns  # type: ignore[import]
 from helpers.features import all_spark
-from helpers.io_utils import get_spark_session
 from helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
 from helpers.utils import (cdr_bandicoot_format, filter_by_phone_numbers_to_featurize,
-                           flatten_folder, flatten_lst,
+                           flatten_folder, flatten_lst, get_spark_session,
                            long_join_pandas, long_join_pyspark, make_dir,
                            read_csv, read_parquet, save_parquet, save_df)
 from numpy import nan
@@ -321,7 +320,7 @@ class Featurizer:
         cdr_features = cdr_features.toDF(*[c if c == 'name' else 'cdr_' + c for c in cdr_features.columns])
         
         if self.output_format == _OutputFormat.CSV:
-            save_df(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all.csv', single_file=False)
+            save_df(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all', single_file=False)
         else:
             save_parquet(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all')
         self.features['cdr'] = cdr_features
@@ -346,7 +345,7 @@ class Featurizer:
         cdr_features_df = cdr_features_df.withColumnRenamed('caller_id', 'name')
 
         if self.output_format == _OutputFormat.CSV:
-            save_df(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all.csv', single_file=False)
+            save_df(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all', single_file=False)
         else:
             save_parquet(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all')
         self.features['cdr'] = cdr_features_df
@@ -388,7 +387,7 @@ class Featurizer:
         feats_df.columns = [c if c == 'name' else 'international_' + c for c in feats_df.columns]
 
         if self.output_format == _OutputFormat.CSV:
-            feats_df.to_csv(self.outputs_path / 'datasets' / 'international_feats.csv', index=False)
+            save_df(feats_df, self.outputs_path / 'datasets' / 'international_feats', single_file=False)
             self.features['international'] = self.spark.createDataFrame(feats_df)
         else:
             save_parquet(feats_df, self.outputs_path / 'datasets' / 'international_feats')
@@ -479,7 +478,7 @@ class Featurizer:
 
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
         if self.output_format == _OutputFormat.CSV:
-            feats.to_csv(self.outputs_path /'datasets' / 'location_features.csv', index=False)
+            save_df(feats, self.outputs_path /'datasets' / 'location_features', single_file=False)
             self.features['location'] = self.spark.createDataFrame(feats)
         else:
             save_parquet(feats, self.outputs_path /'datasets' / 'location_features')
@@ -492,25 +491,33 @@ class Featurizer:
         if self.ds.mobiledata is None:
             raise ValueError('Mobile data file must be loaded to calculate mobile data features.')
         print('Calculating mobile data features...')
+        
+        # Aggregate mobiledata use by day, to control for different definitions of "one transaction."
+        mobiledata_aggregated_by_day = (
+            self.ds.mobiledata.groupby('caller_id', 'day').agg(sum('volume').alias('volume'))
+        )
+        
+        mobiledata_aggregated_by_day = filter_by_phone_numbers_to_featurize(
+            self.phone_numbers_to_featurize, mobiledata_aggregated_by_day, 'caller_id'
+        )
 
-        # Perform set of aggregations on mobile data 
-        feats = self.ds.mobiledata.groupby('caller_id').agg(sum('volume').alias('total_volume'),
-                                                            mean('volume').alias('mean_volume'),
-                                                            min('volume').alias('min_volume'),
-                                                            max('volume').alias('max_volume'),
-                                                            stddev('volume').alias('std_volume'),
-                                                            countDistinct('day').alias('num_days'),
-                                                            count('volume').alias('num_transactions'))
+        # Aggregate to obtain features
+        feats = mobiledata_aggregated_by_day.groupby('caller_id').agg(
+            sum('volume').alias('total_volume'),
+            mean('volume').alias('mean_daily_volume'),
+            min('volume').alias('min_daily_volume'),
+            max('volume').alias('max_daily_volume'),
+            stddev('volume').alias('std_daily_volume'),
+            countDistinct('day').alias('num_days')
+        )
 
         # Save to file
         feats = feats.withColumnRenamed('caller_id', 'name')
         feats = feats.toDF(*[c if c == 'name' else 'mobiledata_' + c for c in feats.columns])
 
-        feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
-
         self.features['mobiledata'] = feats
         if self.output_format == _OutputFormat.CSV:
-            save_df(feats, self.outputs_path / 'datasets' / 'mobiledata_features.csv')
+            save_df(feats, self.outputs_path / 'datasets' / 'mobiledata_features', single_file=False)
             
         else:
             save_parquet(feats, self.outputs_path / 'datasets' / 'mobiledata_features')
@@ -604,7 +611,7 @@ class Featurizer:
 
         feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
         if self.output_format == _OutputFormat.CSV:
-            save_df(feats, self.outputs_path / 'datasets' / 'mobilemoney_feats.csv')
+            save_df(feats, self.outputs_path / 'datasets' / 'mobilemoney_feats', single_file=False)
         else:
             save_parquet(feats, self.outputs_path / 'datasets' / 'mobilemoney_feats')
         self.features['mobilemoney'] = feats
@@ -627,9 +634,9 @@ class Featurizer:
 
         feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
         if self.output_format == _OutputFormat.CSV:
-            save_df(feats, self.outputs_path / 'datasets' / 'recharges_feats.csv')
+            save_df(feats, self.outputs_path / 'datasets' / 'recharges_feats', single_file=False)
         else:
-            save_parquet(feats, self.outputs_path / 'datasets' / 'recharge_feats')
+            save_parquet(feats, self.outputs_path / 'datasets' / 'recharges_feats')
         self.features['recharges'] = feats
 
     def load_features(self) -> None:
@@ -641,15 +648,21 @@ class Featurizer:
         features = ['cdr', 'cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
         paths_to_datasets = ['bandicoot_features/all', 'cdr_features_spark/all', 'international_feats', 'location_features',
                     'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
-        if self.output_format == _OutputFormat.PARQUET:
-            print(
-                'WARNING: output data may be in parquet format, in which case loading features will fail. '
-                'TODO (leo): Implement.'
-            )
+
         # Read data from disk if requested
         for feature, path_to_dataset in zip(features, paths_to_datasets):
             if not self.features[feature]:
                 try:
+                    example_file = next(path_to_dataset.iterdir())
+
+                except StopIteration:
+                    raise ValueError(f'Directory {path_to_dataset} for {feature} features is empty. Error during featurization?')
+
+                except FileNotFoundError:
+                    print(f"Could not locate or read data for '{path_to_dataset}'")
+                    continue
+
+                if example_file.suffix == '.csv':
                     # reading through pandas to prevent phone numbers being read as integers without either having to specify
                     # the whole schema or having to read twice with spark.
                     # Alternatives if this ends up being too slow:
@@ -664,8 +677,10 @@ class Featurizer:
                         pandas_df.name = pandas_df.name.replace(nan, None)
 
                     self.features[feature] = self.spark.createDataFrame(pandas_df)
-                except FileNotFoundError:
-                    print(f"Could not locate or read data for '{path_to_dataset}'")
+
+                elif example_file.suffix == '.parquet':
+
+                    self.features[feature] = read_parquet(self.spark, data_path / f'{path_to_dataset}.csv')
 
     def all_features(self, read_from_disk: bool = False) -> None:
         """
@@ -676,7 +691,7 @@ class Featurizer:
         """
         if read_from_disk:
             self.load_features()
-            
+
         # Recompute set of all features if it was already computed (perhaps the user has computed more 
         # features since then)
         if 'all' in self.features.keys():
@@ -684,10 +699,10 @@ class Featurizer:
 
         all_features_list = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         if all_features_list:
-            all_features = long_join_pyspark(all_features_list, how='left', on='name')
+            all_features = long_join_pyspark(all_features_list, how='outer', on='name')
 
             if self.output_format == _OutputFormat.CSV:
-                save_df(all_features, self.outputs_path / 'datasets' / 'features.csv', single_file=False)
+                save_df(all_features, self.outputs_path / 'datasets' / 'features', single_file=False)
             else:
                 all_features.write.parquet(
                     path=str(self.outputs_path / 'datasets' / 'features'), mode="overwrite"

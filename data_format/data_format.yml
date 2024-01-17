@@ -1,0 +1,70 @@
+cdr:
+
+  required:
+    - caller_id
+    - recipient_id
+    - timestamp
+    - duration
+    - txn_type
+    - international
+
+    
+antennas:
+
+  required:
+    - antenna_id
+    - latitude
+    - longitude
+
+    
+recharges:
+
+  required:
+    - caller_id
+    - amount
+    - timestamp
+
+mobiledata:
+
+  required:
+    - caller_id
+    - volume
+    # TODO: replace with date? 
+    - timestamp
+  
+# TODO: Standardize caller and sender
+mobilemoney:
+
+  required:
+    - caller_id
+    - recipient_id
+    - txn_type
+    - timestamp
+    - amount
+
+  optional:
+    - sender_balance_before
+    - sender_balance_after
+    - recipient_balance_before
+    - recipient_balance_after
+    
+labels:
+
+  required:
+    - name
+    - label
+
+phone_numbers_to_featurize:
+
+  required:
+    - phone_number
+    
+shapefile:
+
+  required:
+    - region
+    - geometry
+
+# TODO: some or all of Home location labels, survey data, targeting and fairness data, features
+
+# TODO: Use optional for anything?
