@@ -112,9 +112,9 @@ def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',', single_file
     Saves spark/pandas dataframe to csv file
     """
     if single_file: 
-        if type(df) == PandasDataFrame: # Pandas case
+        if isinstance(df, PandasDataFrame): # Pandas case
             df.to_csv(str(out_file_path),  header="true", sep=sep)
-        elif type(df) == SparkDataFrame: # Spark case
+        elif isinstance(df, SparkDataFrame): # Spark case
             # we need to work around spark's automatic partitioning/naming
             # create a temporary folder in the directory where the output will ultimately live
             temp_folder = out_file_path.parent / 'temp'
@@ -135,9 +135,9 @@ def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',', single_file
         else:
             raise TypeError("Not a spark or pandas dataframe")
     else:
-        if type(df) == PandasDataFrame:
+        if isinstance(df, PandasDataFrame):  # Pandas case
             df.to_csv(str(out_file_path / "0.csv"),  header="true", sep=sep)
-        elif type(df) == SparkDataFrame:
+        elif isinstance(df, SparkDataFrame): # Spark case
             df.write.csv(path=str(out_file_path), mode="overwrite", header="true", sep=sep)
         else:
             raise TypeError("Not a spark or pandas dataframe")
