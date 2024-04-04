@@ -132,7 +132,10 @@ def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',', single_file
         shutil.rmtree(temp_folder)
 
     else:
-        df.write.csv(path=str(out_file_path), mode="overwrite", header="true", sep=sep)
+        if type(df) == PandasDataFrame:
+            df.to_csv(str(out_file_path),  header="true", sep=sep)
+        if type(df) == SparkDataFrame:
+            df.write.csv(path=str(out_file_path), mode="overwrite", header="true", sep=sep)
 
 def read_csv(spark_session, file_path: Path, **kwargs):
     """
