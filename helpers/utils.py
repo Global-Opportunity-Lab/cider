@@ -136,6 +136,7 @@ def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',', single_file
             raise TypeError("Not a spark or pandas dataframe")
     else:
         if isinstance(df, PandasDataFrame):  # Pandas case
+            out_file_path.mkdir(parents=False, exist_ok=True)
             df.to_csv(str(out_file_path / "0.csv"),  header="true", sep=sep)
         elif isinstance(df, SparkDataFrame): # Spark case
             df.write.csv(path=str(out_file_path), mode="overwrite", header="true", sep=sep)
