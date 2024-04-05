@@ -109,30 +109,40 @@ def get_spark_session(cfg: Box) -> SparkSession:
 
 def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',', single_file=True) -> None:
     """
-    Saves spark dataframe to csv file.
+    Saves spark/pandas dataframe to csv file
     """
     if single_file: 
-        # we need to work around spark's automatic partitioning/naming
+        if isinstance(df, PandasDataFrame): # Pandas case
+            df.to_csv(str(out_file_path),  header="true", sep=sep)
+        elif isinstance(df, SparkDataFrame): # Spark case
+            # we need to work around spark's automatic partitioning/naming
+            # create a temporary folder in the directory where the output will ultimately live
+            temp_folder = out_file_path.parent / 'temp'
 
-        # create a temporary folder in the directory where the output will ultimately live
-        temp_folder = out_file_path.parent / 'temp'
+            # Ask spark to write output there. The repartition(1) call will tell spark to write a single file.
+            # It will name it with some meaningless partition name, but we can find it easily bc it's the only
+            # csv in the temp directory.
+            df.repartition(1).write.csv(path=str(temp_folder), mode="overwrite", header="true", sep=sep)
+            spark_generated_file_name = [
+                fname for fname in os.listdir(temp_folder) if os.path.splitext(fname)[1] == '.csv'
+            ][0]
 
-        # Ask spark to write output there. The repartition(1) call will tell spark to write a single file.
-        # It will name it with some meaningless partition name, but we can find it easily bc it's the only
-        # csv in the temp directory.
-        df.repartition(1).write.csv(path=str(temp_folder), mode="overwrite", header="true", sep=sep)
-        spark_generated_file_name = [
-            fname for fname in os.listdir(temp_folder) if os.path.splitext(fname)[1] == '.csv'
-        ][0]
+            # move the file out of the temporary directory and rename it
+            os.rename(temp_folder / spark_generated_file_name, out_file_path)
 
-        # move the file out of the temporary directory and rename it
-        os.rename(temp_folder / spark_generated_file_name, out_file_path)
-
-        # delete the temp directory and everything in it
-        shutil.rmtree(temp_folder)
-
+            # delete the temp directory and everything in it
+            shutil.rmtree(temp_folder)
+        else:
+            raise TypeError("Not a spark or pandas dataframe")
     else:
-        df.write.csv(path=str(out_file_path), mode="overwrite", header="true", sep=sep)
+        if isinstance(df, PandasDataFrame):  # Pandas case
+            out_file_path.mkdir(parents=False, exist_ok=True)
+            df.to_csv(str(out_file_path / "0.csv"),  header="true", sep=sep)
+        elif isinstance(df, SparkDataFrame): # Spark case
+            df.write.csv(path=str(out_file_path), mode="overwrite", header="true", sep=sep)
+        else:
+            raise TypeError("Not a spark or pandas dataframe")
+
 
 def read_csv(spark_session, file_path: Path, **kwargs):
     """
