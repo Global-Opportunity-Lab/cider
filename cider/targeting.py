@@ -312,7 +312,7 @@ class Targeting:
 
         # Save and return results
         pecentile_label = '_percentile1=' + str(p1) + '%' + '_percentile2=' + str(p2) + '%'
-        results.to_csv(self.outputs + '/targeting_table_' + pecentile_label + '.csv', index=False)
+        results.to_csv(str(self.outputs) + '/targeting_table_' + pecentile_label + '.csv', index=False)
         return results
 
     def roc_curves(self, groundtruth: str, proxies: List[str],
@@ -372,7 +372,7 @@ class Targeting:
         
         # Save and show plot
         pecentile_label = '_percentile=' + str(p) + '%' if p is not None else '_overall'
-        plt.savefig(self.outputs + '/auc_curves' + pecentile_label + '.png', dpi=400)
+        plt.savefig(str(self.outputs) + '/auc_curves' + pecentile_label + '.png', dpi=400)
         plt.show()
 
     def precision_recall_curves(self, groundtruth: str, proxies: List[str],
@@ -443,7 +443,7 @@ class Targeting:
 
         # Save and show plot
         pecentile_label = '_percentile=' + str(p) + '%' if p is not None else '_overall'
-        plt.savefig(self.outputs + '/precision_recall_curves' + pecentile_label + '.png', dpi=400)
+        plt.savefig(str(self.outputs) + '/precision_recall_curves' + pecentile_label + '.png', dpi=400)
         plt.show()
 
     def utility_grid(self, groundtruth: str, proxies: List[str],
@@ -528,7 +528,7 @@ class Targeting:
         clean_plot(ax)
 
         # Save and show plot
-        plt.savefig(self.outputs + '/utility_curves.png', dpi=400)
+        plt.savefig(str(self.outputs) + '/utility_curves.png', dpi=400)
         plt.show()
 
     def utility_table(self, groundtruth: str, proxies: List[str],
@@ -568,5 +568,5 @@ class Targeting:
         table['Optimal Transfer Size'] = table_transfer_sizes
 
         # Save and return table
-        table.to_csv(self.outputs + '/optimal_utility_table.csv', index=False)
+        table.to_csv(str(self.outputs) + '/optimal_utility_table.csv', index=False)
         return table
