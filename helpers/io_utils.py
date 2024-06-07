@@ -25,6 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 import re
@@ -62,11 +63,35 @@ class IOUtils:
         if fpath is not None:
             # Load data if in a single file
             if fpath.is_file():
-                df = self.spark.read.csv(str(fpath), header=True)
+
+                if fpath.suffix == '.csv':
+                    df = self.spark.read.csv(str(fpath), header=True)
+
+                elif fpath.suffix == '.parquet':
+                    df = self.spark.read.parquet(str(fpath))
+
+                else:
+                    raise ValueError(f'File with unknown extension {fpath}.')
 
             # Load data if in chunks
             else:
-                df = self.self.spark.read.csv(str(fpath / '*.csv'), header=True)
+                try:
+                    example_file = next(fpath.iterdir())
+
+                except StopIteration:
+                    raise ValueError(f'Directory {fpath} is empty.')
+
+                except FileNotFoundError as e:
+                    raise ValueError(f"Could not locate or read data for '{fpath}'")
+
+                if example_file.suffix == '.csv':
+                    df = self.spark.read.csv(str(fpath / '*.csv'), header=True)
+
+                elif example_file.suffix == '.parquet':
+                    df = self.spark.read.parquet(str(fpath / '*.parquet'), header=True)
+
+                else:
+                    raise ValueError(f'Found file with unknown extension {example_file}.')
 
         # Load from pandas dataframe
         elif df is not None:
@@ -150,24 +175,8 @@ class IOUtils:
         provided_df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
     ) -> SparkDataFrame:
 
-        # load data as generic df and standardize column_names
-        if provided_df is not None:
-            if isinstance(provided_df, PandasDataFrame):
-                dataset = self.spark.createDataFrame(provided_df)
-            elif isinstance(provided_df, SparkDataFrame):
-                dataset = provided_df
-            else:
-                raise TypeError("The dataframe provided should be a spark or pandas dataframe.")
+        dataset = self.load_generic(fpath, provided_df)
 
-        elif fpath is not None:
-            if fpath.is_file():
-                dataset = self.spark.read.csv(str(fpath), header=True)
-
-            # Load data if in chunks
-            else:
-                dataset = self.spark.read.csv(str(fpath / '*.csv'), header=True)
-        else:
-            raise ValueError('No filename or pandas/spark dataframe provided.')
         if dataset_name in self.cfg.col_names:
             dataset = self.standardize_col_names(dataset, self.cfg.col_names[dataset_name])
 
