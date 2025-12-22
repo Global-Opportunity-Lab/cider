@@ -41,8 +41,7 @@ from pandas import DataFrame as PandasDataFrame
 from pandas.api.types import is_numeric_dtype
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, date_format, lit
-from pyspark.sql.types import IntegerType, StringType
+from pyspark.sql.functions import col
 from typing_extensions import Literal
 from yaml import FullLoader, load as yaml_load
 
@@ -249,65 +248,65 @@ def flatten_folder(args: Tuple) -> List[str]:
     return unmatched
 
 
-def cdr_bandicoot_format(
-    cdr: SparkDataFrame, antennas: SparkDataFrame, cfg: Box
-) -> SparkDataFrame:
-    """
-    Convert CDR df into format that can be used by bandicoot
+# def cdr_bandicoot_format(
+#     cdr: SparkDataFrame, antennas: SparkDataFrame, cfg: Box
+# ) -> SparkDataFrame:
+#     """
+#     Convert CDR df into format that can be used by bandicoot
 
-    Args:
-        cdr: spark df with CDRs
-        antennas: antenna dataframe
-        cfg: box object with cdr column names
+#     Args:
+#         cdr: spark df with CDRs
+#         antennas: antenna dataframe
+#         cfg: box object with cdr column names
 
-    Returns: spark df in bandicoot format
-    """
+#     Returns: spark df in bandicoot format
+#     """
 
-    cols = list(cfg.keys())
+#     cols = list(cfg.keys())
 
-    outgoing = (
-        cdr.select(cols)
-        .withColumnRenamed("txn_type", "interaction")
-        .withColumnRenamed("caller_id", "name")
-        .withColumnRenamed("recipient_id", "correspondent_id")
-        .withColumnRenamed("timestamp", "datetime")
-        .withColumnRenamed("duration", "call_duration")
-        .withColumnRenamed("caller_antenna", "antenna_id")
-        .withColumn("direction", lit("out"))
-        .drop("recipient_antenna")
-    )
+#     outgoing = (
+#         cdr.select(cols)
+#         .withColumnRenamed("txn_type", "interaction")
+#         .withColumnRenamed("caller_id", "name")
+#         .withColumnRenamed("recipient_id", "correspondent_id")
+#         .withColumnRenamed("timestamp", "datetime")
+#         .withColumnRenamed("duration", "call_duration")
+#         .withColumnRenamed("caller_antenna", "antenna_id")
+#         .withColumn("direction", lit("out"))
+#         .drop("recipient_antenna")
+#     )
 
-    incoming = (
-        cdr.select(cols)
-        .withColumnRenamed("txn_type", "interaction")
-        .withColumnRenamed("recipient_id", "name")
-        .withColumnRenamed("caller_id", "correspondent_id")
-        .withColumnRenamed("timestamp", "datetime")
-        .withColumnRenamed("duration", "call_duration")
-        .withColumnRenamed("recipient_antenna", "antenna_id")
-        .withColumn("direction", lit("in"))
-        .drop("caller_antenna")
-    )
+#     incoming = (
+#         cdr.select(cols)
+#         .withColumnRenamed("txn_type", "interaction")
+#         .withColumnRenamed("recipient_id", "name")
+#         .withColumnRenamed("caller_id", "correspondent_id")
+#         .withColumnRenamed("timestamp", "datetime")
+#         .withColumnRenamed("duration", "call_duration")
+#         .withColumnRenamed("recipient_antenna", "antenna_id")
+#         .withColumn("direction", lit("in"))
+#         .drop("caller_antenna")
+#     )
 
-    cdr_bandicoot = (
-        outgoing.select(incoming.columns)
-        .union(incoming)
-        .withColumn(
-            "call_duration", col("call_duration").cast(IntegerType()).cast(StringType())
-        )
-        .withColumn("datetime", date_format(col("datetime"), "yyyy-MM-dd HH:mm:ss"))
-    )
+#     cdr_bandicoot = (
+#         outgoing.select(incoming.columns)
+#         .union(incoming)
+#         .withColumn(
+#             "call_duration", col("call_duration").cast(IntegerType()).cast(StringType())
+#         )
+#         .withColumn("datetime", date_format(col("datetime"), "yyyy-MM-dd HH:mm:ss"))
+#     )
 
-    if antennas is not None:
-        cdr_bandicoot = cdr_bandicoot.join(
-            antennas.select(["antenna_id", "latitude", "longitude"]),
-            on="antenna_id",
-            how="left",
-        )
+#     if antennas is not None:
+#         cdr_bandicoot = cdr_bandicoot.join(
+#             antennas.select(["antenna_id", "latitude", "longitude"]),
+#             on="antenna_id",
+#             how="left",
+#         )
 
-    cdr_bandicoot = cdr_bandicoot.na.fill("")
+#     cdr_bandicoot = cdr_bandicoot.na.fill("")
 
-    return cdr_bandicoot
+#     return cdr_bandicoot
 
 
 def long_join_pandas(

@@ -17,7 +17,7 @@ repos:
     rev: 1.7.0
     hooks:
       - id: interrogate
-        exclude: ^(tests/)
+        exclude: "^(tests/|deprecated/)"
         args: [-v, --fail-under=80, --ignore-module]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.9

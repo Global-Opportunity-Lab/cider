@@ -163,4 +163,4 @@ book/_build/html/
 book/_build/jupyter_execute/
 
 # Output figures
-/outputs/*
+outputs*

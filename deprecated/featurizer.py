@@ -27,12 +27,10 @@
 
 from enum import Enum
 import json
-import os
 from collections import defaultdict
-from multiprocessing import Pool
-from typing import Any, Dict, Optional, Union
+from typing import Dict, Optional, Union
 
-import bandicoot as bc  # type: ignore[import]
+# import bandicoot as bc  # type: ignore[import]
 import geopandas as gpd  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
 import pandas as pd
@@ -40,15 +38,12 @@ import seaborn as sns  # type: ignore[import]
 from deprecated.helpers.features import all_spark
 from deprecated.helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
 from deprecated.helpers.utils import (
-    cdr_bandicoot_format,
+    # cdr_bandicoot_format,
     filter_by_phone_numbers_to_featurize,
-    flatten_folder,
-    flatten_lst,
     get_spark_session,
     long_join_pandas,
     long_join_pyspark,
     make_dir,
-    read_csv,
     read_parquet,
     save_parquet,
     save_df,
@@ -70,7 +65,7 @@ from pyspark.sql.functions import (
     stddev,
     sum,
 )
-from pyspark.sql.types import StringType, DoubleType
+from pyspark.sql.types import DoubleType
 
 
 from .datastore import DataStore, DataType
@@ -130,7 +125,7 @@ class Featurizer:
         }
         # Load data into datastore, initialize bandicoot attribute
         self.ds.load_data(data_type_map=data_type_map, all_required=False)
-        self.ds.cdr_bandicoot = None
+        # self.ds.cdr_bandicoot = None
 
         self.phone_numbers_to_featurize = getattr(
             self.ds, "phone_numbers_to_featurize", None
@@ -290,155 +285,155 @@ class Featurizer:
                         dpi=300,
                     )
 
-    def cdr_features(self, bc_chunksize: int = 500000, bc_processes: int = 55) -> None:
-        """
-        Compute CDR features using bandicoot library and save to disk
+    # def cdr_features(self, bc_chunksize: int = 500000, bc_processes: int = 55) -> None:
+    #     """
+    #     Compute CDR features using bandicoot library and save to disk
 
-        Args:
-            bc_chunksize: number of users per chunk
-            bc_processes: number of processes to run in parallel
-        """
-        # Check that CDR is present to calculate international features
-        if self.ds.cdr is None:
-            raise ValueError("CDR file must be loaded to calculate CDR features.")
-        print("Calculating CDR features...")
+    #     Args:
+    #         bc_chunksize: number of users per chunk
+    #         bc_processes: number of processes to run in parallel
+    #     """
+    #     # Check that CDR is present to calculate international features
+    #     if self.ds.cdr is None:
+    #         raise ValueError("CDR file must be loaded to calculate CDR features.")
+    #     print("Calculating CDR features...")
 
-        # Convert CDR into bandicoot format
-        self.ds.cdr_bandicoot = cdr_bandicoot_format(
-            self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr
-        )
+    #     # Convert CDR into bandicoot format
+    #     self.ds.cdr_bandicoot = cdr_bandicoot_format(
+    #         self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr
+    #     )
 
-        # Get list of unique subscribers, write to file
-        save_df(
-            self.ds.cdr_bandicoot.select("name").distinct(),
-            self.outputs_path / "datasets" / "subscribers.csv",
-        )
-        subscribers = (
-            self.ds.cdr_bandicoot.select("name")
-            .distinct()
-            .rdd.map(lambda r: r[0])
-            .collect()
-        )
+    #     # Get list of unique subscribers, write to file
+    #     save_df(
+    #         self.ds.cdr_bandicoot.select("name").distinct(),
+    #         self.outputs_path / "datasets" / "subscribers.csv",
+    #     )
+    #     subscribers = (
+    #         self.ds.cdr_bandicoot.select("name")
+    #         .distinct()
+    #         .rdd.map(lambda r: r[0])
+    #         .collect()
+    #     )
 
-        subscribers = filter_by_phone_numbers_to_featurize(
-            self.phone_numbers_to_featurize, subscribers, "name"
-        )
+    #     subscribers = filter_by_phone_numbers_to_featurize(
+    #         self.phone_numbers_to_featurize, subscribers, "name"
+    #     )
 
-        # Make adjustments to chunk size and parallelization if necessary
-        if bc_chunksize > len(subscribers):
-            bc_chunksize = len(subscribers)
-        if bc_processes > int(len(subscribers) / bc_chunksize):
-            bc_processes = int(len(subscribers) / bc_chunksize)
+    #     # Make adjustments to chunk size and parallelization if necessary
+    #     if bc_chunksize > len(subscribers):
+    #         bc_chunksize = len(subscribers)
+    #     if bc_processes > int(len(subscribers) / bc_chunksize):
+    #         bc_processes = int(len(subscribers) / bc_chunksize)
 
-        # Make output folders
-        make_dir(self.outputs_path / "datasets" / "bandicoot_records")
-        make_dir(self.outputs_path / "datasets" / "bandicoot_features")
+    #     # Make output folders
+    #     make_dir(self.outputs_path / "datasets" / "bandicoot_records")
+    #     make_dir(self.outputs_path / "datasets" / "bandicoot_features")
 
-        # Get bandicoot features in chunks
-        start = 0
-        end = 0
-        while end < len(subscribers):
+    #     # Get bandicoot features in chunks
+    #     start = 0
+    #     end = 0
+    #     while end < len(subscribers):
 
-            # Get start and end point of chunk
-            end = start + bc_chunksize
-            chunk = subscribers[start:end]
+    #         # Get start and end point of chunk
+    #         end = start + bc_chunksize
+    #         chunk = subscribers[start:end]
 
-            # Name outfolders
-            recs_folder = (
-                self.outputs_path / "datasets" / "bandicoot_records" / f"{start}to{end}"
-            )
-            bc_folder = (
-                self.outputs_path
-                / "datasets"
-                / " bandicoot_features"
-                / f"{start}to{end}"
-            )
+    #         # Name outfolders
+    #         recs_folder = (
+    #             self.outputs_path / "datasets" / "bandicoot_records" / f"{start}to{end}"
+    #         )
+    #         bc_folder = (
+    #             self.outputs_path
+    #             / "datasets"
+    #             / " bandicoot_features"
+    #             / f"{start}to{end}"
+    #         )
 
-            make_dir(bc_folder)
+    #         make_dir(bc_folder)
 
-            # Get records for this chunk and write out to csv files per person
-            nums_spark = self.spark.createDataFrame(
-                chunk, StringType()
-            ).withColumnRenamed("value", "name")
-            matched_chunk = self.ds.cdr_bandicoot.join(
-                nums_spark, on="name", how="inner"
-            )
-            matched_chunk.repartition("name").write.partitionBy("name").mode(
-                "append"
-            ).format("csv").save(str(recs_folder), header=True)
+    #         # Get records for this chunk and write out to csv files per person
+    #         nums_spark = self.spark.createDataFrame(
+    #             chunk, StringType()
+    #         ).withColumnRenamed("value", "name")
+    #         matched_chunk = self.ds.cdr_bandicoot.join(
+    #             nums_spark, on="name", how="inner"
+    #         )
+    #         matched_chunk.repartition("name").write.partitionBy("name").mode(
+    #             "append"
+    #         ).format("csv").save(str(recs_folder), header=True)
 
-            # Move csv files around on disk to get into position for bandicoot
-            n = int(len(chunk) / bc_processes)
-            subchunks = [chunk[i : i + n] for i in range(0, len(chunk), n)]
-            pool = Pool(bc_processes)
-            unmatched = pool.map(
-                flatten_folder, [(subchunk, recs_folder) for subchunk in subchunks]
-            )
-            unmatched = flatten_lst(unmatched)
-            pool.close()
-            if len(unmatched) > 0:
-                print("Warning: lost %i subscribers in file shuffling" % len(unmatched))
+    #         # Move csv files around on disk to get into position for bandicoot
+    #         n = int(len(chunk) / bc_processes)
+    #         subchunks = [chunk[i : i + n] for i in range(0, len(chunk), n)]
+    #         pool = Pool(bc_processes)
+    #         unmatched = pool.map(
+    #             flatten_folder, [(subchunk, recs_folder) for subchunk in subchunks]
+    #         )
+    #         unmatched = flatten_lst(unmatched)
+    #         pool.close()
+    #         if len(unmatched) > 0:
+    #             print("Warning: lost %i subscribers in file shuffling" % len(unmatched))
 
-            # Calculate bandicoot features
-            def get_bc(sub: Any) -> Any:
-                return bc.utils.all(
-                    bc.read_csv(str(sub), recs_folder, describe=True),
-                    summary="extended",
-                    split_week=True,
-                    split_day=True,
-                    groupby=None,
-                )
+    #         # Calculate bandicoot features
+    #         def get_bc(sub: Any) -> Any:
+    #             return bc.utils.all(
+    #                 bc.read_csv(str(sub), recs_folder, describe=True),
+    #                 summary="extended",
+    #                 split_week=True,
+    #                 split_day=True,
+    #                 groupby=None,
+    #             )
 
-            # Write out bandicoot feature files
-            def write_bc(index: Any, iterator: Any) -> Any:
-                bc.to_csv(list(iterator), bc_folder / f"{index}.csv")
-                return ["index: " + str(index)]
+    #         # Write out bandicoot feature files
+    #         def write_bc(index: Any, iterator: Any) -> Any:
+    #             bc.to_csv(list(iterator), bc_folder / f"{index}.csv")
+    #             return ["index: " + str(index)]
 
-            # Run calculations and writing of bandicoot features in parallel
-            feature_df = self.spark.sparkContext.emptyRDD()
-            subscriber_rdd = self.spark.sparkContext.parallelize(chunk)
-            features = subscriber_rdd.mapPartitions(
-                lambda s: [
-                    get_bc(sub)
-                    for sub in s
-                    if os.path.isfile(recs_folder / f"{sub}.csv")
-                ]
-            )
-            feature_df = feature_df.union(features)
-            out = feature_df.coalesce(bc_processes).mapPartitionsWithIndex(write_bc)
-            out.count()
-            start = start + bc_chunksize
+    #         # Run calculations and writing of bandicoot features in parallel
+    #         feature_df = self.spark.sparkContext.emptyRDD()
+    #         subscriber_rdd = self.spark.sparkContext.parallelize(chunk)
+    #         features = subscriber_rdd.mapPartitions(
+    #             lambda s: [
+    #                 get_bc(sub)
+    #                 for sub in s
+    #                 if os.path.isfile(recs_folder / f"{sub}.csv")
+    #             ]
+    #         )
+    #         feature_df = feature_df.union(features)
+    #         out = feature_df.coalesce(bc_processes).mapPartitionsWithIndex(write_bc)
+    #         out.count()
+    #         start = start + bc_chunksize
 
-        # Combine all bandicoot features into a single file, fix column names, and write to disk
-        # TODO(leo): does this path need to be cast to a string, or could we use a glob?
-        cdr_features = read_csv(
-            self.spark,
-            self.outputs_path / "datasets" / "bandicoot_features" / "*" / "*",
-            header=True,
-        )
-        cdr_features = cdr_features.select(
-            [
-                col
-                for col in cdr_features.columns
-                if ("reporting" not in col) or (col == "reporting__number_of_records")
-            ]
-        )
-        cdr_features = cdr_features.toDF(
-            *[c if c == "name" else "cdr_" + c for c in cdr_features.columns]
-        )
+    #     # Combine all bandicoot features into a single file, fix column names, and write to disk
+    #     # TODO(leo): does this path need to be cast to a string, or could we use a glob?
+    #     cdr_features = read_csv(
+    #         self.spark,
+    #         self.outputs_path / "datasets" / "bandicoot_features" / "*" / "*",
+    #         header=True,
+    #     )
+    #     cdr_features = cdr_features.select(
+    #         [
+    #             col
+    #             for col in cdr_features.columns
+    #             if ("reporting" not in col) or (col == "reporting__number_of_records")
+    #         ]
+    #     )
+    #     cdr_features = cdr_features.toDF(
+    #         *[c if c == "name" else "cdr_" + c for c in cdr_features.columns]
+    #     )
 
-        if self.output_format == _OutputFormat.CSV:
-            save_df(
-                cdr_features,
-                self.outputs_path / "datasets" / "bandicoot_features" / "all",
-                single_file=False,
-            )
-        else:
-            save_parquet(
-                cdr_features,
-                self.outputs_path / "datasets" / "bandicoot_features" / "all",
-            )
-        self.features["cdr"] = cdr_features
+    #     if self.output_format == _OutputFormat.CSV:
+    #         save_df(
+    #             cdr_features,
+    #             self.outputs_path / "datasets" / "bandicoot_features" / "all",
+    #             single_file=False,
+    #         )
+    #     else:
+    #         save_parquet(
+    #             cdr_features,
+    #             self.outputs_path / "datasets" / "bandicoot_features" / "all",
+    #         )
+    #     self.features["cdr"] = cdr_features
 
     def cdr_features_spark(self) -> None:
         """

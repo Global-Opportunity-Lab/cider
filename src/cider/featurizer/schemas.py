@@ -26,16 +26,46 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated
 from enum import Enum
 
 
-class GetHomeLocationAlgorithm(str, Enum):
-    COUNT_TRANSACTIONS = "count_transactions"
-    COUNT_DAYS = "count_days"
-    COUNT_MODAL_DAYS = "count_modal_days"
+class DirectionOfTransactionEnum(str, Enum):
+    """
+    Enum for direction of transaction.
+    """
+
+    INCOMING = "incoming"
+    OUTGOING = "outgoing"
 
 
-class GeographicUnit(str, Enum):
-    ANTENNA_ID = "antenna_id"
-    TOWER_ID = "tower_id"
-    SHAPEFILE = "shapefile"
+class DataDiagnosticStatistics(BaseModel):
+    """
+    Schema for data diagnostic statistics.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    total_transactions: Annotated[
+        int, Field(description="Total number of transactions in the dataset")
+    ]
+    num_unique_callers: Annotated[
+        int, Field(description="Number of unique caller IDs in the dataset")
+    ]
+    num_unique_recipients: Annotated[
+        int, Field(description="Number of unique recipient IDs in the dataset")
+    ]
+    num_days: Annotated[
+        int, Field(description="Number of unique days covered in the dataset")
+    ]
+
+
+class AllowedPivotColumnsEnum(str, Enum):
+    """
+    Enum for allowed pivot columns.
+    """
+
+    IS_WEEKEND = "is_weekend"
+    IS_DAYTIME = "is_daytime"
+    TRANSACTION_TYPE = "transaction_type"

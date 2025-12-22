@@ -67,7 +67,7 @@ def _prepare_home_location_data(
                 right_on="antenna_id",
                 how="inner",
             )
-            columns_to_drop.append("antenna_id")
+            columns_to_drop = ["antenna_id"]
 
         case GeographicUnit.TOWER_ID:
             if "tower_id" not in validated_antenna_data.columns:
@@ -80,7 +80,7 @@ def _prepare_home_location_data(
                 right_on="tower_id",
                 how="inner",
             )
-            columns_to_drop.append("tower_id")
+            columns_to_drop = ["tower_id"]
 
         case GeographicUnit.SHAPEFILE:
             if shapefile_data is None:
@@ -152,16 +152,24 @@ def _infer_home_locations(
                     "caller_antenna_id",
                 ]
                 + additional_columns_to_keep
-            ).agg(count("timestamp").alias("transaction_count"))
+            ).agg(
+                count("timestamp").alias(
+                    GetHomeLocationAlgorithm.COUNT_TRANSACTIONS.value
+                )
+            )
 
             window = Window.partitionBy("caller_id").orderBy(
-                desc_nulls_last("transaction_count")
+                desc_nulls_last(GetHomeLocationAlgorithm.COUNT_TRANSACTIONS.value)
             )
             grouped_data = (
                 grouped_data.withColumn("order", row_number().over(window))
                 .where(col("order") == 1)
                 .select(
-                    ["caller_id", "caller_antenna_id", "transaction_count"]
+                    [
+                        "caller_id",
+                        "caller_antenna_id",
+                        GetHomeLocationAlgorithm.COUNT_TRANSACTIONS.value,
+                    ]
                     + additional_columns_to_keep
                 )
             )
@@ -176,15 +184,19 @@ def _infer_home_locations(
                     "caller_antenna_id",
                 ]
                 + additional_columns_to_keep
-            ).agg(countDistinct("day").alias("transaction_days_count"))
+            ).agg(countDistinct("day").alias(GetHomeLocationAlgorithm.COUNT_DAYS.value))
             window = Window.partitionBy("caller_id").orderBy(
-                desc_nulls_last("transaction_days_count")
+                desc_nulls_last(GetHomeLocationAlgorithm.COUNT_DAYS.value)
             )
             grouped_data = (
                 grouped_data.withColumn("order", row_number().over(window))
                 .where(col("order") == 1)
                 .select(
-                    ["caller_id", "caller_antenna_id", "transaction_days_count"]
+                    [
+                        "caller_id",
+                        "caller_antenna_id",
+                        GetHomeLocationAlgorithm.COUNT_DAYS.value,
+                    ]
                     + additional_columns_to_keep
                 )
             )
@@ -205,16 +217,24 @@ def _infer_home_locations(
                 .groupby(
                     ["caller_id", "caller_antenna_id"] + additional_columns_to_keep
                 )
-                .agg(count("order").alias("transaction_modal_days_count"))
+                .agg(
+                    count("order").alias(
+                        GetHomeLocationAlgorithm.COUNT_MODAL_DAYS.value
+                    )
+                )
             )
             window = Window.partitionBy("caller_id").orderBy(
-                desc_nulls_last("transaction_modal_days_count")
+                desc_nulls_last(GetHomeLocationAlgorithm.COUNT_MODAL_DAYS.value)
             )
             grouped_data = (
                 grouped_data.withColumn("order", row_number().over(window))
                 .where(col("order") == 1)
                 .select(
-                    ["caller_id", "caller_antenna_id", "transaction_modal_days_count"]
+                    [
+                        "caller_id",
+                        "caller_antenna_id",
+                        GetHomeLocationAlgorithm.COUNT_MODAL_DAYS.value,
+                    ]
                     + additional_columns_to_keep
                 )
             )
