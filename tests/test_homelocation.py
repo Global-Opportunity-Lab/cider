@@ -143,8 +143,8 @@ class TestHomeLocationInference:
         antenna_df = create_antenna_data_schema
 
         prepared_data = _prepare_home_location_data(
-            validated_cdr_data=cdr_df,
-            validated_antenna_data=antenna_df,
+            cdr_data=cdr_df,
+            antenna_data=antenna_df,
             geographic_unit=geographic_unit,
             shapefile_data=(
                 SHAPEFILE_DATA if geographic_unit == GeographicUnit.SHAPEFILE else None
@@ -176,8 +176,8 @@ class TestHomeLocationInference:
 
         with pytest.raises(ValueError):
             _prepare_home_location_data(
-                validated_cdr_data=cdr_df,
-                validated_antenna_data=antenna_df,
+                cdr_data=cdr_df,
+                antenna_data=antenna_df,
                 geographic_unit=geographic_unit,
             )
 
@@ -205,8 +205,8 @@ class TestHomeLocationInference:
         antenna_df = create_antenna_data_schema
 
         prepared_data = _prepare_home_location_data(
-            validated_cdr_data=cdr_df,
-            validated_antenna_data=antenna_df,
+            cdr_data=cdr_df,
+            antenna_data=antenna_df,
             geographic_unit=GeographicUnit.ANTENNA_ID,
         )
 
@@ -270,8 +270,8 @@ class TestHomeLocationInference:
         cdr_data = create_cdr_data_schema
         antenna_data = create_antenna_data_schema
         home_locations = get_home_locations(
-            validated_cdr_data=cdr_data,
-            validated_antenna_data=antenna_data,
+            cdr_data=cdr_data,
+            antenna_data=antenna_data,
             geographic_unit=GeographicUnit.SHAPEFILE,
             algorithm=GetHomeLocationAlgorithm.COUNT_DAYS,
             shapefile_data=SHAPEFILE_DATA,
@@ -310,8 +310,8 @@ class TestHomeLocationInference:
         cdr_data = create_cdr_data_schema
         antenna_data = create_antenna_data_schema
         home_locations = get_home_locations(
-            validated_cdr_data=cdr_data,
-            validated_antenna_data=antenna_data,
+            cdr_data=cdr_data,
+            antenna_data=antenna_data,
             geographic_unit=GeographicUnit.SHAPEFILE,
             algorithm=GetHomeLocationAlgorithm.COUNT_DAYS,
             shapefile_data=SHAPEFILE_DATA,

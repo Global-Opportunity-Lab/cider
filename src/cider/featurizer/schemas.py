@@ -29,6 +29,14 @@
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Annotated
 from enum import Enum
+from cider.schemas import (
+    CallDataRecordData,
+    MobileDataUsageData,
+    MobileMoneyTransactionData,
+    MobileMoneyTransactionType,
+    RechargeData,
+)
+from datetime import date, datetime
 
 
 class DirectionOfTransactionEnum(str, Enum):
@@ -38,6 +46,30 @@ class DirectionOfTransactionEnum(str, Enum):
 
     INCOMING = "incoming"
     OUTGOING = "outgoing"
+
+
+class AllowedPivotColumnsEnum(str, Enum):
+    """
+    Enum for allowed pivot columns.
+    """
+
+    IS_WEEKEND = "is_weekend"
+    IS_DAYTIME = "is_daytime"
+    TRANSACTION_TYPE = "transaction_type"
+
+
+class StatsComputationMethodEnum(str, Enum):
+    """
+    Enum for statistics computation method.
+    """
+
+    MEAN = "mean"
+    MIN = "min"
+    MAX = "max"
+    STD = "std"
+    MEDIAN = "median"
+    SKEWNESS = "skewness"
+    KURTOSIS = "kurtosis"
 
 
 class DataDiagnosticStatistics(BaseModel):
@@ -61,11 +93,103 @@ class DataDiagnosticStatistics(BaseModel):
     ]
 
 
-class AllowedPivotColumnsEnum(str, Enum):
+class CallDataRecordTagged(CallDataRecordData):
     """
-    Enum for allowed pivot columns.
+    Schema for call data record with tagged conversations.
+    Inherits from CallDataRecordData and adds an additional field for tagged conversation.
     """
 
-    IS_WEEKEND = "is_weekend"
-    IS_DAYTIME = "is_daytime"
-    TRANSACTION_TYPE = "transaction_type"
+    model_config = ConfigDict(from_attributes=True)
+
+    day: Annotated[date, Field(description="Day of the month")]
+    is_daytime: Annotated[
+        bool, Field(description="Whether the call was made during daytime")
+    ]
+    is_weekend: Annotated[
+        bool, Field(description="Whether the call was made on a weekend")
+    ]
+    direction_of_transaction: Annotated[
+        DirectionOfTransactionEnum,
+        Field(description="Direction of the transaction (incoming, outgoing, etc.)"),
+    ]
+    conversation: Annotated[
+        datetime | None, Field(description="Timestamp of the conversation start")
+    ]
+
+
+class MobileDataUsageDataWithDay(MobileDataUsageData):
+    """
+    Schema for mobile data usage data with day information.
+    Inherits from MobileDataUsageData and adds an additional field for day.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    day: Annotated[
+        date, Field(description="Date without timestamp when the data usage occurred")
+    ]
+
+
+class MobileMoneyDataWithDay(MobileMoneyTransactionData):
+    """
+    Schema for mobile money transaction data with day information.
+    Inherits from MobileMoneyTransactionData and adds an additional field for day.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    day: Annotated[
+        date, Field(description="Date without timestamp when the transaction occurred")
+    ]
+
+
+class MobileMoneyDataWithDirection(BaseModel):
+    """
+    Schema for mobile money transaction data with direction of transaction.
+    Inherits from MobileMoneyTransactionData and adds an additional field for direction of transaction.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    primary_id: Annotated[
+        str,
+        Field(
+            description="Unique identifier for the primary account involved in the transaction"
+        ),
+    ]
+    correspondent_id: Annotated[
+        str,
+        Field(
+            description="Unique identifier for the correspondent account involved in the transaction"
+        ),
+    ]
+    day: Annotated[
+        date, Field(description="Date without timestamp when the transaction occurred")
+    ]
+    amount: Annotated[float, Field(description="Amount of the transaction")]
+    balance_before: Annotated[
+        float, Field(description="Balance before the transaction for primary account")
+    ]
+    balance_after: Annotated[
+        float, Field(description="Balance after the transaction for primary account")
+    ]
+    transaction_type: Annotated[
+        MobileMoneyTransactionType, Field(description="Type of the transaction")
+    ]
+    direction_of_transaction: Annotated[
+        DirectionOfTransactionEnum,
+        Field(description="Direction of the transaction (incoming or outgoing)"),
+    ]
+
+
+class RechargeDataWithDay(RechargeData):
+    """
+    Schema for recharge data with day information.
+    Inherits from RechargeData and adds an additional field for day.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    day: Annotated[
+        date, Field(description="Date without timestamp when the transaction occurred")
+    ]

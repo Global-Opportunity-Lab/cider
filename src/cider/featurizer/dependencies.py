@@ -30,11 +30,18 @@ from datetime import datetime
 from typing import Any
 from pyspark.sql import DataFrame as SparkDataFrame
 
-from .schemas import DataDiagnosticStatistics, AllowedPivotColumnsEnum
+from .schemas import (
+    DataDiagnosticStatistics,
+    AllowedPivotColumnsEnum,
+    DirectionOfTransactionEnum,
+    StatsComputationMethodEnum,
+    MobileMoneyDataWithDay,
+)
 import pyspark.sql.functions as F
 from pyspark.sql.functions import (
     col,
     when,
+    lag,
     sum as pys_sum,
     mean as pys_mean,
     min as pys_min,
@@ -49,30 +56,60 @@ from pyspark.sql.functions import (
     lit,
     asin,
     sqrt,
+    hour,
+    dayofweek,
+    last,
 )
-from cider.schemas import CallDataRecordTransactionType
+from pyspark.sql.window import Window
+from cider.schemas import (
+    CallDataRecordTransactionType,
+    CallDataRecordData,
+)
+from cider.utils import _validate_dataframe
 import numpy as np
 
 
-def _get_summary_stats_cols(col_name: str) -> list:
+def _get_summary_stats_cols(
+    col_name: str,
+    summary_stats: list[StatsComputationMethodEnum] = [
+        e for e in StatsComputationMethodEnum
+    ],
+) -> list:
     """
     Get summary statistics columns for a given column name.
 
     Args:
-        col_name: name of the column to get summary statistics for
+        col_name: name of the column for which to get summary statistics
+        summary_stats: list of summary statistics to compute. Defaults to all statistics.
+
+    Returns:
+        list: list of summary statistics columns
     """
-    return [
-        pys_mean(col_name).alias(f"mean_{col_name}"),
-        pys_min(col_name).alias(f"min_{col_name}"),
-        pys_max(col_name).alias(f"max_{col_name}"),
-        stddev_pop(col_name).alias(f"std_{col_name}"),
-        expr(f"percentile_approx({col_name}, 0.5)").alias(f"median_{col_name}"),
-        skewness(col_name).alias(f"skewness_{col_name}"),
-        kurtosis(col_name).alias(f"kurtosis_{col_name}"),
-    ]
+    summary_stats_mapping = {
+        StatsComputationMethodEnum.MEAN: pys_mean,
+        StatsComputationMethodEnum.MIN: pys_min,
+        StatsComputationMethodEnum.MAX: pys_max,
+        StatsComputationMethodEnum.STD: stddev_pop,
+        StatsComputationMethodEnum.MEDIAN: expr(f"percentile_approx({col_name}, 0.5)"),
+        StatsComputationMethodEnum.SKEWNESS: skewness,
+        StatsComputationMethodEnum.KURTOSIS: kurtosis,
+    }
+
+    agg_stats = []
+
+    for stat in summary_stats:
+        agg_func = summary_stats_mapping.get(stat)
+        if agg_func is None:
+            continue
+        if stat != StatsComputationMethodEnum.MEDIAN:
+            agg_stats.append(agg_func(col_name).alias(f"{stat.value}_{col_name}"))
+        else:
+            agg_stats.append(agg_func.alias(f"{stat.value}_{col_name}"))
+
+    return agg_stats
 
 
-def _get_agg_columns_by_time_and_transaction_type(
+def _get_agg_columns_by_cdr_time_and_transaction_type(
     col_name: str,
     cols_to_use_for_pivot: list[AllowedPivotColumnsEnum],
     agg_func: F = pys_sum,
@@ -101,9 +138,14 @@ def _get_agg_columns_by_time_and_transaction_type(
             meshgrid_values.append(transaction_types)
 
     meshgrid = (
-        np.meshgrid(*meshgrid_values) if len(meshgrid_values) > 1 else meshgrid_values
+        np.meshgrid(*meshgrid_values)
+        if len(meshgrid_values) > 1
+        else np.array([meshgrid_values])
     )
     meshgrid = np.array([m.flatten() for m in meshgrid]).T.squeeze()
+    if meshgrid.ndim == 1:
+        meshgrid = meshgrid.reshape(-1, 1)
+
     aggs = []
     for vals in meshgrid:
         agg_name = ""
@@ -186,6 +228,9 @@ def filter_to_datetime(
     Returns:
         df: pandas dataframe
     """
+    if "timestamp" not in df.columns:
+        raise ValueError("Dataframe must contain 'timestamp' column")
+
     # Filter by date range
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df[
@@ -205,6 +250,9 @@ def get_spammers_from_cdr_data(
     Returns:
         spammers: list of caller IDs identified as spammers
     """
+    # Validate input dataframe
+    _validate_dataframe(cdr_data, CallDataRecordData)
+
     # Extract day from timestamp
     cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
 
@@ -250,6 +298,9 @@ def get_outlier_days_from_cdr_data(
     Returns:
         cdr_data: pandas dataframe with outlier days removed
     """
+    # Validate input dataframe
+    _validate_dataframe(cdr_data, CallDataRecordData)
+
     # Add day column
     cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
 
@@ -303,6 +354,9 @@ def get_static_diagnostic_statistics(df: pd.DataFrame) -> DataDiagnosticStatisti
     Returns:
         statistics: DataDiagnosticStatistics object with diagnostic statistics
     """
+    if not set(["caller_id", "timestamp"]).issubset(set(df.columns)):
+        raise ValueError("Dataframe must contain 'caller_id' and 'timestamp' columns")
+
     statistics = {
         "total_transactions": df.shape[0],
         "num_unique_callers": df["caller_id"].nunique(),
@@ -324,6 +378,9 @@ def get_timeseries_diagnostic_statistics(df: pd.DataFrame) -> pd.DataFrame:
         statistics: pandas dataframe with timeseries diagnostic statistics
 
     """
+    if not set(["caller_id", "timestamp"]).issubset(set(df.columns)):
+        raise ValueError("Dataframe must contain 'caller_id' and 'timestamp' columns")
+
     df.loc[:, "day"] = df["timestamp"].dt.date
     groupby_columns = ["day"]
 
@@ -341,3 +398,241 @@ def get_timeseries_diagnostic_statistics(df: pd.DataFrame) -> pd.DataFrame:
         ),
     )
     return statistics
+
+
+def identify_daytime(
+    spark_df: SparkDataFrame, day_start: int = 7, day_end: int = 19
+) -> SparkDataFrame:
+    """
+    Identify daytime records in the dataframe.
+
+    Args:
+        df: Dataframe with a 'timestamp' column
+        day_start: Hour to start daytime (inclusive)
+        day_end: Hour to end daytime (exclusive)
+
+    Returns:
+        df: Dataframe with additional 'is_daytime' column
+    """
+    if "timestamp" not in spark_df.columns:
+        raise ValueError("Dataframe must contain 'timestamp' column")
+
+    spark_df = spark_df.withColumn(
+        "is_daytime",
+        when(
+            (hour(col("timestamp")) >= day_start) & (hour(col("timestamp")) < day_end),
+            1,
+        ).otherwise(0),
+    )
+    return spark_df
+
+
+def identify_weekend(
+    spark_df: SparkDataFrame,
+    weekend_days: list[int] = [1, 7],
+):
+    """
+    Identify weekend records in the dataframe.
+
+    Args:
+        spark_df: Dataframe with a 'timestamp' column
+        weekend_days: List of integers representing weekend days (1=Sunday, 7=Saturday)
+    Returns:
+        df: Dataframe with additional 'is_weekend' column
+    """
+    if "timestamp" not in spark_df.columns:
+        raise ValueError("Dataframe must contain 'timestamp' column")
+
+    spark_df = spark_df.withColumn(
+        "is_weekend",
+        when((dayofweek(col("timestamp"))).isin(weekend_days), 1).otherwise(0),
+    )
+    return spark_df
+
+
+def swap_caller_and_recipient(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Swap caller and recipient columns in the dataframe and append the swapped rows.
+
+    Args:
+        spark_df: Dataframe with 'caller_id' and 'recipient_id' columns
+
+    Returns:
+        df: Dataframe with swapped caller and recipient columns
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordData)
+
+    # Add a direction_of_transaction column to indicate incoming/outgoing
+    spark_df = spark_df.withColumn(
+        "direction_of_transaction", lit(DirectionOfTransactionEnum.OUTGOING.value)
+    )
+
+    # Create a copy with swapped caller and recipient columns and
+    # direction_of_transaction set to incoming
+    spark_df_copy = spark_df.select(
+        col("recipient_id").alias("caller_id"),
+        col("caller_id").alias("recipient_id"),
+        col("caller_antenna_id").alias("recipient_antenna_id"),
+        col("recipient_antenna_id").alias("caller_antenna_id"),
+        *[
+            col(c)
+            for c in spark_df.columns
+            if c
+            not in [
+                "caller_id",
+                "recipient_id",
+                "caller_antenna_id",
+                "recipient_antenna_id",
+            ]
+        ],
+    )
+    spark_df_copy = spark_df_copy.withColumn(
+        "direction_of_transaction", lit(DirectionOfTransactionEnum.INCOMING.value)
+    )
+
+    # Append the swapped dataframe to the original dataframe
+    spark_df = spark_df.unionByName(spark_df_copy)
+
+    return spark_df
+
+
+def identify_and_tag_conversations(
+    spark_df: SparkDataFrame, max_wait: int = 3600
+) -> SparkDataFrame:
+    """
+    Add conversation ids to interactions in the dataframe.
+
+    From bandicoot's documentation:
+    "We define conversations as a series of text messages between the user and one contact.
+    A conversation starts with either of the parties sending a text to the other.
+    A conversation will stop if no text was exchanged by the parties for an hour or if one of the parties call the other.
+    The next conversation will start as soon as a new text is send by either of the parties."
+    This functions tags interactions with the conversation id they are part of: the id is the start unix time of the
+    conversation.
+
+    Args:
+        spark_df: spark dataframe
+        max_wait: time (in seconds) after which a conversation ends if no texts or calls have been exchanged
+
+    Returns:
+        spark_df: tagged spark dataframe
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordData)
+
+    window = Window.partitionBy("caller_id", "recipient_id").orderBy("timestamp")
+
+    spark_df = (
+        spark_df.withColumn(
+            # Cast timestamp to long for time calculations
+            "timestamp",
+            col("timestamp").cast("long"),
+            # Add previous transaction type and timestamp columns
+        )
+        .withColumn("prev_transaction_type", lag(col("transaction_type")).over(window))
+        .withColumn(
+            "prev_timestamp",
+            lag(col("timestamp")).over(window),
+            # Calculate time lapse since previous interaction
+        )
+        .withColumn(
+            "time_lapse",
+            col("timestamp") - col("prev_timestamp"),
+            # Identify start of new conversations
+        )
+        .withColumn(
+            "conversation",
+            when(
+                (col("transaction_type") == "text")
+                & (
+                    (col("prev_transaction_type") == "call")
+                    | (col("prev_transaction_type").isNull())
+                    | (col("time_lapse") >= max_wait)
+                ),
+                col("timestamp"),
+            ),
+            # Identify ongoing conversations
+        )
+        .withColumn(
+            "conversation_last", last("conversation", ignorenulls=True).over(window)
+        )
+        .withColumn(
+            "conversation",
+            when(col("conversation").isNotNull(), col("conversation")).otherwise(
+                when(col("transaction_type") == "text", col("conversation_last"))
+            ),
+        )
+        # Convert conversation back to timestamp
+        .withColumn("conversation", col("conversation").cast("timestamp"))
+        # Also convert timestamp back if needed
+        .withColumn("timestamp", col("timestamp").cast("timestamp"))
+        # Drop intermediate columns
+        .drop(
+            "prev_transaction_type", "prev_timestamp", "time_lapse", "conversation_last"
+        )
+    )
+    return spark_df
+
+
+def identify_mobile_money_transaction_direction(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Identify mobile money transaction direction in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id' and 'recipient_id' columns
+
+    Returns:
+        df: Dataframe with additional 'direction_of_transaction' column
+    """
+
+    # Validate input dataframe
+    _validate_dataframe(spark_df, MobileMoneyDataWithDay)
+
+    outgoing_interactions = (
+        spark_df.select(
+            [
+                "caller_id",
+                "recipient_id",
+                "day",
+                "amount",
+                "caller_balance_before",
+                "caller_balance_after",
+                "transaction_type",
+            ]
+        )
+        .withColumnRenamed("caller_id", "primary_id")
+        .withColumnRenamed("recipient_id", "correspondent_id")
+        .withColumnRenamed("caller_balance_before", "balance_before")
+        .withColumnRenamed("caller_balance_after", "balance_after")
+        .withColumn(
+            "direction_of_transaction", lit(DirectionOfTransactionEnum.OUTGOING.value)
+        )
+    )
+    incoming_interactions = (
+        spark_df.select(
+            [
+                "caller_id",
+                "recipient_id",
+                "day",
+                "amount",
+                "recipient_balance_before",
+                "recipient_balance_after",
+                "transaction_type",
+            ]
+        )
+        .withColumnRenamed("recipient_id", "primary_id")
+        .withColumnRenamed("caller_id", "correspondent_id")
+        .withColumnRenamed("recipient_balance_before", "balance_before")
+        .withColumnRenamed("recipient_balance_after", "balance_after")
+        .withColumn(
+            "direction_of_transaction", lit(DirectionOfTransactionEnum.INCOMING.value)
+        )
+    )
+    all_interactions = outgoing_interactions.unionByName(incoming_interactions)
+
+    return all_interactions

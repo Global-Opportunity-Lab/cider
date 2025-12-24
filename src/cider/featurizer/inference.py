@@ -30,11 +30,8 @@ from pyspark.sql.functions import (
     col,
     count,
     countDistinct,
-    hour,
-    dayofweek,
     lit,
     lag,
-    last,
     when,
     first,
     mean as pys_mean,
@@ -46,201 +43,26 @@ from pyspark.sql.functions import (
     sqrt,
 )
 from pyspark.sql.window import Window
-from .schemas import DirectionOfTransactionEnum, AllowedPivotColumnsEnum
+from .schemas import (
+    DirectionOfTransactionEnum,
+    AllowedPivotColumnsEnum,
+    CallDataRecordTagged,
+    MobileDataUsageDataWithDay,
+    StatsComputationMethodEnum,
+    MobileMoneyDataWithDirection,
+    RechargeDataWithDay,
+)
 from .dependencies import (
-    _get_agg_columns_by_time_and_transaction_type,
+    _get_agg_columns_by_cdr_time_and_transaction_type,
     _get_summary_stats_cols,
     _great_circle_distance,
 )
+from cider.schemas import TransactionScope
+from cider.utils import _validate_dataframe
 
 
-def identify_daytime(
-    spark_df: SparkDataFrame, day_start: int = 7, day_end: int = 19
-) -> SparkDataFrame:
-    """
-    Identify daytime records in the dataframe.
-
-    Args:
-        df: Dataframe with a 'timestamp' column
-        day_start: Hour to start daytime (inclusive)
-        day_end: Hour to end daytime (exclusive)
-
-    Returns:
-        df: Dataframe with additional 'is_daytime' column
-    """
-    if "timestamp" not in spark_df.columns:
-        raise ValueError("Dataframe must contain 'timestamp' column")
-
-    spark_df = spark_df.withColumn(
-        "is_daytime",
-        when(
-            (hour(col("timestamp")) >= day_start) & (hour(col("timestamp")) < day_end),
-            1,
-        ).otherwise(0),
-    )
-    return spark_df
-
-
-def identify_weekend(
-    spark_df: SparkDataFrame,
-    weekend_days: list[int] = [1, 7],
-):
-    """
-    Identify weekend records in the dataframe.
-
-    Args:
-        spark_df: Dataframe with a 'timestamp' column
-        weekend_days: List of integers representing weekend days (1=Sunday, 7=Saturday)
-    Returns:
-        df: Dataframe with additional 'is_weekend' column
-    """
-    if "timestamp" not in spark_df.columns:
-        raise ValueError("Dataframe must contain 'timestamp' column")
-
-    spark_df = spark_df.withColumn(
-        "is_weekend",
-        when((dayofweek(col("timestamp"))).isin(weekend_days), 1).otherwise(0),
-    )
-    return spark_df
-
-
-def swap_caller_and_recipient(
-    spark_df: SparkDataFrame,
-) -> SparkDataFrame:
-    """
-    Swap caller and recipient columns in the dataframe and append the swapped rows.
-
-    Args:
-        spark_df: Dataframe with 'caller_id' and 'recipient_id' columns
-
-    Returns:
-        df: Dataframe with swapped caller and recipient columns
-    """
-
-    if not set(
-        ["caller_id", "recipient_id", "recipient_antenna_id", "caller_antenna_id"]
-    ).issubset(set(spark_df.columns)):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'caller_antenna_id', and 'recipient_antenna_id' columns"
-        )
-
-    # Add a direction_of_transaction column to indicate incoming/outgoing
-    spark_df = spark_df.withColumn(
-        "direction_of_transaction", lit(DirectionOfTransactionEnum.OUTGOING.value)
-    )
-
-    # Create a copy with swapped caller and recipient columns and
-    # direction_of_transaction set to incoming
-    spark_df_copy = spark_df.select(
-        col("recipient_id").alias("caller_id"),
-        col("caller_id").alias("recipient_id"),
-        col("caller_antenna_id").alias("recipient_antenna_id"),
-        col("recipient_antenna_id").alias("caller_antenna_id"),
-        *[
-            col(c)
-            for c in spark_df.columns
-            if c
-            not in [
-                "caller_id",
-                "recipient_id",
-                "caller_antenna_id",
-                "recipient_antenna_id",
-            ]
-        ],
-    )
-    spark_df_copy = spark_df_copy.withColumn(
-        "direction_of_transaction", lit(DirectionOfTransactionEnum.INCOMING.value)
-    )
-
-    # Append the swapped dataframe to the original dataframe
-    spark_df = spark_df.unionByName(spark_df_copy)
-
-    return spark_df
-
-
-def identify_and_tag_conversations(
-    spark_df: SparkDataFrame, max_wait: int = 3600
-) -> SparkDataFrame:
-    """
-    Add conversation ids to interactions in the dataframe.
-
-    From bandicoot's documentation:
-    "We define conversations as a series of text messages between the user and one contact.
-    A conversation starts with either of the parties sending a text to the other.
-    A conversation will stop if no text was exchanged by the parties for an hour or if one of the parties call the other.
-    The next conversation will start as soon as a new text is send by either of the parties."
-    This functions tags interactions with the conversation id they are part of: the id is the start unix time of the
-    conversation.
-
-    Args:
-        spark_df: spark dataframe
-        max_wait: time (in seconds) after which a conversation ends if no texts or calls have been exchanged
-
-    Returns:
-        spark_df: tagged spark dataframe
-    """
-    if not set(["caller_id", "recipient_id", "timestamp", "transaction_type"]).issubset(
-        set(spark_df.columns)
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'timestamp', and 'transaction_type' columns"
-        )
-
-    window = Window.partitionBy("caller_id", "recipient_id").orderBy("timestamp")
-
-    spark_df = (
-        spark_df.withColumn(
-            # Cast timestamp to long for time calculations
-            "timestamp",
-            col("timestamp").cast("long"),
-            # Add previous transaction type and timestamp columns
-        )
-        .withColumn("prev_transaction_type", lag(col("transaction_type")).over(window))
-        .withColumn(
-            "prev_timestamp",
-            lag(col("timestamp")).over(window),
-            # Calculate time lapse since previous interaction
-        )
-        .withColumn(
-            "time_lapse",
-            col("timestamp") - col("prev_timestamp"),
-            # Identify start of new conversations
-        )
-        .withColumn(
-            "conversation",
-            when(
-                (col("transaction_type") == "text")
-                & (
-                    (col("prev_transaction_type") == "call")
-                    | (col("prev_transaction_type").isNull())
-                    | (col("time_lapse") >= max_wait)
-                ),
-                col("timestamp"),
-            ),
-            # Identify ongoing conversations
-        )
-        .withColumn(
-            "conversation_last", last("conversation", ignorenulls=True).over(window)
-        )
-        .withColumn(
-            "conversation",
-            when(col("conversation").isNotNull(), col("conversation")).otherwise(
-                when(col("transaction_type") == "text", col("conversation_last"))
-            ),
-        )
-        # Convert conversation back to timestamp
-        .withColumn("conversation", col("conversation").cast("timestamp"))
-        # Also convert timestamp back if needed
-        .withColumn("timestamp", col("timestamp").cast("timestamp"))
-        # Drop intermediate columns
-        .drop(
-            "prev_transaction_type", "prev_timestamp", "time_lapse", "conversation_last"
-        )
-    )
-    return spark_df
-
-
-def identify_active_days(spark_df: SparkDataFrame) -> SparkDataFrame:
+# CDR features
+def get_active_days(spark_df: SparkDataFrame) -> SparkDataFrame:
     """
     Identify active days for each caller in the dataframe, disaggregated by type and time of day.
 
@@ -250,12 +72,8 @@ def identify_active_days(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with additional 'active_days' column
     """
-    if not set(["caller_id", "timestamp", "day", "is_weekend", "is_daytime"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'timestamp', 'day', 'is_weekend', and 'is_daytime' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     out = spark_df.groupby("caller_id").agg(
         # Overall
@@ -302,18 +120,14 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
     Returns:
         df: Dataframe with num unique callers for each combination of is_weekend, is_daytime, and transaction_type
     """
-    if not set(
-        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Count distinct contacts per caller, disaggregated by type and time of day
     spark_df_unique_contacts = spark_df.groupby(
         "caller_id", "is_weekend", "is_daytime", "transaction_type"
     ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "num_unique_contacts",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -337,12 +151,8 @@ def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with call duration statistics columns for each weekday/weekend and day/nighttime combination.
     """
-    if not set(
-        ["caller_id", "transaction_type", "is_weekend", "is_daytime", "duration"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'transaction_type', 'is_weekend', 'is_daytime', and 'duration' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     filtered_df = spark_df.filter(col("transaction_type") == "call")
 
@@ -352,17 +162,9 @@ def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     ).agg(*summary_stats_cols)
 
     all_stats_aggs = []
-    for stats_col in [
-        "mean_duration",
-        "median_duration",
-        "max_duration",
-        "min_duration",
-        "std_duration",
-        "skewness_duration",
-        "kurtosis_duration",
-    ]:
-        aggs = _get_agg_columns_by_time_and_transaction_type(
-            stats_col,
+    for stats_col in [e.value for e in StatsComputationMethodEnum]:
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            f"{stats_col}_duration",
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
                 AllowedPivotColumnsEnum.IS_DAYTIME,
@@ -388,12 +190,8 @@ def get_percentage_of_nocturnal_interactions(
     Returns:
         df: Dataframe with percentage of nocturnal interactions column
     """
-    if not set(["caller_id", "is_daytime", "is_weekend", "transaction_type"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'is_daytime', 'is_weekend' and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     count_df = spark_df.groupby("caller_id").agg(
         count("*").alias("total_interactions"),
@@ -407,7 +205,7 @@ def get_percentage_of_nocturnal_interactions(
     ).select("caller_id", "percentage_nocturnal_interactions")
 
     count_df = spark_df.join(count_df, on="caller_id", how="inner")
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "percentage_nocturnal_interactions",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -432,19 +230,8 @@ def get_percentage_of_initiated_conversations(
     Returns:
         df: Dataframe with percentage of initiated conversations column
     """
-    if not set(
-        [
-            "caller_id",
-            "timestamp",
-            "conversation",
-            "is_weekend",
-            "is_daytime",
-            "direction_of_transaction",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'timestamp', 'conversation', 'is_weekend', 'is_daytime' and 'direction_of_transaction' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # TODO: this calculation is copied from deprecated.helpers.features.precent_initiated_conversations
     # but it seems to calculate the average number of initiated conversations per daytime / weekend convo
@@ -462,7 +249,7 @@ def get_percentage_of_initiated_conversations(
             )
         )
     )
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "percentage_initiated_conversations",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -486,18 +273,9 @@ def get_percentage_of_initiated_calls(
     Returns:
         df: Dataframe with percentage of initiated calls column
     """
-    if not set(
-        [
-            "caller_id",
-            "is_weekend",
-            "is_daytime",
-            "direction_of_transaction",
-            "transaction_type",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'is_weekend', 'is_daytime', 'direction_of_transaction' and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
+
     spark_df_filtered = spark_df.where(col("transaction_type") == "call")
 
     # TODO: this calculation is copied from deprecated.helpers.features.percent_initiated_calls
@@ -512,7 +290,7 @@ def get_percentage_of_initiated_calls(
         .agg(pys_mean("initiated_call").alias("percentage_initiated_calls"))
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "percentage_initiated_calls",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -534,21 +312,8 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
     Returns:
         df: Dataframe with text response time delay statistics columns
     """
-    if not set(
-        [
-            "caller_id",
-            "recipient_id",
-            "transaction_type",
-            "timestamp",
-            "is_weekend",
-            "is_daytime",
-            "conversation",
-            "direction_of_transaction",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Filter to only text transactions
     filtered_df = spark_df.filter(col("transaction_type") == "text")
@@ -577,17 +342,9 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
     )
 
     all_aggs = []
-    for pivot_col in [
-        "mean_response_time_delay",
-        "median_response_time_delay",
-        "max_response_time_delay",
-        "min_response_time_delay",
-        "std_response_time_delay",
-        "skewness_response_time_delay",
-        "kurtosis_response_time_delay",
-    ]:
-        aggs = _get_agg_columns_by_time_and_transaction_type(
-            pivot_col,
+    for pivot_col in [e.value for e in StatsComputationMethodEnum]:
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            f"{pivot_col}_response_time_delay",
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
                 AllowedPivotColumnsEnum.IS_DAYTIME,
@@ -613,21 +370,8 @@ def get_text_response_rate(
     Returns:
         df: Dataframe with text response rate columns
     """
-    if not set(
-        [
-            "caller_id",
-            "recipient_id",
-            "transaction_type",
-            "timestamp",
-            "is_weekend",
-            "is_daytime",
-            "conversation",
-            "direction_of_transaction",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'transaction_type', 'timestamp', 'is_weekend', 'is_daytime', 'conversation', and 'direction_of_transaction' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Filter to only text transactions
     filtered_df = spark_df.filter(col("transaction_type") == "text")
@@ -649,7 +393,7 @@ def get_text_response_rate(
         .agg(pys_mean("responded").alias("text_response_rate"))
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "text_response_rate",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -673,12 +417,8 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
     Returns:
         df: Dataframe with entropy of interactions column
     """
-    if not set(
-        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     window = Window.partitionBy(
         "caller_id", "is_weekend", "is_daytime", "transaction_type"
@@ -700,7 +440,7 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
         )
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "entropy_of_interactions",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -723,19 +463,8 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
     Returns:
         df: Dataframe with outgoing call fraction statistics columns
     """
-    if not set(
-        [
-            "caller_id",
-            "recipient_id",
-            "is_weekend",
-            "is_daytime",
-            "direction_of_transaction",
-            "transaction_type",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'direction_of_transaction' and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Get interaction counts per caller-recipient pair
     count_df = (
@@ -781,11 +510,11 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
 
     all_aggs = []
     cols_to_pivot = [
-        c for c in fraction_df.columns if "fraction_of_outgoing_calls" in c
+        f"{e.value}_fraction_of_outgoing_calls" for e in StatsComputationMethodEnum
     ]
 
     for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns_by_time_and_transaction_type(
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
             pivot_col,
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -811,12 +540,8 @@ def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame
     Returns:
         df: Dataframe with interaction statistics columns
     """
-    if not set(
-        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     summary_stats_cols = _get_summary_stats_cols("interaction_count")
     interaction_df = (
@@ -829,9 +554,9 @@ def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame
     )
 
     all_aggs = []
-    cols_to_pivot = [c for c in interaction_df.columns if "interaction_count" in c]
+    cols_to_pivot = [f"{e.value}_interaction_count" for e in StatsComputationMethodEnum]
     for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns_by_time_and_transaction_type(
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
             pivot_col,
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -857,12 +582,8 @@ def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with inter-event time statistics columns
     """
-    if not set(
-        ["caller_id", "timestamp", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'timestamp', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Calculate inter-event times and corresponding summary stats
     window = Window.partitionBy(
@@ -880,9 +601,9 @@ def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
 
     # Pivot inter-event time stats
     all_aggs = []
-    cols_to_pivot = [c for c in inter_event_df.columns if "inter_event_time" in c]
+    cols_to_pivot = [f"{e.value}_inter_event_time" for e in StatsComputationMethodEnum]
     for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns_by_time_and_transaction_type(
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
             pivot_col,
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -913,12 +634,8 @@ def get_pareto_principle_interaction_stats(
     Returns:
         df: Dataframe with Pareto principle interaction statistics columns
     """
-    if not set(
-        ["caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', and 'transaction_type' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Set up windows for calculations
     window_1 = Window.partitionBy(
@@ -964,7 +681,7 @@ def get_pareto_principle_interaction_stats(
         )
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "pareto_principle_interaction_fraction",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -993,19 +710,8 @@ def get_pareto_principle_call_duration_stats(
     Returns:
         df: Dataframe with Pareto principle call duration statistics columns
     """
-    if not set(
-        [
-            "caller_id",
-            "recipient_id",
-            "is_weekend",
-            "is_daytime",
-            "transaction_type",
-            "duration",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'recipient_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'duration' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Filter to only call transactions
     filtered_df = spark_df.filter(col("transaction_type") == "call")
@@ -1053,7 +759,7 @@ def get_pareto_principle_call_duration_stats(
         )
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "pareto_call_duration_fraction",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1075,18 +781,8 @@ def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFr
     Returns:
         df: Dataframe with number of interactions columns
     """
-    if not set(
-        [
-            "caller_id",
-            "is_weekend",
-            "is_daytime",
-            "transaction_type",
-            "direction_of_transaction",
-        ]
-    ).issubset(spark_df.columns):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'is_weekend', 'is_daytime', 'transaction_type', and 'direction_of_transaction' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     count_df = spark_df.groupby(
         "caller_id",
@@ -1110,7 +806,7 @@ def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFr
         pivoted_df = pivoted_df.withColumnRenamed(
             e.value, f"{e.value}_num_interactions"
         )
-        aggs = _get_agg_columns_by_time_and_transaction_type(
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
             f"{e.value}_num_interactions",
             cols_to_use_for_pivot=[
                 AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1135,18 +831,14 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with number of unique antennas column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     antenna_df = spark_df.groupby("caller_id", "is_daytime", "is_weekend").agg(
         countDistinct("caller_antenna_id").alias("num_unique_antennas")
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "num_unique_antennas",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1169,12 +861,8 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
     Returns:
         df: Dataframe with entropy of antennas column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     window = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
     entropy_df = (
@@ -1197,7 +885,7 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
         )
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "entropy_of_antennas",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1228,12 +916,8 @@ def get_radius_of_gyration(
     Returns:
         df: Dataframe with radius of gyration column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_weekend", "is_daytime"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_weekend', and 'is_daytime' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     if not set(["caller_antenna_id", "latitude", "longitude"]).issubset(
         spark_antennas_df.columns
@@ -1277,7 +961,7 @@ def get_radius_of_gyration(
         )
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "radius_of_gyration",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1304,12 +988,8 @@ def get_pareto_principle_antennas(
     Returns:
         df: Dataframe with Pareto principle antennas column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Configure windows for calculations
     window_1 = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
@@ -1338,7 +1018,7 @@ def get_pareto_principle_antennas(
         .agg(pys_min("row_number").alias("num_pareto_principle_antennas"))
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "num_pareto_principle_antennas",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1362,12 +1042,8 @@ def get_average_num_of_interactions_from_home_antennas(
     Returns:
         df: Dataframe with percentage of interactions from home antennas column
     """
-    if not set(["caller_id", "caller_antenna_id", "is_daytime", "is_weekend"]).issubset(
-        spark_df.columns
-    ):
-        raise ValueError(
-            "Dataframe must contain 'caller_id', 'caller_antenna_id', 'is_daytime', and 'is_weekend' columns"
-        )
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
 
     # Identify home antenna per caller:
     # home antenna is the antenna from which the most nightime-calls are made
@@ -1394,7 +1070,7 @@ def get_average_num_of_interactions_from_home_antennas(
         .agg(pys_mean("is_home_interaction").alias("mean_home_antenna_interaction"))
     )
 
-    aggs = _get_agg_columns_by_time_and_transaction_type(
+    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "mean_home_antenna_interaction",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
@@ -1404,3 +1080,231 @@ def get_average_num_of_interactions_from_home_antennas(
     )
 
     return home_interaction_df.groupby("caller_id").agg(*aggs)
+
+
+# International features
+def get_international_interaction_statistics(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get number of international interactions per caller in the dataframe, disaggregated by transaction type.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'transaction_type', 'transaction_scope', 'day' and 'duration' columns
+
+    Returns:
+        df: Dataframe with international transaction statistics per transaction type: number of recipients, number of unique recipients, number of unique days, total call duration, etc.
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
+
+    international_df = spark_df.filter(
+        col("transaction_scope") == TransactionScope.INTERNATIONAL.value
+    )
+    all_stats_df = international_df.groupBy("caller_id", "transaction_type").agg(
+        count("recipient_id").alias("num_interactions"),
+        countDistinct("recipient_id").alias("num_unique_recipients"),
+        pys_sum("duration").alias("total_call_duration"),
+        countDistinct("day").alias("num_unique_days"),
+    )
+    all_aggs = []
+    for pivot_col in [
+        "num_interactions",
+        "num_unique_recipients",
+        "total_call_duration",
+        "num_unique_days",
+    ]:
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            pivot_col,
+            cols_to_use_for_pivot=[
+                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+            ],
+            agg_func=pys_sum,
+        )
+        all_aggs.extend(aggs)
+    stats_df = all_stats_df.groupby("caller_id").agg(*all_aggs)
+
+    # Drop call duration columns for texts
+    stats_df = stats_df.drop("text_total_call_duration")
+    return stats_df
+
+
+# Mobile data features
+def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get mobile data usage statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'day', 'volume' columns
+
+    Returns:
+        df: Dataframe with mobile data usage statistics columns
+    """
+    _validate_dataframe(spark_df, MobileDataUsageDataWithDay)
+    summary_stats_aggs = _get_summary_stats_cols(
+        "volume",
+        [
+            StatsComputationMethodEnum.MEAN,
+            StatsComputationMethodEnum.MIN,
+            StatsComputationMethodEnum.MAX,
+            StatsComputationMethodEnum.STD,
+        ],
+    )
+
+    summary_stats_df = spark_df.groupby("caller_id").agg(
+        pys_sum("volume").alias("total_data_volume"),
+        countDistinct("day").alias("num_unique_days_with_data_usage"),
+        *summary_stats_aggs,
+    )
+    return summary_stats_df
+
+
+# Mobile money features
+def get_mobile_money_amount_stats(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get mobile money amount statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'primary_id', 'correspondent_id', 'transaction_type', 'amount', 'day columns
+
+    Returns:
+        df: Dataframe with mobile money transaction statistics columns
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+
+    summary_stats_cols = [
+        StatsComputationMethodEnum.MEAN,
+        StatsComputationMethodEnum.MIN,
+        StatsComputationMethodEnum.MAX,
+        StatsComputationMethodEnum.STD,
+    ]
+    summary_stats_aggs = _get_summary_stats_cols("amount", summary_stats_cols)
+
+    summary_stats_all = spark_df.groupby("primary_id").agg(
+        *summary_stats_aggs,
+    )
+
+    summary_stats_df = spark_df.groupby("primary_id", "transaction_type").agg(
+        *summary_stats_aggs,
+    )
+    summary_stats_cols = [col for col in summary_stats_df.columns if "amount" in col]
+    pivot_df = (
+        summary_stats_df.groupby("primary_id")
+        .pivot("transaction_type")
+        .agg(*[first(col_name) for col_name in summary_stats_cols])
+    )
+    pivot_df = pivot_df.join(summary_stats_all, on="primary_id", how="inner")
+
+    return pivot_df
+
+
+def get_mobile_money_transaction_stats(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get mobile money transaction statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'primary_id', 'correspondent_id', 'transaction_type' columns
+
+    Returns:
+        df: Dataframe with mobile money transaction statistics columns
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+
+    summary_stats_df = spark_df.groupby("primary_id", "transaction_type").agg(
+        count("correspondent_id").alias("num_transactions"),
+        countDistinct("correspondent_id").alias("num_unique_correspondents"),
+    )
+    pivot_df = (
+        summary_stats_df.groupby("primary_id")
+        .pivot("transaction_type")
+        .agg(first("num_transactions"), first("num_unique_correspondents"))
+    )
+
+    return pivot_df
+
+
+def get_mobile_money_balance_stats(
+    spark_df: SparkDataFrame,
+) -> SparkDataFrame:
+    """
+    Get mobile money balance statistics per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'primary_id', 'transaction_type', 'balance_before', and 'balance_after' columns
+
+    Returns:
+        df: Dataframe with mobile money balance statistics columns
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, MobileMoneyDataWithDirection)
+
+    summary_stats_cols = [
+        StatsComputationMethodEnum.MEAN,
+        StatsComputationMethodEnum.MIN,
+        StatsComputationMethodEnum.MAX,
+        StatsComputationMethodEnum.STD,
+    ]
+    summary_stats_aggs = _get_summary_stats_cols(
+        "balance_after", summary_stats_cols
+    ) + _get_summary_stats_cols("balance_before", summary_stats_cols)
+
+    summary_stats_all = spark_df.groupby("primary_id").agg(
+        *summary_stats_aggs,
+    )
+
+    summary_stats_by_type = spark_df.groupby("primary_id", "transaction_type").agg(
+        *summary_stats_aggs,
+    )
+    summary_stats_cols = [
+        col for col in summary_stats_by_type.columns if "balance" in col
+    ]
+    pivot_df = (
+        summary_stats_by_type.groupby("primary_id")
+        .pivot("transaction_type")
+        .agg(*[first(col_name) for col_name in summary_stats_cols])
+    )
+    pivot_df = pivot_df.join(summary_stats_all, on="primary_id", how="inner")
+
+    return pivot_df
+
+
+# Recharges features
+def get_recharge_amount_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
+    """
+    Get recharge amount statistics per user in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id', 'amount' columns
+
+    Returns:
+        df: Dataframe with recharge amount statistics columns
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, RechargeDataWithDay)
+
+    summary_stats_cols = _get_summary_stats_cols(
+        "amount",
+        [
+            StatsComputationMethodEnum.MEAN,
+            StatsComputationMethodEnum.MIN,
+            StatsComputationMethodEnum.MAX,
+            StatsComputationMethodEnum.STD,
+        ],
+    )
+
+    summary_stats_df = spark_df.groupby("caller_id").agg(
+        pys_sum("amount").alias("total_recharge_amount"),
+        count("amount").alias("num_recharges"),
+        countDistinct("day").alias("num_unique_recharge_days"),
+        *summary_stats_cols,
+    )
+    return summary_stats_df
+
+
+# Location features

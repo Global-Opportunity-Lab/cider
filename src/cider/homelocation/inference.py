@@ -24,7 +24,8 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+from cider.utils import _validate_dataframe
+from cider.schemas import CallDataRecordData, AntennaData
 from .schemas import GetHomeLocationAlgorithm, GeographicUnit
 import pandas as pd
 import geopandas as gpd
@@ -42,8 +43,8 @@ from pyspark.sql.window import Window
 
 # Prepare data for home location inference
 def _prepare_home_location_data(
-    validated_cdr_data: pd.DataFrame,
-    validated_antenna_data: pd.DataFrame,
+    cdr_data: pd.DataFrame,
+    antenna_data: pd.DataFrame,
     geographic_unit: GeographicUnit,
     shapefile_data: gpd.GeoDataFrame | None = None,
 ) -> pd.DataFrame:
@@ -51,18 +52,22 @@ def _prepare_home_location_data(
     Prepare data for home location inference
 
     Args:
-        validated_cdr_data: validated call data records
-        validated_antenna_data: validated antenna data
+        cdr_data: validated call data records
+        antenna_data: validated antenna data
         geographic_unit: geographic unit to use for home location inference
 
     Returns:
         prepared_data: prepared data for home location inference
     """
+    # Validate CDR and antenna data have required columns
+    _validate_dataframe(cdr_data, CallDataRecordData)
+    _validate_dataframe(antenna_data, AntennaData)
+
     columns_to_drop = []
     match geographic_unit:
         case GeographicUnit.ANTENNA_ID:
-            prepared_data = validated_cdr_data.merge(
-                validated_antenna_data,
+            prepared_data = cdr_data.merge(
+                antenna_data,
                 left_on="caller_antenna_id",
                 right_on="antenna_id",
                 how="inner",
@@ -70,12 +75,12 @@ def _prepare_home_location_data(
             columns_to_drop = ["antenna_id"]
 
         case GeographicUnit.TOWER_ID:
-            if "tower_id" not in validated_antenna_data.columns:
+            if "tower_id" not in antenna_data.columns:
                 raise ValueError(
                     "Antenna data must contain 'tower_id' column for geographic unit TOWER_ID."
                 )
-            prepared_data = validated_cdr_data.merge(
-                validated_antenna_data,
+            prepared_data = cdr_data.merge(
+                antenna_data,
                 left_on="caller_antenna_id",
                 right_on="tower_id",
                 how="inner",
@@ -89,9 +94,9 @@ def _prepare_home_location_data(
                 )
 
             antennas_gdf = gpd.GeoDataFrame(
-                validated_antenna_data,
+                antenna_data,
                 geometry=gpd.points_from_xy(
-                    validated_antenna_data.longitude, validated_antenna_data.latitude
+                    antenna_data.longitude, antenna_data.latitude
                 ),
                 crs="EPSG:4326",
             )
@@ -99,7 +104,7 @@ def _prepare_home_location_data(
                 antennas_gdf, shapefile_data, predicate="within", how="left"
             )
 
-            prepared_data = validated_cdr_data.merge(
+            prepared_data = cdr_data.merge(
                 antennas,
                 left_on="caller_antenna_id",
                 right_on="antenna_id",
@@ -247,8 +252,8 @@ def _infer_home_locations(
 
 def get_home_locations(
     spark_session: SparkSession,
-    validated_cdr_data: pd.DataFrame,
-    validated_antenna_data: pd.DataFrame,
+    cdr_data: pd.DataFrame,
+    antenna_data: pd.DataFrame,
     geographic_unit: GeographicUnit,
     algorithm: GetHomeLocationAlgorithm,
     shapefile_data: gpd.GeoDataFrame | None = None,
@@ -259,8 +264,8 @@ def get_home_locations(
 
     Args:
         spark_session: Spark session
-        validated_cdr_data: validated CDR data
-        validated_antenna_data: validated antenna data
+        cdr_data: CDR data
+        antenna_data: antenna data
         geographic_unit: geographic unit for home location inference
         algorithm: algorithm to use for home location inference
         shapefile_data: optional shapefile data for geographic boundaries
@@ -271,7 +276,7 @@ def get_home_locations(
         DataFrame containing the inferred home locations
     """
     prepared_data = _prepare_home_location_data(
-        validated_cdr_data, validated_antenna_data, geographic_unit, shapefile_data
+        cdr_data, antenna_data, geographic_unit, shapefile_data
     )
     home_locations = _infer_home_locations(
         prepared_data, algorithm, spark_session, additional_columns_to_keep
@@ -289,8 +294,8 @@ def get_accuracy(
     Get accuracy of inferred home locations compared to true home locations
 
     Args:
-        geographic_unit: geographic unit for home location inference
-        algorithm: algorithm used for home location inference
+        inferred_home_locations: DataFrame containing inferred home locations
+        groundtruth_home_locations: DataFrame containing groundtruth home locations
         column_to_merge_on: column to merge on (default is 'caller_id')
         column_to_measure_on: column to measure accuracy on (default is 'caller_antenna_id')
 
