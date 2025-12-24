@@ -51,6 +51,8 @@ from .schemas import (
     StatsComputationMethodEnum,
     MobileMoneyDataWithDirection,
     RechargeDataWithDay,
+    AntennaDataGeometry,
+    AntennaDataGeometryWithRegion,
 )
 from .dependencies import (
     _get_agg_columns_by_cdr_time_and_transaction_type,
@@ -918,18 +920,10 @@ def get_radius_of_gyration(
     """
     # Validate input dataframe
     _validate_dataframe(spark_df, CallDataRecordTagged)
-
-    if not set(["caller_antenna_id", "latitude", "longitude"]).issubset(
-        spark_antennas_df.columns
-    ):
-        raise ValueError(
-            "Antennas dataframe must contain 'caller_antenna_id', 'latitude', and 'longitude' columns"
-        )
+    _validate_dataframe(spark_antennas_df, AntennaDataGeometry)
 
     # Join antennas and CDR data
-    joined_df = spark_df.join(
-        spark_antennas_df, on="caller_antenna_id", how="inner"
-    ).dropna(subset=["latitude", "longitude"])
+    joined_df = spark_df.join(spark_antennas_df, on="caller_antenna_id", how="inner")
 
     # Calculate center of mass coordinates
     coordinates_df = (
@@ -1129,6 +1123,45 @@ def get_international_interaction_statistics(
     return stats_df
 
 
+# TODO: this is a reimplementaion of deprecated.featurizer.location_features. However, there are additional calculations
+# e.g. percentage unique callers per region, that seem incompatible with the per-caller
+# structure we have followed so far. So current implementation does not mirror the deprecated one exactly.
+def get_caller_counts_per_region(
+    spark_df: SparkDataFrame, spark_antenna_df: SparkDataFrame
+) -> SparkDataFrame:
+    """
+    Get location features per caller in the dataframe.
+
+    Args:
+        spark_df: Dataframe with 'caller_id' column
+        spark_antenna_df: Dataframe with 'caller_antenna_id', 'latitude', 'longitude' and 'region' columns
+
+    Returns:
+        df: Dataframe with location features columns
+    """
+    # Validate input dataframe
+    _validate_dataframe(spark_df, CallDataRecordTagged)
+    _validate_dataframe(spark_antenna_df, AntennaDataGeometryWithRegion)
+
+    # Merge CDR and antenna data by caller ID
+    joined_df = spark_df.join(spark_antenna_df, on="caller_antenna_id", how="inner")
+
+    # Get caller statistics by region
+    region_counts_df = joined_df.groupby("caller_id", "region").agg(
+        countDistinct("recipient_id").alias("num_unique_interactions"),
+        countDistinct("caller_antenna_id").alias("num_unique_antennas"),
+    )
+
+    # Pivot region statistics
+    pivoted_df = (
+        region_counts_df.groupby("caller_id")
+        .pivot("region")
+        .agg(first("num_unique_interactions"), first("num_unique_antennas"))
+    )
+
+    return pivoted_df
+
+
 # Mobile data features
 def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     """
@@ -1167,7 +1200,7 @@ def get_mobile_money_amount_stats(
     Get mobile money amount statistics per caller in the dataframe.
 
     Args:
-        spark_df: Dataframe with 'primary_id', 'correspondent_id', 'transaction_type', 'amount', 'day columns
+        spark_df: Dataframe with 'primary_id', 'correspondent_id', 'transaction_type', 'amount', 'day' columns
 
     Returns:
         df: Dataframe with mobile money transaction statistics columns

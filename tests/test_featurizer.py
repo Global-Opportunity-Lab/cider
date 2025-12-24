@@ -44,6 +44,8 @@ from cider.featurizer.schemas import (
     MobileMoneyDataWithDay,
     MobileDataUsageDataWithDay,
     RechargeDataWithDay,
+    AntennaDataGeometry,
+    AntennaDataGeometryWithRegion,
 )
 from cider.featurizer.dependencies import (
     filter_to_datetime,
@@ -84,6 +86,7 @@ from cider.featurizer.inference import (
     get_mobile_money_transaction_stats,
     get_mobile_money_balance_stats,
     get_recharge_amount_stats,
+    get_caller_counts_per_region,
 )
 
 
@@ -1974,18 +1977,90 @@ class TestFeaturizerInferenceCDRData:
                 get_radius_of_gyration(spark_cdr_no_col, spark_antenna_data)
 
         for col in [
-            "caller_antenna_id",
-            "latitude",
-            "longitude",
+            k
+            for k, field in AntennaDataGeometry.model_fields.items()
+            if field.is_required()
         ]:
             spark_antenna_no_col = spark.createDataFrame(
                 pd_antenna_data.drop(columns=[col])
             )
             with pytest.raises(
                 ValueError,
-                match="Antennas dataframe must contain 'caller_antenna_id', 'latitude', and 'longitude' columns",
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
             ):
                 get_radius_of_gyration(
+                    spark_cdr_with_conversations, spark_antenna_no_col
+                )
+
+    def test_get_caller_counts_per_region(self, spark_cdr_with_conversations, spark):
+        pd_antenna_data = pd.DataFrame(ANTENNA_DATA)
+        pd_antenna_data["region"] = ["RegionA", "RegionB", "RegionC"]
+        pd_antenna_data.rename(
+            columns={"antenna_id": "caller_antenna_id"}, inplace=True
+        )
+
+        spark_antenna_data = spark.createDataFrame(pd_antenna_data)
+
+        spark_caller_counts_per_region = get_caller_counts_per_region(
+            spark_cdr_with_conversations, spark_antenna_data
+        )
+        pd_caller_counts_per_region = spark_caller_counts_per_region.toPandas()
+
+        expected_results = {
+            "RegionA_first(num_unique_interactions)": [1.0, 1.0, np.nan, 1.0],
+            "RegionA_first(num_unique_antennas)": [1.0, 1.0, np.nan, 1.0],
+            "RegionB_first(num_unique_interactions)": [1.0, 1.0, np.nan, 1.0],
+            "RegionB_first(num_unique_antennas)": [1.0, 1.0, np.nan, 1.0],
+            "RegionC_first(num_unique_interactions)": [np.nan, np.nan, 3.0, np.nan],
+            "RegionC_first(num_unique_antennas)": [np.nan, np.nan, 1.0, np.nan],
+        }
+        expected_results = pd.DataFrame(expected_results).reset_index(drop=True)
+
+        assert set(
+            [
+                "caller_id",
+                *expected_results.keys(),
+            ]
+        ) == set(pd_caller_counts_per_region.columns)
+        assert (
+            deepdiff.DeepDiff(
+                pd_caller_counts_per_region.reset_index(drop=True).drop(
+                    columns=["caller_id"]
+                ),
+                expected_results,
+                ignore_order=True,
+            )
+            == {}
+        )
+
+        pd_cdr_with_conversations = spark_cdr_with_conversations.toPandas()
+        for col in [
+            k
+            for k, field in CallDataRecordTagged.model_fields.items()
+            if field.is_required()
+        ]:
+            spark_cdr_no_col = spark.createDataFrame(
+                pd_cdr_with_conversations.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
+            ):
+                get_caller_counts_per_region(spark_cdr_no_col, spark_antenna_data)
+
+        for col in [
+            k
+            for k, field in AntennaDataGeometryWithRegion.model_fields.items()
+            if field.is_required()
+        ]:
+            spark_antenna_no_col = spark.createDataFrame(
+                pd_antenna_data.drop(columns=[col])
+            )
+            with pytest.raises(
+                ValueError,
+                match=f"The following required columns are missing from the dataframe: {set([col])}",
+            ):
+                get_caller_counts_per_region(
                     spark_cdr_with_conversations, spark_antenna_no_col
                 )
 
