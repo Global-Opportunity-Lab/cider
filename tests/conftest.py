@@ -161,3 +161,27 @@ MOBILE_MONEY_TRANSACTION_DATA = {
     "recipient_balance_before": [2000.0, 2500.0, 3000.0] * 2,
     "recipient_balance_after": [3000.0, 4000.0, 5000.0] * 2,
 }
+
+HOUSEHOLD_CONSUMPTION_DATA = {
+    "household_id": [
+        "household_1",
+        "household_2",
+        "household_3",
+        "household_4",
+        "household_5",
+        "household_6",
+    ],
+    "groundtruth_consumption": [4.359, 0.259, 5.497, 4.353, 4.204, 5.985],
+    "proxy_consumption": [5.359, 0.259, 8.497, 4.353, 8.304, 8.985],
+    "weight": [2.0, 3.0, 1.0, 2.0, 1.0, 2.0],
+}
+ALLOWED_CHARACTERISTIC_VALUES = {"group_1", "group_2"}
+HOUSEHOLD_CONSUMPTION_DATA_W_CHARACTERISTIC = HOUSEHOLD_CONSUMPTION_DATA.copy()
+HOUSEHOLD_CONSUMPTION_DATA_W_CHARACTERISTIC["characteristic"] = [
+    "group_1",
+    "group_2",
+    "group_1",
+    "group_2",
+    "group_1",
+    "group_2",
+]

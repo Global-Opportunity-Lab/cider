@@ -29,7 +29,7 @@ import pytest
 import pandas as pd
 from cider.schemas import CallDataRecordData, AntennaData
 from cider.homelocation.schemas import GeographicUnit, GetHomeLocationAlgorithm
-from cider.homelocation.inference import (
+from cider.homelocation.core import (
     _prepare_home_location_data,
     _infer_home_locations,
     get_home_locations,
@@ -93,7 +93,7 @@ def _get_antenna_data_payload(input: str = "base") -> pd.DataFrame:
             return pd.DataFrame(antenna_data_renamed)
 
 
-class TestHomeLocationInference:
+class TestHomeLocationCore:
     @pytest.fixture
     def create_cdr_data_schema(self, request: pytest.FixtureRequest) -> dict:
         """Fixture to create experiment payload based on request parameter."""
@@ -194,7 +194,7 @@ class TestHomeLocationInference:
         ],
         indirect=["create_cdr_data_schema", "create_antenna_data_schema"],
     )
-    def test_inference_home_location(
+    def test_core_home_location(
         self,
         create_cdr_data_schema,
         create_antenna_data_schema,
@@ -259,7 +259,7 @@ class TestHomeLocationInference:
         ],
         indirect=["create_cdr_data_schema", "create_antenna_data_schema"],
     )
-    def test_home_location_inference_accuracy(
+    def test_home_location_core_accuracy(
         self,
         spark,
         create_cdr_data_schema,
@@ -299,7 +299,7 @@ class TestHomeLocationInference:
         ],
         indirect=["create_cdr_data_schema", "create_antenna_data_schema"],
     )
-    def test_home_location_inference_accuracy_failure(
+    def test_home_location_core_accuracy_failure(
         self,
         spark,
         create_cdr_data_schema,

@@ -59,7 +59,7 @@ from cider.featurizer.dependencies import (
     identify_and_tag_conversations,
     identify_mobile_money_transaction_direction,
 )
-from cider.featurizer.inference import (
+from cider.featurizer.core import (
     get_active_days,
     get_number_of_contacts_per_caller,
     get_call_duration_stats,
@@ -405,7 +405,7 @@ class TestFeaturizerDependencies:
                 identify_mobile_money_transaction_direction(spark_mobile_money_missing)
 
 
-class TestFeaturizerInferenceCDRData:
+class TestFeaturizerCoreCDRData:
 
     FUNCTION_MAP = {
         "get_active_days": get_active_days,
@@ -2065,7 +2065,7 @@ class TestFeaturizerInferenceCDRData:
                 )
 
 
-class TestFeaturizerInferenceMobileData:
+class TestFeaturizerCoreMobileData:
 
     def test_get_mobile_data_stats(self, spark):
         pd_mobile_data = pd.DataFrame(MOBILE_DATA_USAGE_DATA)
@@ -2104,7 +2104,7 @@ class TestFeaturizerInferenceMobileData:
                 get_mobile_data_stats(spark_mobile_data_no_col)
 
 
-class TestFeaturizerInferenceMobileMoney:
+class TestFeaturizerCoreMobileMoney:
 
     FUNCTION_MAP = {
         "get_mobile_money_amount_stats": get_mobile_money_amount_stats,
@@ -2796,7 +2796,7 @@ class TestFeaturizerInferenceMobileMoney:
                 func(spark_mobile_money_no_col)
 
 
-class TestFeaturizerInferenceRechargeData:
+class TestFeaturizerCoreRechargeData:
 
     def test_get_recharge_amount_stats(self, spark):
         pd_recharge_data = pd.DataFrame(RECHARGE_DATA)

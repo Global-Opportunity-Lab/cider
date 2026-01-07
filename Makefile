@@ -18,7 +18,7 @@ fresh-env:
 test:
 	export JAVA_HOME="$(/usr/libexec/java_home -v 17)"
 	export PATH="$JAVA_HOME/bin:$PATH"
-	uv run pytest tests/
+	uv run pytest -v tests/
 
 
 # Clears results from jupyter notebooks; results should not be commited as they contain binary blobs which bloat/obscure git history

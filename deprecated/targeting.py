@@ -666,7 +666,7 @@ class Targeting:
             groundtruth: The name of the groundtruth column in the targeting dataset.
             proxies: The list of targeting methods to be compared against each other; each name should have a
                 corresponding column in the targeting dataset.
-            ubi_transfer_size:
+            ubi_transfer_size: The size of the cash transfer if the entire population was targeted.
             weighted: If True the weighted version of the dataset will be used.
             n_grid: The number of equally-spaced percentiles to compute the metrics for.
 
