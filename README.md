@@ -19,13 +19,13 @@ Before contributing code please:
 
 ### Folder structure
 
-`src/cider`: cleaned / updated cider codesource
-`notebooks/`: Jupyter notebooks for analysis and exploration with cleaned code
-`deprecated/`: old code that is no longer in use but kept for reference
-`old_notebooks/`: old notebooks that are no longer in use but kept for reference
-`tests/`: unit tests for cleaned code in `src/cider`
-`synthetic_data/`: synthetic data generation scripts and generated data for testing and development purposes
-`configs/`: configuration files for various environments and settings (TO BE DEPRECATED SOON)
+- `src/cider`: cleaned / updated cider codesource
+- `notebooks/`: Jupyter notebooks for analysis and exploration with cleaned code
+- `deprecated/`: old code that is no longer in use but kept for reference
+- `old_notebooks/`: old notebooks that are no longer in use but kept for reference
+- `tests/`: unit tests for cleaned code in `src/cider`
+- `synthetic_data/`: synthetic data generation scripts and generated data for testing and development purposes
+- `configs/`: configuration files for various environments and settings (TO BE DEPRECATED SOON)
 
 
 ---
