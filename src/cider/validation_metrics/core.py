@@ -46,8 +46,9 @@ from scipy.stats import f_oneway
 from typing import Tuple
 
 
-def compute_auc_roc_with_percentile_grid(
+def compute_auc_roc_precision_recall_with_percentile_grid(
     data: pd.DataFrame,
+    fixed_groundtruth_percentile: float,
     num_grid_points: int = 99,
 ) -> pd.DataFrame:
     """
@@ -55,6 +56,7 @@ def compute_auc_roc_with_percentile_grid(
 
     Args:
         data (pd.DataFrame): Data containing 'groundtruth_consumption', 'proxy_consumption', and 'weight' values.
+        fixed_groundtruth_percentile (float):  Fixed value of percentile for groundtruth consumption values.
         num_grid_points (int): Number of grid points to compute AUC-ROC.
 
     Returns:
@@ -63,11 +65,18 @@ def compute_auc_roc_with_percentile_grid(
     # Validate that input data has the required columns
     _validate_dataframe(data, required_schema=ConsumptionData)
 
+    # Validate fixed_groundtruth_percentile value
+    if not 0.0 < fixed_groundtruth_percentile < 100.0:
+        raise ValueError("`fixed_groundtruth_percentile` must be between 0 and 100")
+
     # Create percentile grid
     percentiles = np.linspace(1, 99, num_grid_points)[::-1]
 
     results_per_grid = [
-        calculate_metrics_binary_valued_consumption(data, p, p) for p in percentiles
+        calculate_metrics_binary_valued_consumption(
+            data, fixed_groundtruth_percentile, p
+        )
+        for p in percentiles
     ]
     true_positive_rates = [
         result.true_positive_rate.values[0] for result in results_per_grid
@@ -76,10 +85,13 @@ def compute_auc_roc_with_percentile_grid(
         result.false_positive_rate.values[0] for result in results_per_grid
     ]
     auc_values = [result.auc.values[0] for result in results_per_grid]
+    precision_values = [result.precision.values[0] for result in results_per_grid]
+    recall_values = [result.recall.values[0] for result in results_per_grid]
 
     nonmonotonic_indices = where_is_false_positive_rate_nonmonotonic(
         np.array(false_positive_rates)
     )
+
     if len(nonmonotonic_indices) > 0:
         false_positive_rates = [
             false_positive_rates[i]
@@ -101,10 +113,22 @@ def compute_auc_roc_with_percentile_grid(
             for i in range(len(auc_values))
             if i not in nonmonotonic_indices
         ]
+        precision_values = [
+            precision_values[i]
+            for i in range(len(precision_values))
+            if i not in nonmonotonic_indices
+        ]
+        recall_values = [
+            recall_values[i]
+            for i in range(len(recall_values))
+            if i not in nonmonotonic_indices
+        ]
 
     results_df = pd.DataFrame(
         {
             "percentile": percentiles,
+            "precision": precision_values,
+            "recall": recall_values,
             "true_positive_rate": true_positive_rates,
             "false_positive_rate": false_positive_rates,
             "auc": auc_values,
@@ -323,23 +347,38 @@ def combine_tables_on_characteristic(
         data, threshold_percentile
     )
 
-    independence = calculate_independence_btwn_proxy_and_characteristic(
-        data, threshold_percentile
+    pivot_independence, independence = (
+        calculate_independence_btwn_proxy_and_characteristic(data, threshold_percentile)
     )
     independence_chi2, independence_p_value = independence.loc[0, :].to_list()
 
-    precision_recall = calculate_precision_and_recall_independence_characteristic(
-        data, threshold_percentile, threshold_percentile
+    pivot_precision, pivot_recall, precision_recall = (
+        calculate_precision_and_recall_independence_characteristic(
+            data, threshold_percentile, threshold_percentile
+        )
     )
     precision_chi2, precision_pvalue = precision_recall.loc["precision", :].to_list()
     recall_chi2, recall_pvalue = precision_recall.loc["recall", :].to_list()
 
     # Combine tables
+    pivot_independence.columns = [
+        f"independence_{col}" for col in pivot_independence.columns
+    ]
+    pivot_precision.columns = [f"precision_{col}" for col in pivot_precision.columns]
+    pivot_recall.columns = [f"recall_{col}" for col in pivot_recall.columns]
+    combined_pivot = pd.concat(
+        [pivot_independence, pivot_precision, pivot_recall], axis=1
+    )
+
     combined_table = rank_residuals_table.merge(
         demographic_parity_table,
         left_index=True,
         right_index=True,
         how="inner",
+    )
+
+    all_fairness_metrics_df = combined_pivot.merge(
+        combined_table, left_index=True, right_index=True
     )
 
     # Get statistics
@@ -356,4 +395,4 @@ def combine_tables_on_characteristic(
         }
     )
 
-    return combined_table, statistics
+    return all_fairness_metrics_df, statistics
