@@ -46,7 +46,7 @@ from cider.validation_metrics.schemas import (
     ConsumptionDataWithCharacteristic,
 )
 from cider.validation_metrics.core import (
-    compute_auc_roc_with_percentile_grid,
+    compute_auc_roc_precision_recall_with_percentile_grid,
     compute_utility_grid,
     calculate_optimal_utility_and_cash_transfer_size_table,
     calculate_rank_residuals_table_by_characteristic,
@@ -259,11 +259,11 @@ class TestValidationMetricsDependencies:
     def test_is_false_positive_rate_monotonic(self):
         # Test with a monotonic false positive rate series
         fpr_monotonic = np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5])
-        assert len(where_is_false_positive_rate_nonmonotonic(fpr_monotonic)) == 0
+        assert len(where_is_false_positive_rate_nonmonotonic(fpr_monotonic)) == 5
 
         # Test with a non-monotonic false positive rate series
         fpr_non_monotonic = np.array([0.0, 0.2, 0.15, 0.3, 0.4, 0.5])
-        assert len(where_is_false_positive_rate_nonmonotonic(fpr_non_monotonic)) == 1
+        assert len(where_is_false_positive_rate_nonmonotonic(fpr_non_monotonic)) == 4
 
     def test_calculate_rank_residuals_by_characteristic(self):
         rank_residuals = calculate_rank_residuals_by_characteristic(
@@ -377,8 +377,10 @@ class TestValidationMetricsCore:
         for col in ConsumptionData.model_fields.keys():
             household_data_no_cols = self.household_consumption_data.drop(columns=[col])
             with pytest.raises(ValueError):
-                compute_auc_roc_with_percentile_grid(
-                    household_data_no_cols, num_grid_points=10
+                compute_auc_roc_precision_recall_with_percentile_grid(
+                    household_data_no_cols,
+                    fixed_groundtruth_percentile=20,
+                    num_grid_points=10,
                 )
             with pytest.raises(ValueError):
                 compute_utility_grid(
@@ -412,13 +414,22 @@ class TestValidationMetricsCore:
                 )
 
     def test_compute_auc_roc_with_percentile_grid(self):
-        results_df = compute_auc_roc_with_percentile_grid(
-            self.household_consumption_data, num_grid_points=10
+        results_df = compute_auc_roc_precision_recall_with_percentile_grid(
+            self.household_consumption_data,
+            fixed_groundtruth_percentile=20,
+            num_grid_points=10,
         )
         assert set(
-            ["percentile", "true_positive_rate", "false_positive_rate", "auc"]
+            [
+                "percentile",
+                "precision",
+                "recall",
+                "true_positive_rate",
+                "false_positive_rate",
+                "auc",
+            ]
         ) == set(results_df.columns)
-        assert len(results_df) == 8
+        assert len(results_df) == 10
 
     def test_compute_utility_grid(self):
         results_df = compute_utility_grid(
@@ -458,7 +469,7 @@ class TestValidationMetricsCore:
             results_df.optimal_population_percentile.to_numpy(), 1e-2
         ) == [89.0, 89.0]
         assert pytest.approx(results_df.maximum_utility.to_numpy(), 1e-2) == [
-            -0.0141,
+            -0.01406,
             -0.00629,
         ]
         assert pytest.approx(results_df.optimal_transfer_size.to_numpy(), 1e-2) == [

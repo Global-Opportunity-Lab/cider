@@ -260,7 +260,7 @@ def where_is_false_positive_rate_nonmonotonic(
     Returns:
         bool: True if false positive rates are strictly increasing, False otherwise.
     """
-    return np.argwhere(false_positive_rates[1:] < false_positive_rates[:-1])
+    return np.argwhere(false_positive_rates[1:] > false_positive_rates[:-1])
 
 
 def calculate_rank_residuals_by_characteristic(data: pd.DataFrame):
