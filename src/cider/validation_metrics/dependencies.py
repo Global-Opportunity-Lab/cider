@@ -329,17 +329,16 @@ def calculate_demographic_parity_per_characteristic(
     data_copy["is_targeted_groundtruth"] = (
         data_copy["groundtruth_consumption"] <= groundtruth_threshold_value
     ).astype(int)
-    total_population = data_copy["weight"].sum()
 
     data_grouped = data_copy.groupby("characteristic").apply(
         lambda x: pd.Series(
             {
                 "groundtruth_poverty_percentage": 100
                 * (x.is_targeted_groundtruth * x.weight).sum()
-                / total_population,
+                / x.weight.sum(),
                 "proxy_poverty_percentage": 100
                 * (x.is_targeted_proxy * x.weight).sum()
-                / total_population,
+                / x.weight.sum(),
             },
         ),
         include_groups=False,
@@ -391,6 +390,7 @@ def calculate_independence_btwn_proxy_and_characteristic(
     )
     chi2, p_value, _, _ = chi2_contingency(pivot)
 
+    pivot = pivot / data_copy.weight.sum()
     return pivot, pd.DataFrame({"chi2_statistic": [chi2], "p_value": [p_value]})
 
 
@@ -444,6 +444,7 @@ def calculate_precision_and_recall_independence_characteristic(
         aggfunc="sum",
         fill_value=0,
     )
+
     pivot_recall = filtered_recall_data.pivot_table(
         index="characteristic",
         columns="proxy_binary",
@@ -454,6 +455,9 @@ def calculate_precision_and_recall_independence_characteristic(
 
     chi2_precision, p_value_precision, _, _ = chi2_contingency(pivot_precision)
     chi2_recall, p_value_recall, _, _ = chi2_contingency(pivot_recall)
+
+    pivot_precision = pivot_precision / data_copy.weight.sum()
+    pivot_recall = pivot_recall / data_copy.weight.sum()
 
     return (
         pivot_precision,

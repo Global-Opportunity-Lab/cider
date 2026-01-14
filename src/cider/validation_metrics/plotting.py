@@ -174,8 +174,9 @@ def plot_rank_residual_distributions_per_characteristic_value(
         return fig, ax
 
 
-def plot_demographic_parity_per_characteristic_value(
-    demographic_parity_df: pd.DataFrame,
+def plot_all_fairness_metrics_per_characteristic_value(
+    all_fairness_metrics_df: pd.DataFrame,
+    statistics_df: pd.DataFrame,
     characteristic_name: str = "Characteristic",
     **plot_kwargs,
 ) -> tuple[plt.Figure, plt.Axes]:
@@ -183,40 +184,74 @@ def plot_demographic_parity_per_characteristic_value(
     Plot demographic parity per characteristic value.
 
     Args:
-        demographic_parity_df: DataFrame containing demographic parity data with "demographic_parity", "groundtruth_poverty_percentage", "proxy_poverty_percentage", and "population_percentage" columns.
+        all_fairness_metrics_df: DataFrame containing data with all fairness metric columns.
+        statistics_df: Dataframe containing test statistics for the fairness metrics
         characteristic_name: Name of the characteristic being plotted. Defaults to "Characteristic".
         **plot_kwargs: Additional keyword arguments for matplotlib plot function (e.g., color, linestyle, etc.)
     """
-    with mpl.rc_context(fname=Path(__file__).parent / "../matplotlibrc"):
-        fig, ax = plt.subplots(1, 1, figsize=(15, 10))
-        ax.bar(
-            x=np.arange(len(demographic_parity_df)),
-            height=demographic_parity_df.population_percentage,
-            width=0.2,
-            label="Population",
+    if not set(
+        [
+            "independence_1",
+            "recall_1",
+            "groundtruth_poverty_percentage",
+            "proxy_poverty_percentage",
+            "demographic_parity",
+            "population_percentage",
+        ]
+    ).issubset(set(all_fairness_metrics_df.columns)):
+        raise ValueError(
+            "`all_fairness_metrics_df` must contain the following columns: 'independence_1', 'recall_1', 'groundtruth_poverty_percentage', 'proxy_poverty_percentage', 'demographic_parity', 'population_percentage'"
         )
-        ax.bar(
-            x=np.arange(len(demographic_parity_df)) + 0.2,
-            height=demographic_parity_df.groundtruth_poverty_percentage,
+
+    if not set(
+        [
+            "independence_chi2",
+            "independence_p_value",
+            "precision_chi2",
+            "precision_pvalue",
+            "recall_chi2",
+            "recall_pvalue",
+        ]
+    ).issubset(statistics_df.columns):
+        raise ValueError(
+            "`statistics_df` must contain the following columns: 'independence_chi2', 'independence_p_value', 'precision_chi2', 'precision_pvalue', 'recall_chi2', 'recall_pvalue"
+        )
+
+    with mpl.rc_context(fname=Path(__file__).parent / "../matplotlibrc"):
+        fig, axes = plt.subplots(3, 1, figsize=(15, 17))
+        fig.subplots_adjust(hspace=0.5)
+
+        # Demographic parity
+        axes[0].bar(
+            x=np.arange(len(all_fairness_metrics_df)),
+            height=all_fairness_metrics_df.groundtruth_poverty_percentage,
             width=0.2,
             label="Groundtruth",
         )
-        ax.bar(
-            x=np.arange(len(demographic_parity_df)) + 0.4,
-            height=demographic_parity_df.proxy_poverty_percentage,
+        axes[0].bar(
+            x=np.arange(len(all_fairness_metrics_df)) + 0.2,
+            height=all_fairness_metrics_df.proxy_poverty_percentage,
             width=0.2,
             label="Proxy",
         )
-        ax.set_xticks(np.arange(len(demographic_parity_df)) + 0.2)
-        ax.set_xticklabels(demographic_parity_df.index)
+        axes[0].set_xticks(np.arange(len(all_fairness_metrics_df)) + 0.1)
+        axes[0].set_xticklabels(
+            [
+                ind
+                + f"\n Pop. % = {all_fairness_metrics_df.loc[ind, "population_percentage"]: .2f}"
+                for ind in all_fairness_metrics_df.index
+            ]
+        )
 
         # Annotate bars with demographic parity values
-        for i, (_, row) in enumerate(demographic_parity_df.iterrows()):
-            ax.annotate(
+        for i, (_, row) in enumerate(all_fairness_metrics_df.iterrows()):
+            axes[0].annotate(
                 f"{row.demographic_parity:.3f}",
                 xy=(
-                    0.2 + i,
-                    demographic_parity_df.drop(columns=["demographic_parity"])
+                    0.1 + i,
+                    all_fairness_metrics_df[
+                        ["groundtruth_poverty_percentage", "proxy_poverty_percentage"]
+                    ]
                     .max()
                     .max()
                     + 1,
@@ -224,12 +259,52 @@ def plot_demographic_parity_per_characteristic_value(
                 ha="center",
                 fontsize=15,
             )
-        ax.legend(fontsize=10, frameon=True)
-        ax.set_xlabel(f"{characteristic_name} Value")
-        ax.set_ylabel("Population / target percentage")
-
-        fig.suptitle(
-            f"Population percentage and demographic parity per {characteristic_name} Value \n (Annotations show Demographic Parity Values)"
+        axes[0].legend(frameon=True)
+        axes[0].set_ylabel("Target percentage")
+        axes[0].set_title(
+            f"Target percentage and demographic parity per {characteristic_name} Value \n"
+            + "(Annotations show demographic parity values) \n"
+            + f"Independence between targeted populations (p-value): {statistics_df.independence_p_value[0]:.4f}\n"
         )
 
-        return fig, ax
+        # Recall value
+        axes[1].bar(
+            x=np.arange(len(all_fairness_metrics_df)),
+            height=all_fairness_metrics_df.recall_1 * 100,
+            width=0.2,
+        )
+        axes[1].set_xticks(np.arange(len(all_fairness_metrics_df)) + 0.1)
+        axes[1].set_xticklabels(
+            [
+                ind
+                + f"\n Pop. % = {all_fairness_metrics_df.loc[ind, "population_percentage"]: .2f}"
+                for ind in all_fairness_metrics_df.index
+            ]
+        )
+        axes[1].set_ylabel("Population percentage")
+        axes[1].set_title(
+            f"Recall {characteristic_name} Value\n"
+            + f"Recall between targeted populations (p-value): {statistics_df.recall_pvalue[0]:.4f}\n"
+        )
+
+        # Precision value
+        axes[2].bar(
+            x=np.arange(len(all_fairness_metrics_df)),
+            height=all_fairness_metrics_df.precision_1 * 100,
+            width=0.2,
+        )
+        axes[2].set_xticks(np.arange(len(all_fairness_metrics_df)) + 0.1)
+        axes[2].set_xticklabels(
+            [
+                ind
+                + f"\n Pop. % = {all_fairness_metrics_df.loc[ind, "population_percentage"]: .2f}"
+                for ind in all_fairness_metrics_df.index
+            ]
+        )
+        axes[2].set_ylabel("Population percentage")
+        axes[2].set_title(
+            f"Precision {characteristic_name} Value\n"
+            + f"Precision between targeted populations (p-value): {statistics_df.precision_pvalue[0]:.4f}\n"
+        )
+
+        return fig, axes

@@ -522,7 +522,7 @@ class TestValidationMetricsCore:
         ]
 
     def test_combine_tables_on_characteristic(self):
-        combined_table, combined_results, statistics = combine_tables_on_characteristic(
+        combined_table, statistics = combine_tables_on_characteristic(
             self.household_consumption_data_w_characteristic, threshold_percentile=50
         )
         assert set(
@@ -533,10 +533,6 @@ class TestValidationMetricsCore:
                 "precision_1",
                 "recall_0",
                 "recall_1",
-            ]
-        ) == set(combined_table.columns)
-        assert set(
-            [
                 "mean_rank_residual",
                 "std_rank_residual",
                 "groundtruth_poverty_percentage",
@@ -544,7 +540,7 @@ class TestValidationMetricsCore:
                 "demographic_parity",
                 "population_percentage",
             ]
-        ) == set(combined_results.columns)
+        ) == set(combined_table.columns)
         assert set(statistics.columns) == set(
             [
                 "anova_f_statistic",

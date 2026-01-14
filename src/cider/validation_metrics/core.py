@@ -325,7 +325,7 @@ def calculate_demographic_parity_table_per_characteristic(
 def combine_tables_on_characteristic(
     data: pd.DataFrame,
     threshold_percentile: float,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Combine rank residuals table, demographic parity table, and independence, precision and recall values on characteristic.
 
@@ -377,6 +377,10 @@ def combine_tables_on_characteristic(
         how="inner",
     )
 
+    all_fairness_metrics_df = combined_pivot.merge(
+        combined_table, left_index=True, right_index=True
+    )
+
     # Get statistics
     statistics = pd.DataFrame(
         {
@@ -391,4 +395,4 @@ def combine_tables_on_characteristic(
         }
     )
 
-    return combined_pivot, combined_table, statistics
+    return all_fairness_metrics_df, statistics
