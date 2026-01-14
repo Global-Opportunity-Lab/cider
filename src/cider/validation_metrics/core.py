@@ -325,7 +325,7 @@ def calculate_demographic_parity_table_per_characteristic(
 def combine_tables_on_characteristic(
     data: pd.DataFrame,
     threshold_percentile: float,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Combine rank residuals table, demographic parity table, and independence, precision and recall values on characteristic.
 
@@ -347,18 +347,29 @@ def combine_tables_on_characteristic(
         data, threshold_percentile
     )
 
-    independence = calculate_independence_btwn_proxy_and_characteristic(
-        data, threshold_percentile
+    pivot_independence, independence = (
+        calculate_independence_btwn_proxy_and_characteristic(data, threshold_percentile)
     )
     independence_chi2, independence_p_value = independence.loc[0, :].to_list()
 
-    precision_recall = calculate_precision_and_recall_independence_characteristic(
-        data, threshold_percentile, threshold_percentile
+    pivot_precision, pivot_recall, precision_recall = (
+        calculate_precision_and_recall_independence_characteristic(
+            data, threshold_percentile, threshold_percentile
+        )
     )
     precision_chi2, precision_pvalue = precision_recall.loc["precision", :].to_list()
     recall_chi2, recall_pvalue = precision_recall.loc["recall", :].to_list()
 
     # Combine tables
+    pivot_independence.columns = [
+        f"independence_{col}" for col in pivot_independence.columns
+    ]
+    pivot_precision.columns = [f"precision_{col}" for col in pivot_precision.columns]
+    pivot_recall.columns = [f"recall_{col}" for col in pivot_recall.columns]
+    combined_pivot = pd.concat(
+        [pivot_independence, pivot_precision, pivot_recall], axis=1
+    )
+
     combined_table = rank_residuals_table.merge(
         demographic_parity_table,
         left_index=True,
@@ -380,4 +391,4 @@ def combine_tables_on_characteristic(
         }
     )
 
-    return combined_table, statistics
+    return combined_pivot, combined_table, statistics

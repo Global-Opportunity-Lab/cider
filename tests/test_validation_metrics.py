@@ -313,10 +313,11 @@ class TestValidationMetricsDependencies:
     def test_calculate_independence_btwn_proxy_and_characteristic(
         self, threshold_percentile, expected_independence_p_value
     ):
-        results_df = calculate_independence_btwn_proxy_and_characteristic(
+        pivot_df, results_df = calculate_independence_btwn_proxy_and_characteristic(
             self.household_consumption_data_w_characteristic,
             threshold_percentile=threshold_percentile,
         )
+        assert pivot_df.shape == (2, 2)  # Two characteristic groups
         assert (
             pytest.approx(results_df["chi2_statistic"][0], 1e-2)
             == expected_independence_p_value[0]
@@ -343,7 +344,7 @@ class TestValidationMetricsDependencies:
         expected_recall_chi2,
         expected_recall_p_value,
     ):
-        results_df = calculate_precision_and_recall_independence_characteristic(
+        _, _, results_df = calculate_precision_and_recall_independence_characteristic(
             self.household_consumption_data_w_characteristic,
             groundtruth_threshold_percentile,
             proxy_threshold_percentile,
@@ -483,8 +484,6 @@ class TestValidationMetricsCore:
                 self.household_consumption_data_w_characteristic
             )
         )
-        print(results_df)
-        print(f"ANOVA F-statistic: {anova_f_statistic}, p-value: {anova_p_value}")
         assert pytest.approx(results_df.loc["group_1", :].to_list(), 1e-2) == [
             0.0,
             0.0247,
@@ -523,9 +522,19 @@ class TestValidationMetricsCore:
         ]
 
     def test_combine_tables_on_characteristic(self):
-        combined_table, statistics = combine_tables_on_characteristic(
+        combined_table, combined_results, statistics = combine_tables_on_characteristic(
             self.household_consumption_data_w_characteristic, threshold_percentile=50
         )
+        assert set(
+            [
+                "independence_0",
+                "independence_1",
+                "precision_0",
+                "precision_1",
+                "recall_0",
+                "recall_1",
+            ]
+        ) == set(combined_table.columns)
         assert set(
             [
                 "mean_rank_residual",
@@ -535,7 +544,7 @@ class TestValidationMetricsCore:
                 "demographic_parity",
                 "population_percentage",
             ]
-        ) == set(combined_table.columns)
+        ) == set(combined_results.columns)
         assert set(statistics.columns) == set(
             [
                 "anova_f_statistic",

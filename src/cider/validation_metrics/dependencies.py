@@ -329,16 +329,17 @@ def calculate_demographic_parity_per_characteristic(
     data_copy["is_targeted_groundtruth"] = (
         data_copy["groundtruth_consumption"] <= groundtruth_threshold_value
     ).astype(int)
+    total_population = data_copy["weight"].sum()
 
     data_grouped = data_copy.groupby("characteristic").apply(
         lambda x: pd.Series(
             {
                 "groundtruth_poverty_percentage": 100
                 * (x.is_targeted_groundtruth * x.weight).sum()
-                / x.weight.sum(),
+                / total_population,
                 "proxy_poverty_percentage": 100
                 * (x.is_targeted_proxy * x.weight).sum()
-                / x.weight.sum(),
+                / total_population,
             },
         ),
         include_groups=False,
@@ -353,7 +354,7 @@ def calculate_demographic_parity_per_characteristic(
 
 def calculate_independence_btwn_proxy_and_characteristic(
     data: pd.DataFrame, threshold_percentile: float
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Calculate independence between proxy variable and characteristic at a specified threshold.
     Independence is defined as the difference in targeting rates across characteristic groups using the proxy variable.
@@ -390,14 +391,14 @@ def calculate_independence_btwn_proxy_and_characteristic(
     )
     chi2, p_value, _, _ = chi2_contingency(pivot)
 
-    return pd.DataFrame({"chi2_statistic": [chi2], "p_value": [p_value]})
+    return pivot, pd.DataFrame({"chi2_statistic": [chi2], "p_value": [p_value]})
 
 
 def calculate_precision_and_recall_independence_characteristic(
     data: pd.DataFrame,
     groundtruth_threshold_percentile: float,
     proxy_threshold_percentile: float,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Calculate precision and recall independence per characteristic.
 
@@ -454,10 +455,14 @@ def calculate_precision_and_recall_independence_characteristic(
     chi2_precision, p_value_precision, _, _ = chi2_contingency(pivot_precision)
     chi2_recall, p_value_recall, _, _ = chi2_contingency(pivot_recall)
 
-    return pd.DataFrame(
-        {
-            "chi2_statistic": [chi2_precision, chi2_recall],
-            "p_value": [p_value_precision, p_value_recall],
-        },
-        index=["precision", "recall"],
+    return (
+        pivot_precision,
+        pivot_recall,
+        pd.DataFrame(
+            {
+                "chi2_statistic": [chi2_precision, chi2_recall],
+                "p_value": [p_value_precision, p_value_recall],
+            },
+            index=["precision", "recall"],
+        ),
     )

@@ -29,6 +29,7 @@ import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from pathlib import Path
+import numpy as np
 
 
 def plot_roc_precision_recall_curves(
@@ -107,7 +108,7 @@ def plot_utility_values(
     cash_transfer_amount: float,
     constant_relative_risk_aversion: float,
     **plotting_kwargs,
-):
+) -> tuple[plt.Figure, plt.Axes]:
     """
     Plot utility values given utility grid data.
 
@@ -141,3 +142,94 @@ def plot_utility_values(
 
         fig.tight_layout()
     return fig, ax
+
+
+def plot_rank_residual_distributions_per_characteristic_value(
+    rank_residuals_series: pd.Series,
+    characteristic_name: str = "Characteristic",
+    **plot_kwargs,
+) -> tuple[plt.Figure, plt.Axes]:
+    """
+    Plot rank residual distributions per characteristic value.
+
+    Args:
+        rank_residuals_df: DataFrame containing rank residuals with "rank_residual" and "characteristic_value" columns.
+        characteristic_name: Name of the characteristic being plotted. Defaults to "Characteristic".
+        **plot_kwargs: Additional keyword arguments for matplotlib plot function (e.g., color, linestyle, etc.)
+    """
+    normalized_residuals = rank_residuals_series.apply(
+        lambda x: np.array(x) / np.max(x)
+    )
+
+    with mpl.rc_context(fname=Path(__file__).parent / "../matplotlibrc"):
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        ax.axvline(x=0, color="grey", linestyle="--")
+        ax.boxplot(normalized_residuals, orientation="horizontal", **plot_kwargs)
+        ax.set_yticklabels(normalized_residuals.index)
+        ax.set_ylabel(f"{characteristic_name} Value")
+        ax.set_xlabel("Normalized Rank Residuals")
+        ax.set_title(f"Rank Residual Distributions per {characteristic_name} Value")
+        fig.tight_layout()
+
+        return fig, ax
+
+
+def plot_demographic_parity_per_characteristic_value(
+    demographic_parity_df: pd.DataFrame,
+    characteristic_name: str = "Characteristic",
+    **plot_kwargs,
+) -> tuple[plt.Figure, plt.Axes]:
+    """
+    Plot demographic parity per characteristic value.
+
+    Args:
+        demographic_parity_df: DataFrame containing demographic parity data with "demographic_parity", "groundtruth_poverty_percentage", "proxy_poverty_percentage", and "population_percentage" columns.
+        characteristic_name: Name of the characteristic being plotted. Defaults to "Characteristic".
+        **plot_kwargs: Additional keyword arguments for matplotlib plot function (e.g., color, linestyle, etc.)
+    """
+    with mpl.rc_context(fname=Path(__file__).parent / "../matplotlibrc"):
+        fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+        ax.bar(
+            x=np.arange(len(demographic_parity_df)),
+            height=demographic_parity_df.population_percentage,
+            width=0.2,
+            label="Population",
+        )
+        ax.bar(
+            x=np.arange(len(demographic_parity_df)) + 0.2,
+            height=demographic_parity_df.groundtruth_poverty_percentage,
+            width=0.2,
+            label="Groundtruth",
+        )
+        ax.bar(
+            x=np.arange(len(demographic_parity_df)) + 0.4,
+            height=demographic_parity_df.proxy_poverty_percentage,
+            width=0.2,
+            label="Proxy",
+        )
+        ax.set_xticks(np.arange(len(demographic_parity_df)) + 0.2)
+        ax.set_xticklabels(demographic_parity_df.index)
+
+        # Annotate bars with demographic parity values
+        for i, (_, row) in enumerate(demographic_parity_df.iterrows()):
+            ax.annotate(
+                f"{row.demographic_parity:.3f}",
+                xy=(
+                    0.2 + i,
+                    demographic_parity_df.drop(columns=["demographic_parity"])
+                    .max()
+                    .max()
+                    + 1,
+                ),
+                ha="center",
+                fontsize=15,
+            )
+        ax.legend(fontsize=10, frameon=True)
+        ax.set_xlabel(f"{characteristic_name} Value")
+        ax.set_ylabel("Population / target percentage")
+
+        fig.suptitle(
+            f"Population percentage and demographic parity per {characteristic_name} Value \n (Annotations show Demographic Parity Values)"
+        )
+
+        return fig, ax
