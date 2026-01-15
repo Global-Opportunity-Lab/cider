@@ -150,6 +150,7 @@ class Fairness:
         pivot = data.pivot_table(
             index=characteristic, columns="targeted_var2", aggfunc="count", fill_value=0
         ).iloc[:, 0:2]
+        print(pivot)
 
         # Run independence test
         chi2, p, dof, ex = chi2_contingency(pivot)
