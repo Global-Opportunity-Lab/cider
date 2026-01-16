@@ -65,7 +65,7 @@ from cider.schemas import (
     CallDataRecordTransactionType,
     CallDataRecordData,
 )
-from cider.utils import _validate_dataframe
+from cider.utils import validate_dataframe
 import numpy as np
 
 
@@ -251,7 +251,7 @@ def get_spammers_from_cdr_data(
         spammers: list of caller IDs identified as spammers
     """
     # Validate input dataframe
-    _validate_dataframe(cdr_data, CallDataRecordData)
+    validate_dataframe(cdr_data, CallDataRecordData)
 
     # Extract day from timestamp
     cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
@@ -299,7 +299,7 @@ def get_outlier_days_from_cdr_data(
         cdr_data: pandas dataframe with outlier days removed
     """
     # Validate input dataframe
-    _validate_dataframe(cdr_data, CallDataRecordData)
+    validate_dataframe(cdr_data, CallDataRecordData)
 
     # Add day column
     cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
@@ -463,7 +463,7 @@ def swap_caller_and_recipient(
         df: Dataframe with swapped caller and recipient columns
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordData)
+    validate_dataframe(spark_df, CallDataRecordData)
 
     # Add a direction_of_transaction column to indicate incoming/outgoing
     spark_df = spark_df.withColumn(
@@ -521,9 +521,11 @@ def identify_and_tag_conversations(
         spark_df: tagged spark dataframe
     """
     # Validate input dataframe
-    _validate_dataframe(spark_df, CallDataRecordData)
+    validate_dataframe(spark_df, CallDataRecordData)
 
-    window = Window.partitionBy("caller_id", "recipient_id").orderBy("timestamp")
+    window = Window.partitionBy("caller_id", "recipient_id").orderBy(
+        "timestamp", "transaction_type"
+    )
 
     spark_df = (
         spark_df.withColumn(
@@ -591,7 +593,7 @@ def identify_mobile_money_transaction_direction(
     """
 
     # Validate input dataframe
-    _validate_dataframe(spark_df, MobileMoneyDataWithDay)
+    validate_dataframe(spark_df, MobileMoneyDataWithDay)
 
     outgoing_interactions = (
         spark_df.select(

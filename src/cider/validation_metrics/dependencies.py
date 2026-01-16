@@ -30,7 +30,7 @@ import pandas as pd
 import numpy as np
 
 
-from cider.utils import _validate_dataframe
+from cider.utils import validate_dataframe
 from .schemas import (
     ConsumptionData,
     ConsumptionColumn,
@@ -60,7 +60,7 @@ def convert_threshold_to_percentile(
         float: The percentile corresponding to the threshold value.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionData)
+    validate_dataframe(data, required_schema=ConsumptionData)
 
     # Calculate and return the percentile
     consumption_data = data[consumption_column.value].to_numpy()
@@ -93,7 +93,7 @@ def calculate_weighted_spearmanr(
         float: Weighted Spearman correlation coefficient.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionData)
+    validate_dataframe(data, required_schema=ConsumptionData)
 
     # Rank the groundtruth and proxy consumption values
     rank_groundtruth = rankdata(
@@ -127,7 +127,7 @@ def calculate_weighted_pearsonr(
         float: Weighted Pearson correlation coefficient.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionData)
+    validate_dataframe(data, required_schema=ConsumptionData)
 
     # Compute weighted Pearson correlation
     covariance_matrix = np.cov(
@@ -158,7 +158,7 @@ def calculate_metrics_binary_valued_consumption(
         pd.DataFrame: DataFrame containing binary metrics.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionData)
+    validate_dataframe(data, required_schema=ConsumptionData)
 
     # Validate threshold values are correct
     if not (0.0 < groundtruth_threshold_percentile < 100):
@@ -228,7 +228,7 @@ def calculate_utility(
     """
 
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionData)
+    validate_dataframe(data, required_schema=ConsumptionData)
 
     # Validate threshold values are correct
     if not (0.0 <= threshold_percentile <= 100):
@@ -274,7 +274,7 @@ def calculate_rank_residuals_by_characteristic(data: pd.DataFrame):
         pd.Series: Series containing rank residuals grouped by characteristic.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+    validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     # Compute rank residuals by characteristic
     data_copy = data.copy()
@@ -308,7 +308,7 @@ def calculate_demographic_parity_per_characteristic(
         pd.DataFrame: DataFrame containing demographic parity differences per characteristic.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+    validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     # Validate threshold values are correct
     if not (0.0 < threshold_percentile < 100):
@@ -365,7 +365,7 @@ def calculate_independence_btwn_proxy_and_characteristic(
         chi2 statistic and p-value from chi-squared test for independence.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+    validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     # Validate threshold values are correct
     if not (0.0 < threshold_percentile < 100):
@@ -410,7 +410,7 @@ def calculate_precision_and_recall_independence_characteristic(
         tuple[float, float, float]: Chi-squared statistics and p-values for precision and recall independence per characteristic.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+    validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     # Validate threshold values are correct
     if not (0.0 < groundtruth_threshold_percentile < 100):

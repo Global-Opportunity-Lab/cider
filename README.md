@@ -2,11 +2,22 @@
 ## poverty prediction and targeting with mobile phone metadata
 
 ### Local installation Deployment
-To install, and manage dependencies and virtual environments this project uses `uv`. Follow the [instructions](https://docs.astral.sh/uv/guides/install-python/) to install `uv`.
 
-From the root directory `make fresh-env`: this will establish a venv with all the needed dependencies.
+*Pre-installation requirements:*
+1. To install, and manage dependencies and virtual environments this project uses `uv`. Follow the [instructions](https://docs.astral.sh/uv/guides/install-python/) to install `uv`.
+2. Install `openjdk-17`. Follow the instructions [here](https://openjdk.org/install/) for your operating system. This is required to allow PySpark to run.
+    You may also need to update the `JAVA_HOME` environment variable to point to your Java installation. For example, on macOS with Homebrew, you can add the following line to your shell profile (e.g., `.bash_profile`, `.zshrc`):
+    ```bash
+    export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+    export PATH=$JAVA_HOME/bin:$PATH
+    ```
+3. Some OS-specific may not be installed by default, for geographic packages (`geopandas`, `geovoronoi`, etc) you may need to install [GDAL](https://gdal.org/en/stable/download.html).
 
-Once your venv is made you can use `uv run [command]` to run a single CLI command inside the venv.
+
+*Installation steps:*
+ 1. Clone the repository: `git clone https://github.com/IDinsight/cider.git`
+ 2. From the root directory `make fresh-env`: this will establish a venv with all the needed dependencies.
+ 3. Once your venv is made you can use `uv run [command]` to run a single CLI command inside the venv.
 
 
 ### Contributing
@@ -19,15 +30,16 @@ Before contributing code please:
 
 ### Folder structure
 
+*Cleaned code*
 - `src/cider`: cleaned / updated cider codesource
+- `tests/`: unit tests for cleaned code in `src/cider`
 - `notebooks/`: Jupyter notebooks for analysis and exploration with cleaned code
+
+*Legacy code (TO BE DEPRECATED SOON)*
 - `deprecated/`: old code that is no longer in use but kept for reference
 - `old_notebooks/`: old notebooks that are no longer in use but kept for reference
-- `tests/`: unit tests for cleaned code in `src/cider`
 - `synthetic_data/`: synthetic data generation scripts and generated data for testing and development purposes
 - `configs/`: configuration files for various environments and settings (TO BE DEPRECATED SOON)
-
-
 ---
 
 ## OLD README BELOW - TO BE DELETED SOON

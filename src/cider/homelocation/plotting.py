@@ -71,7 +71,10 @@ def make_location_map(
         )
 
         markersizes: gpd.GeoSeries = None  # Default marker size
-        if column_to_plot_markersize:
+        if (
+            column_to_plot_markersize
+            and inferred_home_locations[column_to_plot_markersize].nunique() > 1
+        ):
             markersizes = inferred_home_locations[column_to_plot_markersize].values
             markersizes = (
                 (markersizes - markersizes.min())

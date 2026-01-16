@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import Annotated
 from datetime import datetime
 from enum import Enum
+import numpy as np
 
 
 # Enums
@@ -118,7 +119,7 @@ class MobileMoneyTransactionData(BaseModel):
     timestamp: Annotated[datetime, Field(description="Timestamp of the call")]
     transaction_type: Annotated[
         MobileMoneyTransactionType,
-        Field(description="Type of transaction: text or call"),
+        Field(description="Type of transaction: cashin, cashout, etc."),
     ]
     amount: Annotated[
         float, Field(description="Amount of the transaction in local currency")
@@ -158,18 +159,51 @@ class MobileMoneyTransactionData(BaseModel):
         ]:
             if (
                 self.recipient_id is not None
-                or self.recipient_balance_after is not None
-                or self.recipient_balance_before is not None
+                or (
+                    self.recipient_balance_after is not None
+                    and ~np.isnan(self.recipient_balance_after)
+                )
+                or (
+                    self.recipient_balance_before is not None
+                    and ~np.isnan(self.recipient_balance_before)
+                )
             ):
                 raise ValueError(
                     f"Recipient ID and transaction balances should be None for transaction type {self.transaction_type}."
                 )
 
         # For other transactions, recipient balances should match, if provided
+        condition_1 = (
+            self.recipient_id is None
+            and (
+                self.recipient_balance_after is None
+                or np.isnan(self.recipient_balance_after)
+            )
+            and (
+                self.recipient_balance_before is None
+                or np.isnan(self.recipient_balance_before)
+            )
+        )
+        condition_2 = (
+            self.recipient_id is not None
+            and (
+                self.recipient_balance_after is not None
+                and ~np.isnan(self.recipient_balance_after)
+            )
+            and (
+                self.recipient_balance_before is not None
+                and ~np.isnan(self.recipient_balance_before)
+            )
+        )
+        if not (condition_1 or condition_2):
+            raise ValueError(
+                "If any recipient information is provided, all recipient fields must be provided."
+            )
         if (
-            self.recipient_id
-            and self.recipient_balance_before
+            self.recipient_balance_before is not None
             and self.recipient_balance_after is not None
+            and ~np.isnan(self.recipient_balance_before)
+            and ~np.isnan(self.recipient_balance_after)
         ):
             if (
                 self.recipient_balance_after

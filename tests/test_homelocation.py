@@ -261,7 +261,6 @@ class TestHomeLocationCore:
     )
     def test_home_location_core_accuracy(
         self,
-        spark,
         create_cdr_data_schema,
         create_antenna_data_schema,
         column_to_merge_on,
@@ -275,7 +274,6 @@ class TestHomeLocationCore:
             geographic_unit=GeographicUnit.SHAPEFILE,
             algorithm=GetHomeLocationAlgorithm.COUNT_DAYS,
             shapefile_data=SHAPEFILE_DATA,
-            spark_session=spark,
             additional_columns_to_keep=["region"],
         )
         accuracy_table = get_accuracy(
@@ -301,7 +299,6 @@ class TestHomeLocationCore:
     )
     def test_home_location_core_accuracy_failure(
         self,
-        spark,
         create_cdr_data_schema,
         create_antenna_data_schema,
         column_to_merge_on,
@@ -315,7 +312,6 @@ class TestHomeLocationCore:
             geographic_unit=GeographicUnit.SHAPEFILE,
             algorithm=GetHomeLocationAlgorithm.COUNT_DAYS,
             shapefile_data=SHAPEFILE_DATA,
-            spark_session=spark,
             additional_columns_to_keep=["region"],
         )
         with pytest.raises(ValueError):

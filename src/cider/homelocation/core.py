@@ -24,7 +24,7 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-from cider.utils import _validate_dataframe
+from cider.utils import validate_dataframe, get_spark_session
 from cider.schemas import CallDataRecordData, AntennaData
 from .schemas import GetHomeLocationAlgorithm, GeographicUnit
 import pandas as pd
@@ -60,8 +60,8 @@ def _prepare_home_location_data(
         prepared_data: prepared data for home location inference
     """
     # Validate CDR and antenna data have required columns
-    _validate_dataframe(cdr_data, CallDataRecordData)
-    _validate_dataframe(antenna_data, AntennaData)
+    validate_dataframe(cdr_data, CallDataRecordData)
+    validate_dataframe(antenna_data, AntennaData)
 
     columns_to_drop = []
     match geographic_unit:
@@ -251,7 +251,6 @@ def _infer_home_locations(
 
 
 def get_home_locations(
-    spark_session: SparkSession,
     cdr_data: pd.DataFrame,
     antenna_data: pd.DataFrame,
     geographic_unit: GeographicUnit,
@@ -263,7 +262,6 @@ def get_home_locations(
     Get home locations based on the specified parameters
 
     Args:
-        spark_session: Spark session
         cdr_data: CDR data
         antenna_data: antenna data
         geographic_unit: geographic unit for home location inference
@@ -278,6 +276,8 @@ def get_home_locations(
     prepared_data = _prepare_home_location_data(
         cdr_data, antenna_data, geographic_unit, shapefile_data
     )
+
+    spark_session = get_spark_session()
     home_locations = _infer_home_locations(
         prepared_data, algorithm, spark_session, additional_columns_to_keep
     )

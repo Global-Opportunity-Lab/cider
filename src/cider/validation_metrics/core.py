@@ -25,7 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from cider.utils import _validate_dataframe
+from cider.utils import validate_dataframe
 from .dependencies import (
     calculate_metrics_binary_valued_consumption,
     where_is_false_positive_rate_nonmonotonic,
@@ -63,7 +63,7 @@ def compute_auc_roc_precision_recall_with_percentile_grid(
         pd.DataFrame: DataFrame containing percentiles and corresponding false positive rates, false negative rates, and AUC values.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionData)
+    validate_dataframe(data, required_schema=ConsumptionData)
 
     # Validate fixed_groundtruth_percentile value
     if not 0.0 < fixed_groundtruth_percentile < 100.0:
@@ -156,7 +156,7 @@ def compute_utility_grid(
         pd.DataFrame: DataFrame containing percentiles and corresponding utility values.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionData)
+    validate_dataframe(data, required_schema=ConsumptionData)
 
     # Create percentile grid
     percentiles = np.linspace(1, 100, num_grid_points)
@@ -225,7 +225,7 @@ def calculate_optimal_utility_and_cash_transfer_size_table(
         pd.DataFrame: DataFrame containing optimal cash transfer sizes and utilities for groundtruth and proxy consumption.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionData)
+    validate_dataframe(data, required_schema=ConsumptionData)
 
     # Compute utility grid
     utility_grid_df = compute_utility_grid(
@@ -275,7 +275,7 @@ def calculate_rank_residuals_table_by_characteristic(
         pd.DataFrame: DataFrame containing rank residuals statistics by characteristic.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+    validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     results_df = calculate_rank_residuals_by_characteristic(data)
     means = [np.mean(r) for r in results_df]
@@ -310,7 +310,7 @@ def calculate_demographic_parity_table_per_characteristic(
         pd.DataFrame: DataFrame containing demographic parity statistics by characteristic.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+    validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     results = calculate_demographic_parity_per_characteristic(
         data, threshold_percentile
@@ -337,7 +337,7 @@ def combine_tables_on_characteristic(
         pd.DataFrame: Combined DataFrame.
     """
     # Validate that input data has the required columns
-    _validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
+    validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
     # Calculate individual components
     rank_residuals_table, anova_statistic, anova_pvalue = (

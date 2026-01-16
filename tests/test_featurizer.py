@@ -348,11 +348,13 @@ class TestFeaturizerDependencies:
                     "2023-01-11 13:55:00",
                 ]
             ),
+            "duration": [0.0, 0.0, 100.0, 0.0, 0.0, 0.0],
             "transaction_scope": ["domestic"] * 6,
             "transaction_type": ["text", "text", "call", "text", "text", "text"],
         }
         pd_cdr_data = pd.concat(
-            [pd.DataFrame(CDR_DATA), pd.DataFrame(conversations)], ignore_index=True
+            [pd.DataFrame(CDR_DATA).copy(), pd.DataFrame(conversations)],
+            ignore_index=True,
         )
         spark_cdr_data = spark.createDataFrame(pd_cdr_data)
         spark_cdr_tagged = identify_and_tag_conversations(spark_cdr_data, max_wait=3600)
