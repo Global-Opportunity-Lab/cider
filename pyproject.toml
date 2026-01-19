@@ -52,3 +52,6 @@ packages = ["cider"]
 
 [tool.mypy]
 ignore_missing_imports = true
+
+[tool.uv]
+allow-insecure-host = ["pypi.org", "files.pythonhosted.org"]
