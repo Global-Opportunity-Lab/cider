@@ -223,16 +223,16 @@ def plot_all_fairness_metrics_per_characteristic_value(
 
         # Demographic parity
         axes[0].bar(
-            x=np.arange(len(all_fairness_metrics_df)),
-            height=all_fairness_metrics_df.groundtruth_poverty_percentage,
-            width=0.2,
-            label="Groundtruth",
-        )
-        axes[0].bar(
             x=np.arange(len(all_fairness_metrics_df)) + 0.2,
             height=all_fairness_metrics_df.proxy_poverty_percentage,
             width=0.2,
             label="Proxy",
+        )
+        axes[0].bar(
+            x=np.arange(len(all_fairness_metrics_df)),
+            height=all_fairness_metrics_df.groundtruth_poverty_percentage,
+            width=0.2,
+            label="Groundtruth",
         )
         axes[0].set_xticks(np.arange(len(all_fairness_metrics_df)) + 0.1)
         axes[0].set_xticklabels(

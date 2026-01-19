@@ -6,27 +6,33 @@
 *Pre-installation requirements:*
 1. To install, and manage dependencies and virtual environments this project uses `uv`. Follow the [instructions](https://docs.astral.sh/uv/guides/install-python/) to install `uv`.
 2. Install `openjdk-17`. Follow the instructions [here](https://openjdk.org/install/) for your operating system. This is required to allow PySpark to run.
-    You may also need to update the `JAVA_HOME` environment variable to point to your Java installation. For example, on macOS with Homebrew, you can add the following line to your shell profile (e.g., `.bash_profile`, `.zshrc`):
+    You may also need to update the `JAVA_HOME` environment variable to point to your Java installation. For example, on macOS with Homebrew, you can add the following lines to your shell profile (e.g., `.bash_profile`, `.zshrc`):
     ```bash
     export JAVA_HOME=$(/usr/libexec/java_home -v 17)
     export PATH=$JAVA_HOME/bin:$PATH
     ```
-3. Some OS-specific may not be installed by default, for geographic packages (`geopandas`, `geovoronoi`, etc) you may need to install [GDAL](https://gdal.org/en/stable/download.html).
+3. Some OS-specific dependencies may not be installed by default, for geographic packages (`geopandas`, `geovoronoi`, etc). In these cases, you may need to install [GDAL](https://gdal.org/en/stable/download.html).
 
 
 *Installation steps:*
  1. Clone the repository: `git clone https://github.com/IDinsight/cider.git`
  2. From the root directory `make fresh-env`: this will establish a venv with all the needed dependencies.
  3. Once your venv is made you can use `uv run [command]` to run a single CLI command inside the venv.
+ 4. Run `make test` from the root of the repository to verify that all required modules run.
+ 4. Run the `notebooks/demo_pipeline.ipynb` notebook to see a demo of the full pipeline from generating synthetic data to assessing model fit.
 
 
 ### Contributing
-Before contributing code please:
+1. Before working on any code, please create an issue with a description of the feature or bug fix you plan to implement and appropriate tags, and get approval from a project maintainer.
+2. Please create a new branch for your work, and raise a PR that references the issue when you are ready for review.
+3. Please ensure that your code adheres to the existing coding style and includes appropriate tests for any functionality you implement.
+    - Please run `make test` to ensure that all tests pass before submitting your PR.
+    - Make sure you have installed the pre-commit hooks by running `pre-commit install` so that your code is automatically checked for style issues before committing.
+    - Make sure to update the README and any relevant documentation to reflect your changes.
+    - Make sure to commit the `pyproject.yaml` and `uv.lock` files if you have made any changes to the dependencies (please note, dependency changes should be minimal, well-justified and ONLY through `uv update` or `uv add *`).
+    - Bonus: add a notebook in the `notebooks/` folder that demonstrates the functionality you have added or modified. If you do, and/or have run other notebooks, please remember to run `make clear-nb` before committing to clear output cells.
+4. Please make sure to fill in the PR template correctly, including linking to the relevant issue, describing the changes made, and any additional context that may be helpful for reviewers. Please also tag one of the project maintainers for review.
 
-* Run `make clear-nb` if you have made any changes to Jupyter notebooks you would like to commit.
-* Run `pre-commit install` to install pre-commit hooks that will run on every git commit to check code quality.
-* Run `uv update` if you made any changes to the dependencies. This will regenerate the `uv.lock` file.
-* Run `make test` and verify that the tests still pass.
 
 ### Folder structure
 
@@ -39,7 +45,7 @@ Before contributing code please:
 - `deprecated/`: old code that is no longer in use but kept for reference
 - `old_notebooks/`: old notebooks that are no longer in use but kept for reference
 - `synthetic_data/`: synthetic data generation scripts and generated data for testing and development purposes
-- `configs/`: configuration files for various environments and settings (TO BE DEPRECATED SOON)
+- `configs/`: configuration files for various environments and settings
 ---
 
 ## OLD README BELOW - TO BE DELETED SOON
