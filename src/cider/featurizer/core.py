@@ -79,8 +79,12 @@ from cider.schemas import (
     MobileDataUsageData,
     RechargeData,
 )
-from cider.utils import validate_dataframe, get_spark_session
+from cider.utils import validate_dataframe, get_spark_session, setup_logger
 from pandas import DataFrame as PandasDataFrame
+
+
+# Setup logging
+logger = setup_logger(__name__)
 
 
 # CDR features
@@ -94,6 +98,8 @@ def get_active_days(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with additional 'active_days' column
     """
+    logger.info("Calculating active days per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -142,6 +148,8 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
     Returns:
         df: Dataframe with num unique callers for each combination of is_weekend, is_daytime, and transaction_type
     """
+    logger.info("Calculating number of unique contacts per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -173,6 +181,8 @@ def get_call_duration_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with call duration statistics columns for each weekday/weekend and day/nighttime combination.
     """
+    logger.info("Calculating call duration statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -212,6 +222,8 @@ def get_percentage_of_nocturnal_interactions(
     Returns:
         df: Dataframe with percentage of nocturnal interactions column
     """
+    logger.info("Calculating percentage of nocturnal interactions per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -252,6 +264,8 @@ def get_percentage_of_initiated_conversations(
     Returns:
         df: Dataframe with percentage of initiated conversations column
     """
+    logger.info("Calculating percentage of initiated conversations per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -295,6 +309,8 @@ def get_percentage_of_initiated_calls(
     Returns:
         df: Dataframe with percentage of initiated calls column
     """
+    logger.info("Calculating percentage of initiated calls per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -334,6 +350,8 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
     Returns:
         df: Dataframe with text response time delay statistics columns
     """
+    logger.info("Calculating text response time delay statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -392,6 +410,8 @@ def get_text_response_rate(
     Returns:
         df: Dataframe with text response rate columns
     """
+    logger.info("Calculating text response rate per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -439,6 +459,8 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
     Returns:
         df: Dataframe with entropy of interactions column
     """
+    logger.info("Calculating entropy of interactions per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -485,6 +507,8 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
     Returns:
         df: Dataframe with outgoing call fraction statistics columns
     """
+    logger.info("Calculating outgoing interaction fraction statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -562,6 +586,8 @@ def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame
     Returns:
         df: Dataframe with interaction statistics columns
     """
+    logger.info("Calculating interaction statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -604,6 +630,8 @@ def get_inter_event_time_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with inter-event time statistics columns
     """
+    logger.info("Calculating inter-event time statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -656,6 +684,8 @@ def get_pareto_principle_interaction_stats(
     Returns:
         df: Dataframe with Pareto principle interaction statistics columns
     """
+    logger.info("Calculating Pareto principle interaction statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -732,6 +762,8 @@ def get_pareto_principle_call_duration_stats(
     Returns:
         df: Dataframe with Pareto principle call duration statistics columns
     """
+    logger.info("Calculating Pareto principle call duration statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -803,6 +835,8 @@ def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFr
     Returns:
         df: Dataframe with number of interactions columns
     """
+    logger.info("Calculating number of interactions per user")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -853,6 +887,8 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with number of unique antennas column
     """
+    logger.info("Calculating number of unique antennas per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -883,6 +919,8 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
     Returns:
         df: Dataframe with entropy of antennas column
     """
+    logger.info("Calculating entropy of antennas per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -938,6 +976,8 @@ def get_radius_of_gyration(
     Returns:
         df: Dataframe with radius of gyration column
     """
+    logger.info("Calculating radius of gyration per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
     validate_dataframe(spark_antennas_df, AntennaDataGeometry)
@@ -1002,6 +1042,8 @@ def get_pareto_principle_antennas(
     Returns:
         df: Dataframe with Pareto principle antennas column
     """
+    logger.info("Calculating Pareto principle antennas per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -1056,6 +1098,10 @@ def get_average_num_of_interactions_from_home_antennas(
     Returns:
         df: Dataframe with percentage of interactions from home antennas column
     """
+    logger.info(
+        "Calculating average number of interactions from home antennas per caller"
+    )
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -1109,6 +1155,8 @@ def get_international_interaction_statistics(
     Returns:
         df: Dataframe with international transaction statistics per transaction type: number of recipients, number of unique recipients, number of unique days, total call duration, etc.
     """
+    logger.info("Calculating international interaction statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
@@ -1159,6 +1207,8 @@ def get_caller_counts_per_region(
     Returns:
         df: Dataframe with location features columns
     """
+    logger.info("Calculating caller counts per region")
+
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
     validate_dataframe(spark_antenna_df, AntennaDataGeometryWithRegion)
@@ -1193,6 +1243,9 @@ def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with mobile data usage statistics columns
     """
+    logger.info("Calculating mobile data usage statistics per caller")
+
+    # Validate input dataframe
     validate_dataframe(spark_df, MobileDataUsageDataWithDay)
     summary_stats_aggs = _get_summary_stats_cols(
         "volume",
@@ -1225,6 +1278,8 @@ def get_mobile_money_amount_stats(
     Returns:
         df: Dataframe with mobile money transaction statistics columns
     """
+    logger.info("Calculating mobile money amount statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, MobileMoneyDataWithDirection)
 
@@ -1266,6 +1321,8 @@ def get_mobile_money_transaction_stats(
     Returns:
         df: Dataframe with mobile money transaction statistics columns
     """
+    logger.info("Calculating mobile money transaction statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, MobileMoneyDataWithDirection)
 
@@ -1294,6 +1351,8 @@ def get_mobile_money_balance_stats(
     Returns:
         df: Dataframe with mobile money balance statistics columns
     """
+    logger.info("Calculating mobile money balance statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, MobileMoneyDataWithDirection)
 
@@ -1338,6 +1397,8 @@ def get_recharge_amount_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     Returns:
         df: Dataframe with recharge amount statistics columns
     """
+    logger.info("Calculating recharge amount statistics per caller")
+
     # Validate input dataframe
     validate_dataframe(spark_df, RechargeDataWithDay)
 
@@ -1379,6 +1440,8 @@ def preprocess_data(
     Returns:
         df: Dataframe with full set of features columns
     """
+    logger.info("Preprocessing data")
+
     preprocessed_data: dict[type[BaseModel], PandasDataFrame] = {}
     spammers_list: list[str] = []
 
@@ -1390,6 +1453,7 @@ def preprocess_data(
     ]:
         validate_dataframe(data_dict[schema], schema, check_data_points=False)
 
+        logger.info(f"Preprocessing data for schema: {schema.__name__}")
         # Filter to datetime
         filtered_df = filter_to_datetime(
             data_dict[schema],
@@ -1451,15 +1515,18 @@ def featurize_cdr_data(
         "antenna_id", "caller_antenna_id"
     )
 
+    logger.info("Identifying daytime and weekend interactions")
     spark_cdr_with_daytime = identify_daytime(spark_cdr)
     spark_cdr_with_weekend = identify_weekend(spark_cdr_with_daytime)
 
     # Swap caller and recipient to get recipient-centric view
+    logger.info("Swapping caller and recipient IDs for recipient-centric view")
     spark_cdr_swapped_caller_recipient = swap_caller_and_recipient(
         spark_cdr_with_weekend
     )
 
     # Identify and tag conversations
+    logger.info("Identifying and tagging conversations")
     spark_cdr_tagged_conversations = identify_and_tag_conversations(
         spark_cdr_swapped_caller_recipient, max_wait=max_wait_for_convo_in_seconds
     )
@@ -1606,6 +1673,7 @@ def featurize_mobile_money_data(
     spark_session = get_spark_session()
     spark_mobile_money_data = spark_session.createDataFrame(mobile_money_data)
 
+    logger.info("Identifying direction of mobile money transactions")
     spark_mobile_money_with_direction = identify_mobile_money_transaction_direction(
         spark_mobile_money_data
     )
@@ -1672,6 +1740,7 @@ def featurize_all_data(
     Returns:
         pandas dataframe containing the full set of features
     """
+    logger.info("Featurizing CDR data")
     cdr_features_df = featurize_cdr_data(
         preprocessed_data[CallDataRecordData],
         preprocessed_data[AntennaData],
@@ -1679,17 +1748,21 @@ def featurize_all_data(
         pareto_threshold,
     )
 
+    logger.info("Featurizing mobile data usage data")
     mobile_data_features_df = featurize_mobile_data_usage_data(
         preprocessed_data[MobileDataUsageData]
     )
 
+    logger.info("Featurizing mobile money data")
     mobile_money_features_df = featurize_mobile_money_data(
         preprocessed_data[MobileMoneyTransactionData]
     )
 
+    logger.info("Featurizing recharge data")
     recharge_features_df = featurize_recharge_data(preprocessed_data[RechargeData])
 
     # Merge all features into a single dataframe on caller_id
+    logger.info("Merging all features into a single dataframe")
     feature_dfs = [
         cdr_features_df,
         mobile_data_features_df,

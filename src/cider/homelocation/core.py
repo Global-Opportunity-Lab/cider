@@ -24,9 +24,10 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-from cider.utils import validate_dataframe, get_spark_session
+from cider.utils import validate_dataframe, get_spark_session, setup_logger
 from cider.schemas import CallDataRecordData, AntennaData
 from .schemas import GetHomeLocationAlgorithm, GeographicUnit
+import logging
 import pandas as pd
 import geopandas as gpd
 from pyspark.sql import SparkSession
@@ -39,6 +40,10 @@ from pyspark.sql.functions import (
     countDistinct,
 )
 from pyspark.sql.window import Window
+
+
+# Set up logging
+logger = setup_logger(__name__)
 
 
 # Prepare data for home location inference
@@ -59,6 +64,7 @@ def _prepare_home_location_data(
     Returns:
         prepared_data: prepared data for home location inference
     """
+    logging.info("Preparing data for home location inference")
     # Validate CDR and antenna data have required columns
     validate_dataframe(cdr_data, CallDataRecordData)
     validate_dataframe(antenna_data, AntennaData)
@@ -143,6 +149,8 @@ def _infer_home_locations(
     Returns:
         home_locations: inferred home locations
     """
+    logging.info("Inferring home locations using algorithm: %s", algorithm)
+
     prepared_data_spark = spark_session.createDataFrame(prepared_data)
     if not set(additional_columns_to_keep).issubset(set(prepared_data_spark.columns)):
         raise ValueError(

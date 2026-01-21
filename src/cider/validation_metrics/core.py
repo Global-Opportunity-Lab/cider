@@ -25,7 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from cider.utils import validate_dataframe
+from cider.utils import validate_dataframe, setup_logger
 from .dependencies import (
     calculate_metrics_binary_valued_consumption,
     where_is_false_positive_rate_nonmonotonic,
@@ -46,6 +46,10 @@ from scipy.stats import f_oneway
 from typing import Tuple
 
 
+# Set up logger
+logger = setup_logger(__name__)
+
+
 def compute_auc_roc_precision_recall_with_percentile_grid(
     data: pd.DataFrame,
     fixed_groundtruth_percentile: float,
@@ -62,6 +66,8 @@ def compute_auc_roc_precision_recall_with_percentile_grid(
     Returns:
         pd.DataFrame: DataFrame containing percentiles and corresponding false positive rates, false negative rates, and AUC values.
     """
+    logger.info("Computing AUC-ROC and Precision-Recall across percentile grid")
+
     # Validate that input data has the required columns
     validate_dataframe(data, required_schema=ConsumptionData)
 
@@ -155,6 +161,8 @@ def compute_utility_grid(
     Returns:
         pd.DataFrame: DataFrame containing percentiles and corresponding utility values.
     """
+    logger.info("Computing utility grid across percentiles")
+
     # Validate that input data has the required columns
     validate_dataframe(data, required_schema=ConsumptionData)
 
@@ -224,6 +232,8 @@ def calculate_optimal_utility_and_cash_transfer_size_table(
     Returns:
         pd.DataFrame: DataFrame containing optimal cash transfer sizes and utilities for groundtruth and proxy consumption.
     """
+    logger.info("Calculating optimal utility and cash transfer size")
+
     # Validate that input data has the required columns
     validate_dataframe(data, required_schema=ConsumptionData)
 
@@ -274,6 +284,8 @@ def calculate_rank_residuals_table_by_characteristic(
     Returns:
         pd.DataFrame: DataFrame containing rank residuals statistics by characteristic.
     """
+    logger.info("Calculating rank residuals table by characteristic")
+
     # Validate that input data has the required columns
     validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
@@ -309,6 +321,8 @@ def calculate_demographic_parity_table_per_characteristic(
     Returns:
         pd.DataFrame: DataFrame containing demographic parity statistics by characteristic.
     """
+    logger.info("Calculating demographic parity table per characteristic")
+
     # Validate that input data has the required columns
     validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
@@ -336,6 +350,8 @@ def combine_tables_on_characteristic(
     Returns:
         pd.DataFrame: Combined DataFrame.
     """
+    logger.info("Calculating and combining fairness metrics tables per characteristic")
+
     # Validate that input data has the required columns
     validate_dataframe(data, required_schema=ConsumptionDataWithCharacteristic)
 
