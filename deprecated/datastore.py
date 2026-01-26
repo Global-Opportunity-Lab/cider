@@ -26,7 +26,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import inspect
-import os
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Callable, Dict, List, Mapping, Optional, Set, Union
@@ -535,26 +534,26 @@ class DataStore(InitializerInterface):
 
     def filter_outlier_days(self, num_sds: float = 2) -> List:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
-        if getattr(self, "cdr", None) is None:
-            raise ValueError("CDR must be loaded to identify and remove outlier days.")
+        # if getattr(self, "cdr", None) is None:
+        #     raise ValueError("CDR must be loaded to identify and remove outlier days.")
 
-        # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
-        if not os.path.isfile(
-            self.working_directory_path / "datasets" / "CDR_transactionsbyday.csv"
-        ):
-            save_df(
-                self.cdr.groupby(["txn_type", "day"]).count(),
-                self.working_directory_path / "datasets" / "CDR_transactionsbyday.csv",
-            )
+        # # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
+        # if not os.path.isfile(
+        #     self.working_directory_path / "datasets" / "CDR_transactionsbyday.csv"
+        # ):
+        #     save_df(
+        #         self.cdr.groupby(["txn_type", "day"]).count(),
+        #         self.working_directory_path / "datasets" / "CDR_transactionsbyday.csv",
+        #     )
 
-        # Read in timeseries of subscribers by day
-        timeseries = pd.read_csv(
-            self.working_directory_path / "datasets" / "CDR_transactionsbyday.csv"
-        )
+        # # Read in timeseries of subscribers by day
+        # timeseries = pd.read_csv(
+        #     self.working_directory_path / "datasets" / "CDR_transactionsbyday.csv"
+        # )
+        timeseries = self.cdr.groupby(["day"]).count().toPandas()
 
         # Calculate timeseries of all transaction (voice + SMS together)
         timeseries = timeseries.groupby("day", as_index=False).agg("sum")
-        print(timeseries.head())
 
         # Calculate top and bottom acceptable values
         bottomrange = timeseries["count"].mean() - num_sds * timeseries["count"].std()

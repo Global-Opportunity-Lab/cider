@@ -306,41 +306,21 @@ def get_outlier_days_from_cdr_data(
     cdr_data.loc[:, "day"] = cdr_data["timestamp"].dt.date
 
     # Group data by caller_id and day to get daily transaction counts
-    daily_counts = cdr_data.groupby(["day", "transaction_type"], as_index=False).apply(
-        lambda x: x.shape[0],
-        include_groups=False,
-    )
-    daily_counts = daily_counts.rename(columns={None: "daily_count"})
+    daily_counts = cdr_data.groupby(["day", "transaction_type"], as_index=False).size()
+    daily_counts = daily_counts.rename(columns={"size": "daily_count"})
 
-    per_transaction_mean = daily_counts.groupby(
-        "transaction_type", as_index=False
-    ).daily_count.mean()
-    per_transaction_std = daily_counts.groupby(
-        "transaction_type", as_index=False
-    ).daily_count.std()
+    # Combine all transaction types to compute overall mean and std
+    daily_counts_all_types = daily_counts.groupby("day", as_index=False).agg("sum")
 
-    bottom_thresholds = per_transaction_mean.copy()
-    top_thresholds = per_transaction_mean.copy()
-
-    bottom_thresholds.daily_count = per_transaction_mean.daily_count - (
-        zscore_threshold * per_transaction_std.daily_count
-    )
-    top_thresholds.daily_count = per_transaction_mean.daily_count + (
-        zscore_threshold * per_transaction_std.daily_count
-    )
-
-    # Map thresholds to each row's transaction_type
-    daily_counts["bottom_threshold"] = daily_counts["transaction_type"].map(
-        bottom_thresholds.set_index("transaction_type")["daily_count"]
-    )
-    daily_counts["top_threshold"] = daily_counts["transaction_type"].map(
-        top_thresholds.set_index("transaction_type")["daily_count"]
-    )
+    overall_mean = daily_counts_all_types["daily_count"].mean()
+    overall_std = daily_counts_all_types["daily_count"].std()
+    overall_bottom_threshold = overall_mean - (zscore_threshold * overall_std)
+    overall_top_threshold = overall_mean + (zscore_threshold * overall_std)
 
     # Get outlier days
-    outlier_days = daily_counts[
-        (daily_counts["daily_count"] < daily_counts["bottom_threshold"])
-        | (daily_counts["daily_count"] > daily_counts["top_threshold"])
+    outlier_days = daily_counts_all_types[
+        (daily_counts_all_types["daily_count"] < overall_bottom_threshold)
+        | (daily_counts_all_types["daily_count"] > overall_top_threshold)
     ]["day"]
 
     return outlier_days.unique().tolist()
