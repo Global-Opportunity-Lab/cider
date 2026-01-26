@@ -1468,6 +1468,10 @@ def preprocess_data(
         filtered_no_spammers_df = filtered_df[
             ~filtered_df["caller_id"].isin(spammers_list)
         ]
+        if "recipient_id" in filtered_df.columns:
+            filtered_no_spammers_df = filtered_no_spammers_df[
+                ~filtered_no_spammers_df["recipient_id"].isin(spammers_list)
+            ]
 
         # Remove outlier days
         if schema == CallDataRecordData:

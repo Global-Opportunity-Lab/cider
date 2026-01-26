@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from pyspark.sql import DataFrame as SparkDataFrame
 
@@ -234,7 +234,8 @@ def filter_to_datetime(
     # Filter by date range
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df[
-        (df["timestamp"] >= filter_start_date) & (df["timestamp"] <= filter_end_date)
+        (df["timestamp"] >= filter_start_date)
+        & (df["timestamp"] < filter_end_date + timedelta(days=1))
     ]
     return df
 
@@ -276,7 +277,7 @@ def get_spammers_from_cdr_data(
 
     # Filter out callers with avg calls per day greater than threshold
     spammer_df = grouped_cdr_data.loc[
-        grouped_cdr_data["avg_calls_per_day"] >= threshold_of_calls_per_day
+        grouped_cdr_data["avg_calls_per_day"] > threshold_of_calls_per_day
     ]
 
     return spammer_df.caller_id.unique().tolist()

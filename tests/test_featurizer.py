@@ -93,15 +93,15 @@ from cider.featurizer.core import (
 class TestFeaturizerDependencies:
 
     @pytest.mark.parametrize(
-        "dataset",
+        "dataset,expected_rows",
         [
-            CDR_DATA,
-            MOBILE_DATA_USAGE_DATA,
-            MOBILE_MONEY_TRANSACTION_DATA,
-            RECHARGE_DATA,
+            (CDR_DATA, 2),
+            (MOBILE_DATA_USAGE_DATA, 4),
+            (MOBILE_MONEY_TRANSACTION_DATA, 4),
+            (RECHARGE_DATA, 4),
         ],
     )
-    def test_filter_to_datetime(self, dataset):
+    def test_filter_to_datetime(self, dataset, expected_rows):
         df = pd.DataFrame(dataset)
         filtered_data = filter_to_datetime(
             df,
@@ -113,7 +113,7 @@ class TestFeaturizerDependencies:
             (filtered_data["timestamp"] >= pd.to_datetime("2023-01-02 00:00:00"))
             & (filtered_data["timestamp"] <= pd.to_datetime("2023-01-03 23:59:59"))
         )
-        assert len(filtered_data) == 2
+        assert len(filtered_data) == expected_rows
 
         df.pop("timestamp")
         with pytest.raises(
