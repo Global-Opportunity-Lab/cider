@@ -339,12 +339,12 @@ def get_static_diagnostic_statistics(df: pd.DataFrame) -> DataDiagnosticStatisti
         raise ValueError("Dataframe must contain 'caller_id' and 'timestamp' columns")
 
     statistics = {
-        "total_transactions": df.shape[0],
+        "total_transactions": int(df.count()["caller_id"]),
         "num_unique_callers": df["caller_id"].nunique(),
         "num_unique_recipients": (
             df["recipient_id"].nunique() if "recipient_id" in df.columns else 0
         ),
-        "num_days": df["timestamp"].dt.date.nunique(),
+        "num_days": (df["timestamp"].max() - df["timestamp"].min()).days + 1,
     }
     return DataDiagnosticStatistics.model_validate(statistics)
 
