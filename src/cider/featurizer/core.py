@@ -164,9 +164,56 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
             AllowedPivotColumnsEnum.IS_DAYTIME,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=first,
+        agg_func=pys_sum,
     )
     pivoted_df = spark_df_unique_contacts.groupby("caller_id").agg(*aggs)
+
+    # Count distinct contacts per caller, disaggregated by type only
+    spark_df_unique_contacts_type_only = spark_df.groupby(
+        "caller_id", "transaction_type"
+    ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
+    aggs_type_only = _get_agg_columns_by_cdr_time_and_transaction_type(
+        "num_unique_contacts",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df_type_only = spark_df_unique_contacts_type_only.groupby("caller_id").agg(*aggs_type_only)
+
+    # Count distinct contacts per caller, disaggregated by transaction type and weekday/end only
+    spark_df_unique_contacts_week_only = spark_df.groupby(
+        "caller_id", "is_weekend", "transaction_type"
+        ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
+    aggs_time_only = _get_agg_columns_by_cdr_time_and_transaction_type(
+        "num_unique_contacts",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df_week_only = spark_df_unique_contacts_week_only.groupby("caller_id").agg(*aggs_time_only)
+
+    # Count distinct contacts per caller, disaggregated by weekday/end and transaction type only
+    spark_df_unique_contacts_day_only = spark_df.groupby(
+        "caller_id", "is_daytime", "transaction_type"
+    ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
+    aggs_day_only = _get_agg_columns_by_cdr_time_and_transaction_type(
+        "num_unique_contacts",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df_day_only = spark_df_unique_contacts_day_only.groupby("caller_id").agg(*aggs_day_only)
+
+    # Merge all pivoted dataframes
+    pivoted_df = reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"),
+        [pivoted_df, pivoted_df_type_only, pivoted_df_week_only, pivoted_df_day_only],
+    )
 
     return pivoted_df
 

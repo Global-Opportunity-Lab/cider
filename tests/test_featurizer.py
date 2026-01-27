@@ -474,6 +474,16 @@ class TestFeaturizerCoreCDRData:
                     "weekend_daytime_text_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
                     "weekend_nighttime_call_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
                     "weekend_daytime_call_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
+                    "nighttime_text_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
+                    "daytime_text_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
+                    "weekend_text_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
+                    "weekday_text_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
+                    "nighttime_call_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
+                    "daytime_call_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
+                    "weekend_call_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
+                    "weekday_call_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
+                    "call_num_unique_contacts": [1.0, 1.0, 1.0, 1.0],
+                    "text_num_unique_contacts": [0.0, 0.0, 0.0, 0.0],
                 }
             case "get_call_duration_stats":
                 expected_results = {
