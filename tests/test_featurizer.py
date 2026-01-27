@@ -219,7 +219,9 @@ class TestFeaturizerDependencies:
 
         assert stats.total_transactions == len(df)
         assert stats.num_unique_callers == df["caller_id"].nunique()
-        assert stats.num_days == df["timestamp"].dt.date.nunique()
+        assert (
+            stats.num_days == (df["timestamp"].max() - df["timestamp"].min()).days + 1
+        )
         if "recipient_id" in df.columns:
             assert stats.num_unique_recipients == df["recipient_id"].nunique()
         else:
@@ -290,7 +292,9 @@ class TestFeaturizerDependencies:
             identify_daytime(spark_cdr_data_no_timestamp)
 
     def test_identify_weekend(self, spark):
-        spark_cdr_data = spark.createDataFrame(pd.DataFrame(CDR_DATA))
+        pd_cdr_data = pd.DataFrame(CDR_DATA)
+        pd_cdr_data["day"] = pd_cdr_data["timestamp"].dt.date
+        spark_cdr_data = spark.createDataFrame(pd_cdr_data)
         cdr_spark_with_weekend = identify_weekend(spark_cdr_data, weekend_days=[2, 6])
         cdr_with_weekend = cdr_spark_with_weekend.toPandas()
 

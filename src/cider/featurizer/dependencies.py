@@ -426,7 +426,7 @@ def identify_weekend(
 
     spark_df = spark_df.withColumn(
         "is_weekend",
-        when((dayofweek(col("timestamp"))).isin(weekend_days), 1).otherwise(0),
+        when((dayofweek(col("day"))).isin(weekend_days), 1).otherwise(0),
     )
     return spark_df
 
@@ -504,9 +504,7 @@ def identify_and_tag_conversations(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordData)
 
-    window = Window.partitionBy("caller_id", "recipient_id").orderBy(
-        "timestamp", "transaction_type"
-    )
+    window = Window.partitionBy("caller_id", "recipient_id").orderBy("timestamp")
 
     spark_df = (
         spark_df.withColumn(
