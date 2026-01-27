@@ -562,6 +562,18 @@ class TestFeaturizerCoreCDRData:
                         0.0,
                         0.0,
                     ],
+                    "text_percentage_nocturnal_interactions": [
+                        0.0,
+                        0.0,
+                        33.333,
+                        8.333,
+                    ],
+                    "call_percentage_nocturnal_interactions": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
                 }
             case "get_percentage_of_initiated_conversations":
                 expected_results = {

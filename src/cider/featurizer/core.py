@@ -179,12 +179,14 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
         ],
         agg_func=pys_sum,
     )
-    pivoted_df_type_only = spark_df_unique_contacts_type_only.groupby("caller_id").agg(*aggs_type_only)
+    pivoted_df_type_only = spark_df_unique_contacts_type_only.groupby("caller_id").agg(
+        *aggs_type_only
+    )
 
     # Count distinct contacts per caller, disaggregated by transaction type and weekday/end only
     spark_df_unique_contacts_week_only = spark_df.groupby(
         "caller_id", "is_weekend", "transaction_type"
-        ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
+    ).agg(countDistinct("recipient_id").alias("num_unique_contacts"))
     aggs_time_only = _get_agg_columns_by_cdr_time_and_transaction_type(
         "num_unique_contacts",
         cols_to_use_for_pivot=[
@@ -193,7 +195,9 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
         ],
         agg_func=pys_sum,
     )
-    pivoted_df_week_only = spark_df_unique_contacts_week_only.groupby("caller_id").agg(*aggs_time_only)
+    pivoted_df_week_only = spark_df_unique_contacts_week_only.groupby("caller_id").agg(
+        *aggs_time_only
+    )
 
     # Count distinct contacts per caller, disaggregated by weekday/end and transaction type only
     spark_df_unique_contacts_day_only = spark_df.groupby(
@@ -207,7 +211,9 @@ def get_number_of_contacts_per_caller(spark_df: SparkDataFrame) -> SparkDataFram
         ],
         agg_func=pys_sum,
     )
-    pivoted_df_day_only = spark_df_unique_contacts_day_only.groupby("caller_id").agg(*aggs_day_only)
+    pivoted_df_day_only = spark_df_unique_contacts_day_only.groupby("caller_id").agg(
+        *aggs_day_only
+    )
 
     # Merge all pivoted dataframes
     pivoted_df = reduce(
@@ -274,29 +280,42 @@ def get_percentage_of_nocturnal_interactions(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    count_df = spark_df.groupby("caller_id").agg(
-        count("*").alias("total_interactions"),
-        pys_sum(when(col("is_daytime") == 0, 1).otherwise(0)).alias(
-            "nocturnal_interactions"
-        ),
+    count_df = (
+        spark_df.withColumn(
+            "is_nocturnal", when(col("is_daytime") == 0, 1).otherwise(0)
+        )
+        .groupby("caller_id", "is_weekend", "transaction_type")
+        .agg(pys_mean("is_nocturnal").alias("percentage_nocturnal_interactions"))
     )
-    count_df = count_df.withColumn(
-        "percentage_nocturnal_interactions",
-        (col("nocturnal_interactions") / col("total_interactions")) * 100,
-    ).select("caller_id", "percentage_nocturnal_interactions")
 
-    count_df = spark_df.join(count_df, on="caller_id", how="inner")
     aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
         "percentage_nocturnal_interactions",
         cols_to_use_for_pivot=[
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=first,
+        agg_func=pys_sum,
     )
     pivoted_df = count_df.groupby("caller_id").agg(*aggs)
 
-    return pivoted_df
+    count_df_all = (
+        spark_df.withColumn(
+            "is_nocturnal", when(col("is_daytime") == 0, 1).otherwise(0)
+        )
+        .groupby("caller_id", "transaction_type")
+        .agg(pys_mean("is_nocturnal").alias("percentage_nocturnal_interactions"))
+    )
+    aggs_all_week = _get_agg_columns_by_cdr_time_and_transaction_type(
+        "percentage_nocturnal_interactions",
+        cols_to_use_for_pivot=[
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        agg_func=pys_sum,
+    )
+    pivoted_df_all_week = (
+        count_df_all.groupby("caller_id").agg(*aggs_all_week).drop("is_weekend")
+    )
+    return pivoted_df.join(pivoted_df_all_week, on="caller_id", how="inner")
 
 
 def get_percentage_of_initiated_conversations(

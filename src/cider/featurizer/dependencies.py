@@ -170,7 +170,7 @@ def _get_agg_columns_by_cdr_time_and_transaction_type(
         agg_name += f"{col_name}"
 
         aggs.append(
-            agg_func(when(condition, col(col_name)).otherwise(0)).alias(agg_name)
+            agg_func(when(condition, col(col_name)).otherwise(0.0)).alias(agg_name)
         )
     return aggs
 
