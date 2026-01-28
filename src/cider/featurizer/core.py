@@ -335,32 +335,66 @@ def get_percentage_of_initiated_conversations(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    # TODO: this calculation is copied from deprecated.helpers.features.precent_initiated_conversations
-    # but it seems to calculate the average number of initiated conversations per daytime / weekend convo
-    # rather than the percentage. Keeping as is, but needs to be verified.
-    convo_df = (
-        spark_df.where(col("conversation") == col("timestamp"))
-        .withColumn(
-            "initiated_conversation",
-            when(col("direction_of_transaction") == "outgoing", 1).otherwise(0),
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(
+    convo_df = spark_df.where(
+        (col("conversation").isNotNull()) & (col("transaction_type") == "text")
+    ).withColumn(
+        "initiated_conversation",
+        when(col("direction_of_transaction") == "outgoing", 1).otherwise(0),
+    )
+
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        convo_df_grouped = convo_df.groupby(*groupby_cols).agg(
             pys_mean("initiated_conversation").alias(
                 "percentage_initiated_conversations"
             )
         )
-    )
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "percentage_initiated_conversations",
-        cols_to_use_for_pivot=[
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "percentage_initiated_conversations",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        convo_df_grouped = convo_df_grouped.groupby("caller_id").agg(*aggs)
+        if drop_cols:
+            convo_df_grouped = convo_df_grouped.drop(*drop_cols)
+        return convo_df_grouped
+
+    pivot_df = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "is_daytime"],
+        [
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
         ],
-        agg_func=first,
+    )
+    pivot_df_all_week = _get_groupby_and_pivot_df(
+        ["caller_id", "is_daytime"],
+        [
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+        ],
+    )
+    pivot_df_all_day = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend"],
+        [
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+        ],
     )
 
-    return convo_df.groupby("caller_id").agg(*aggs)
+    return (
+        pivot_df.join(pivot_df_all_week, on="caller_id", how="inner")
+        .join(pivot_df_all_day, on="caller_id", how="inner")
+        .join(
+            convo_df.groupby("caller_id").agg(
+                pys_mean("initiated_conversation").alias(
+                    "percentage_initiated_conversations"
+                )
+            ),
+            on="caller_id",
+            how="inner",
+        )
+    )
 
 
 def get_percentage_of_initiated_calls(
@@ -382,9 +416,6 @@ def get_percentage_of_initiated_calls(
 
     spark_df_filtered = spark_df.where(col("transaction_type") == "call")
 
-    # TODO: this calculation is copied from deprecated.helpers.features.percent_initiated_calls
-    # but it seems to calculate the average number of initiated calls per daytime / weekend call
-    # rather than the percentage. Keeping as is, but needs to be verified.
     interaction_df = (
         spark_df_filtered.withColumn(
             "initiated_call",

@@ -601,6 +601,36 @@ class TestFeaturizerCoreCDRData:
                         0.0,
                         0.0,
                     ],
+                    "nighttime_percentage_initiated_conversations": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "daytime_percentage_initiated_conversations": [
+                        1.0,
+                        0.5,
+                        0.0,
+                        1.0,
+                    ],
+                    "weekday_percentage_initiated_conversations": [
+                        1.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                    ],
+                    "weekend_percentage_initiated_conversations": [
+                        0.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "percentage_initiated_conversations": [
+                        1.0,
+                        0.25,
+                        0.0,
+                        1.0,
+                    ],
                 }
             case "get_percentage_of_initiated_calls":
                 expected_results = {
