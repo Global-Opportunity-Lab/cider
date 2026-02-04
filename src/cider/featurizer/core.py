@@ -625,37 +625,72 @@ def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDat
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    window = Window.partitionBy(
-        "caller_id", "is_weekend", "is_daytime", "transaction_type"
-    )
-    entropy_df = (
-        spark_df.groupby(
-            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
-        )
-        .agg(count(lit(0)).alias("interaction_count"))
-        .withColumn("total_count", pys_sum("interaction_count").over(window))
-        .withColumn(
-            "probability", (col("interaction_count") / col("total_count").cast("float"))
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
-        .agg(
-            (-1 * pys_sum(col("probability") * pys_log(col("probability")))).alias(
-                "entropy_of_interactions"
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        window = Window.partitionBy(groupby_cols)
+        entropy_df = (
+            spark_df.groupby("recipient_id", *groupby_cols)
+            .agg(count(lit(0)).alias("interaction_count"))
+            .withColumn("total_count", pys_sum("interaction_count").over(window))
+            .withColumn(
+                "probability",
+                (col("interaction_count") / col("total_count").cast("float")),
+            )
+            .groupby(groupby_cols)
+            .agg(
+                (-1 * pys_sum(col("probability") * pys_log(col("probability")))).alias(
+                    "entropy_of_interactions"
+                )
             )
         )
-    )
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "entropy_of_interactions",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        out_df = entropy_df.groupby("caller_id").agg(*aggs)
+        if drop_cols:
+            out_df = out_df.drop(*drop_cols)
+        return out_df
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "entropy_of_interactions",
-        cols_to_use_for_pivot=[
+    entropy_df = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "is_daytime", "transaction_type"],
+        [
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
             AllowedPivotColumnsEnum.TRANSACTION_TYPE,
         ],
-        agg_func=first,
     )
-    pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    entropy_df_all_week = _get_groupby_and_pivot_df(
+        ["caller_id", "is_daytime", "transaction_type"],
+        [
+            AllowedPivotColumnsEnum.IS_DAYTIME,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        # ["is_weekend"],
+    )
+    entropy_df_all_day = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "transaction_type"],
+        [
+            AllowedPivotColumnsEnum.IS_WEEKEND,
+            AllowedPivotColumnsEnum.TRANSACTION_TYPE,
+        ],
+        # ["is_daytime"],
+    )
+    entropy_df_all = _get_groupby_and_pivot_df(
+        ["caller_id", "transaction_type"],
+        [AllowedPivotColumnsEnum.TRANSACTION_TYPE],
+        # ["is_weekend", "is_daytime"],
+    )
+
+    return (
+        entropy_df.join(entropy_df_all_week, on="caller_id", how="inner")
+        .join(entropy_df_all_day, on="caller_id", how="inner")
+        .join(entropy_df_all, on="caller_id", how="inner")
+    )
 
 
 def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDataFrame:

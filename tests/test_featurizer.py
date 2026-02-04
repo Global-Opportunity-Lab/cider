@@ -853,6 +853,56 @@ class TestFeaturizerCoreCDRData:
                         0.0,
                         0.0,
                     ],
+                    "weekend_text_entropy_of_interactions": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "weekday_text_entropy_of_interactions": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "nighttime_text_entropy_of_interactions": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "daytime_text_entropy_of_interactions": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "weekend_call_entropy_of_interactions": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "weekday_call_entropy_of_interactions": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "nighttime_call_entropy_of_interactions": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "daytime_call_entropy_of_interactions": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_entropy_of_interactions": [0.0, 0.0, 0.0, 0.0],
+                    "text_entropy_of_interactions": [0.0, 0.0, 0.0, 0.0],
                 }
 
             case "get_outgoing_interaction_fraction_stats":
