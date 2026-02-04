@@ -416,25 +416,55 @@ def get_percentage_of_initiated_calls(
 
     spark_df_filtered = spark_df.where(col("transaction_type") == "call")
 
-    interaction_df = (
-        spark_df_filtered.withColumn(
-            "initiated_call",
-            when(col("direction_of_transaction") == "outgoing", 1).otherwise(0),
+    filtered_df = spark_df_filtered.withColumn(
+        "initiated_call",
+        when(col("direction_of_transaction") == "outgoing", 1).otherwise(0),
+    )
+
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        interaction_df = filtered_df.groupby(*groupby_cols).agg(
+            pys_mean("initiated_call").alias("percentage_initiated_calls")
         )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(pys_mean("initiated_call").alias("percentage_initiated_calls"))
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "percentage_initiated_calls",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        interaction_df = interaction_df.groupby("caller_id").agg(*aggs)
+        if drop_cols:
+            interaction_df = interaction_df.drop(*drop_cols)
+        return interaction_df
+
+    interaction_df = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "is_daytime"],
+        [AllowedPivotColumnsEnum.IS_WEEKEND, AllowedPivotColumnsEnum.IS_DAYTIME],
+    )
+    interaction_df_all_week = _get_groupby_and_pivot_df(
+        ["caller_id", "is_daytime"],
+        [AllowedPivotColumnsEnum.IS_DAYTIME],
+        ["is_weekend"],
+    )
+    interaction_df_all_day = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend"],
+        [AllowedPivotColumnsEnum.IS_WEEKEND],
+        ["is_daytime"],
     )
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "percentage_initiated_calls",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
+    return (
+        interaction_df.join(interaction_df_all_week, on="caller_id", how="inner")
+        .join(interaction_df_all_day, on="caller_id", how="inner")
+        .join(
+            filtered_df.groupby("caller_id").agg(
+                pys_mean("initiated_call").alias("percentage_initiated_calls")
+            ),
+            on="caller_id",
+            how="inner",
+        )
     )
-
-    return interaction_df.groupby("caller_id").agg(*aggs)
 
 
 def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -518,7 +548,7 @@ def get_text_response_rate(
     window = Window.partitionBy("caller_id", "recipient_id", "conversation")
 
     # Calculate response rate
-    response_rate_df = (
+    response_df = (
         filtered_df.withColumn(
             "direction",
             when((col("direction_of_transaction") == "outgoing"), 1).otherwise(0),
@@ -528,22 +558,56 @@ def get_text_response_rate(
             (col("conversation") == col("timestamp"))
             & (col("direction_of_transaction") == "incoming")
         )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(pys_mean("responded").alias("text_response_rate"))
     )
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "text_response_rate",
-        cols_to_use_for_pivot=[
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        df = response_df.groupby(*groupby_cols).agg(
+            pys_mean("responded").alias("text_response_rate")
+        )
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "text_response_rate",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        out_df = df.groupby("caller_id").agg(*aggs)
+        if drop_cols:
+            out_df = out_df.drop(*drop_cols)
+        return out_df
+
+    response_rate_df = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend", "is_daytime"],
+        [
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
         ],
-        agg_func=first,
     )
 
-    stats_df = response_rate_df.groupby("caller_id").agg(*aggs)
+    response_rate_df_all_week = _get_groupby_and_pivot_df(
+        ["caller_id", "is_daytime"],
+        [AllowedPivotColumnsEnum.IS_DAYTIME],
+        ["is_weekend"],
+    )
+    response_rate_df_all_day = _get_groupby_and_pivot_df(
+        ["caller_id", "is_weekend"],
+        [AllowedPivotColumnsEnum.IS_WEEKEND],
+        ["is_daytime"],
+    )
 
-    return stats_df
+    return (
+        response_rate_df.join(response_rate_df_all_week, on="caller_id", how="inner")
+        .join(response_rate_df_all_day, on="caller_id", how="inner")
+        .join(
+            response_df.groupby("caller_id").agg(
+                pys_mean("responded").alias("text_response_rate")
+            ),
+            on="caller_id",
+            how="inner",
+        )
+    )
 
 
 def get_entropy_of_interactions_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:

@@ -551,9 +551,7 @@ def identify_and_tag_conversations(
         # Also convert timestamp back if needed
         .withColumn("timestamp", col("timestamp").cast("timestamp"))
         # Drop intermediate columns
-        .drop(
-            "prev_transaction_type", "prev_timestamp", "time_lapse", "conversation_last"
-        )
+        .drop("prev_transaction_type", "prev_timestamp", "conversation_last")
     )
     return spark_df
 

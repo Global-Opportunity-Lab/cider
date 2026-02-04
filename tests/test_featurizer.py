@@ -648,6 +648,16 @@ class TestFeaturizerCoreCDRData:
                     ],
                     "weekday_daytime_percentage_initiated_calls": [1.0, 1.0, 0.0, 0.0],
                     "weekend_daytime_percentage_initiated_calls": [0.0, 0.0, 0.0, 0.0],
+                    "nighttime_percentage_initiated_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.5,
+                    ],
+                    "daytime_percentage_initiated_calls": [1.0, 1.0, 0.0, 0.0],
+                    "weekday_percentage_initiated_calls": [1.0, 1.0, 0.0, 0.0],
+                    "weekend_percentage_initiated_calls": [0.0, 0.0, 0.0, 0.0],
+                    "percentage_initiated_calls": [1.0, 1.0, 0.0, 0.25],
                 }
             case "get_text_response_time_delay_stats":
                 expected_results = {
@@ -786,6 +796,11 @@ class TestFeaturizerCoreCDRData:
                     "weekend_nighttime_text_response_rate": [0.0],
                     "weekday_daytime_text_response_rate": [0.0],
                     "weekend_daytime_text_response_rate": [0.0],
+                    "weekday_text_response_rate": [0.0],
+                    "weekend_text_response_rate": [0.0],
+                    "text_response_rate": [0.0],
+                    "daytime_text_response_rate": [0.0],
+                    "nighttime_text_response_rate": [0.0],
                 }
 
             case "get_entropy_of_interactions_per_caller":

@@ -13,7 +13,7 @@ dependencies = [
     "bandicoot>=0.6.0",
     "deepdiff>=8.6.1",
     "fonttools==4.60.2",
-    "geopandas>=1.1.1",
+    "geopandas==1.1.2",
     "geovoronoi>=0.4.0",
     "importlib-resources>=6.5.2",
     "ipykernel>=7.0.1",
