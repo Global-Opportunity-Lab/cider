@@ -26,6 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pandas as pd
+import numpy as np
 from pydantic import BaseModel
 from pyspark.sql import DataFrame as SparkDataFrame
 from pyspark.sql.functions import (
@@ -1036,41 +1037,98 @@ def get_number_of_interactions_per_user(spark_df: SparkDataFrame) -> SparkDataFr
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    count_df = spark_df.groupby(
-        "caller_id",
-        "is_weekend",
-        "is_daytime",
-        "transaction_type",
-        "direction_of_transaction",
-    ).agg(count(lit(0)).alias("num_interactions"))
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
 
-    pivoted_df = (
-        count_df.groupby("caller_id")
-        .pivot(
-            "direction_of_transaction", [e.value for e in DirectionOfTransactionEnum]
-        )
-        .agg(first("num_interactions"))
+        count_df = spark_df.groupby(
+            groupby_cols,
+        ).agg(count(lit(0)).alias("num_interactions"))
+
+        if "direction_of_transaction" in groupby_cols:
+            # Pivot by direction first
+            pivoted_df = (
+                count_df.groupby(
+                    [col for col in groupby_cols if col != "direction_of_transaction"]
+                )
+                .pivot(
+                    "direction_of_transaction",
+                    [e.value for e in DirectionOfTransactionEnum],
+                )
+                .agg(first("num_interactions"))
+            )
+
+            # Rename direction columns and aggregate
+            all_aggs = []
+            for e in DirectionOfTransactionEnum:
+                pivoted_df = pivoted_df.withColumnRenamed(
+                    e.value, f"{e.value}_num_interactions"
+                )
+                aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                    f"{e.value}_num_interactions",
+                    cols_to_use_for_pivot=pivot_cols,
+                    agg_func=pys_sum,
+                )
+                all_aggs.extend(aggs)
+
+            # Final aggregation by caller_id only
+            pivoted_df = pivoted_df.groupby("caller_id").agg(*all_aggs)
+        else:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "num_interactions",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = count_df.groupby("caller_id").agg(*aggs)
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+
+        return pivoted_df
+
+    base_cols = ["caller_id", "transaction_type"]
+    base_pivots = [AllowedPivotColumnsEnum.TRANSACTION_TYPE]
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+        "direction_of_transaction": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+        "direction_of_transaction": [],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+        "direction_of_transaction": [],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = pivoted_df.join(count_df, on="caller_id", how="inner")
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        for i, dim in enumerate(dimensions.keys()):
+            if setting[i]:
+                groupby_cols.append(dim)
+                cols_to_use_for_pivot.extend(pivot_cols[dim])
+                if drop_cols[dim]:
+                    cols_to_drop.extend(drop_cols[dim])
 
-    all_aggs = []
-    for e in DirectionOfTransactionEnum:
-        pivoted_df = pivoted_df.withColumnRenamed(
-            e.value, f"{e.value}_num_interactions"
+        df = _get_groupby_and_pivot_df(
+            groupby_cols,
+            cols_to_use_for_pivot,
+            cols_to_drop,
         )
-        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-            f"{e.value}_num_interactions",
-            cols_to_use_for_pivot=[
-                AllowedPivotColumnsEnum.IS_WEEKEND,
-                AllowedPivotColumnsEnum.IS_DAYTIME,
-                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
-            ],
-            agg_func=first,
-        )
-        all_aggs.extend(aggs)
-    pivoted_df = pivoted_df.groupby("caller_id").agg(*all_aggs)
-
-    return pivoted_df
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
@@ -1088,21 +1146,71 @@ def get_number_of_antennas(spark_df: SparkDataFrame) -> SparkDataFrame:
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    antenna_df = spark_df.groupby("caller_id", "is_daytime", "is_weekend").agg(
-        countDistinct("caller_antenna_id").alias("num_unique_antennas")
-    )
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
+        antenna_df = spark_df.groupby(groupby_cols).agg(
+            countDistinct("caller_antenna_id").alias("num_unique_antennas")
+        )
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "num_unique_antennas",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
-    )
-    antenna_df = antenna_df.groupby("caller_id").agg(*aggs)
+        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+            "num_unique_antennas",
+            cols_to_use_for_pivot=pivot_cols,
+            agg_func=pys_sum,
+        )
+        pivoted_df = antenna_df.groupby("caller_id").agg(*aggs)
 
-    return antenna_df
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+
+        return pivoted_df
+
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        if setting.sum() == 0:
+            # If no dimensions are selected, we want to group by caller_id only and not pivot
+            df = spark_df.groupby("caller_id").agg(
+                countDistinct("caller_antenna_id").alias("num_unique_antennas")
+            )
+        else:
+            for i, dim in enumerate(dimensions.keys()):
+                if setting[i]:
+                    groupby_cols.append(dim)
+                    cols_to_use_for_pivot.extend(pivot_cols[dim])
+                    if drop_cols[dim]:
+                        cols_to_drop.extend(drop_cols[dim])
+
+            df = _get_groupby_and_pivot_df(
+                groupby_cols,
+                cols_to_use_for_pivot,
+                cols_to_drop,
+            )
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:
