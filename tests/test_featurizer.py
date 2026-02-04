@@ -1957,6 +1957,11 @@ class TestFeaturizerCoreCDRData:
                     "weekend_nighttime_num_unique_antennas": [0.0, 0.0, 0.0, 0.0],
                     "weekday_daytime_num_unique_antennas": [2.0, 1.0, 0.0, 0.0],
                     "weekend_daytime_num_unique_antennas": [0.0, 0.0, 1.0, 0.0],
+                    "weekday_num_unique_antennas": [2.0, 1.0, 0.0, 1.0],
+                    "weekend_num_unique_antennas": [0.0, 0.0, 1.0, 0.0],
+                    "nighttime_num_unique_antennas": [0.0, 0.0, 0.0, 1.0],
+                    "daytime_num_unique_antennas": [2.0, 1.0, 1.0, 0.0],
+                    "num_unique_antennas": [2.0, 1.0, 1.0, 1.0],
                 }
 
             case "get_entropy_of_antennas_per_caller":
