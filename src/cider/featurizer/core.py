@@ -1341,46 +1341,92 @@ def get_radius_of_gyration(
     # Join antennas and CDR data
     joined_df = spark_df.join(spark_antennas_df, on="caller_antenna_id", how="inner")
 
-    # Calculate center of mass coordinates
-    coordinates_df = (
-        joined_df.groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(
-            pys_sum("latitude").alias("sum_latitude"),
-            pys_sum("longitude").alias("sum_longitude"),
-            count(lit(0)).alias("num_records"),
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ) -> SparkDataFrame:
+        # Calculate center of mass coordinates
+        coordinates_df = (
+            joined_df.groupby(groupby_cols)
+            .agg(
+                pys_sum("latitude").alias("sum_latitude"),
+                pys_sum("longitude").alias("sum_longitude"),
+                count(lit(0)).alias("num_records"),
+            )
+            .withColumn(
+                "center_of_mass_latitude",
+                col("sum_latitude") / col("num_records").cast("float"),
+            )
+            .withColumn(
+                "center_of_mass_longitude",
+                col("sum_longitude") / col("num_records").cast("float"),
+            )
+            .drop("latitude", "longitude")
         )
-        .withColumn(
-            "center_of_mass_latitude",
-            col("sum_latitude") / col("num_records").cast("float"),
-        )
-        .withColumn(
-            "center_of_mass_longitude",
-            col("sum_longitude") / col("num_records").cast("float"),
-        )
-        .drop("latitude", "longitude")
-    )
 
-    coordinates_df = joined_df.join(
-        coordinates_df,
-        on=["caller_id", "is_weekend", "is_daytime"],
-    )
-    distance_df = _great_circle_distance(coordinates_df)
-    radius_df = distance_df.groupby("caller_id", "is_weekend", "is_daytime").agg(
-        sqrt(pys_sum(col("radius") ** 2 / col("num_records").cast("float"))).alias(
-            "radius_of_gyration"
+        coordinates_df = joined_df.join(
+            coordinates_df,
+            on=groupby_cols,
         )
-    )
+        distance_df = _great_circle_distance(coordinates_df)
+        radius_df = distance_df.groupby(groupby_cols).agg(
+            sqrt(pys_sum(col("radius") ** 2 / col("num_records").cast("float"))).alias(
+                "radius_of_gyration"
+            )
+        )
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "radius_of_gyration",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = radius_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = radius_df.select("caller_id", "radius_of_gyration")
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "radius_of_gyration",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+
+        return pivoted_df
+
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = radius_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+
+        for i, (dim_name, _) in enumerate(dimensions.items()):
+            if setting[i]:
+                groupby_cols.append(dim_name)
+                cols_to_use_for_pivot.extend(pivot_cols[dim_name])
+            else:
+                cols_to_drop.extend(drop_cols[dim_name])
+        df = _get_groupby_and_pivot_df(
+            groupby_cols, cols_to_use_for_pivot, cols_to_drop
+        )
+
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_pareto_principle_antennas(

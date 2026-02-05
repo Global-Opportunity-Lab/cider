@@ -193,13 +193,13 @@ def _great_circle_distance(spark_df: SparkDataFrame) -> SparkDataFrame:
     spark_df = (
         spark_df.withColumn(
             "delta_latitude",
-            radians(col("sum_latitude") - col("center_of_mass_latitude")),
+            radians(col("latitude") - col("center_of_mass_latitude")),
         )
         .withColumn(
             "delta_longitude",
-            radians(col("sum_longitude") - col("center_of_mass_longitude")),
+            radians(col("longitude") - col("center_of_mass_longitude")),
         )
-        .withColumn("latitude1", radians(col("sum_latitude")))
+        .withColumn("latitude1", radians(col("latitude")))
         .withColumn("latitude2", radians(col("center_of_mass_latitude")))
         .withColumn(
             "azimuth",

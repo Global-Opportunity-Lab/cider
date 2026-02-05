@@ -2127,6 +2127,11 @@ class TestFeaturizerCoreCDRData:
             "weekend_nighttime_radius_of_gyration": [0.0, 0.0, 0.0, 0.0],
             "weekday_daytime_radius_of_gyration": [327.0168802664289, 0.0, 0.0, 0.0],
             "weekend_daytime_radius_of_gyration": [0.0, 0.0, 0.0, 0.0],
+            "radius_of_gyration": [327.0168802664289, 0.0, 0.0, 0.0],
+            "weekend_radius_of_gyration": [0.0, 0.0, 0.0, 0.0],
+            "weekday_radius_of_gyration": [327.0168802664289, 0.0, 0.0, 0.0],
+            "nighttime_radius_of_gyration": [0.0, 0.0, 0.0, 0.0],
+            "daytime_radius_of_gyration": [327.0168802664289, 0.0, 0.0, 0.0],
         }
         expected_results = pd.DataFrame(expected_results).reset_index(drop=True)
 
