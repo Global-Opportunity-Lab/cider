@@ -725,6 +725,8 @@ class Featurizer:
         else:
             save_parquet(feats, self.outputs_path / "datasets" / "mobiledata_features")
 
+        return self.features["mobiledata"]
+
     def mobilemoney_features(self) -> None:
 
         # Check that mobile money is loaded

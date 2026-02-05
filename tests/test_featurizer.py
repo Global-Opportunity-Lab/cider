@@ -2290,10 +2290,10 @@ class TestFeaturizerCoreMobileData:
             [
                 "caller_id",
                 "total_data_volume",
-                "mean_volume",
-                "min_volume",
-                "max_volume",
-                "std_volume",
+                "mean_daily_data_volume",
+                "min_daily_data_volume",
+                "max_daily_data_volume",
+                "std_daily_data_volume",
                 "num_unique_days_with_data_usage",
             ]
         ) == set(pd_mobile_data_stats.columns)

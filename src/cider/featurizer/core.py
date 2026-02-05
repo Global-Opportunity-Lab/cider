@@ -1703,7 +1703,7 @@ def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
     # Validate input dataframe
     validate_dataframe(spark_df, MobileDataUsageDataWithDay)
     summary_stats_aggs = _get_summary_stats_cols(
-        "volume",
+        "daily_data_volume",
         [
             StatsComputationMethodEnum.MEAN,
             StatsComputationMethodEnum.MIN,
@@ -1712,11 +1712,15 @@ def get_mobile_data_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
         ],
     )
 
-    summary_stats_df = spark_df.groupby("caller_id").agg(
-        pys_sum("volume").alias("total_data_volume"),
+    summary_stats_per_day_df = spark_df.groupby("caller_id", "day").agg(
+        pys_sum("volume").alias("daily_data_volume"),
+    )
+    summary_stats_df = summary_stats_per_day_df.groupby("caller_id").agg(
+        pys_sum("daily_data_volume").alias("total_data_volume"),
         countDistinct("day").alias("num_unique_days_with_data_usage"),
         *summary_stats_aggs,
     )
+
     return summary_stats_df
 
 
