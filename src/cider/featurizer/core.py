@@ -1867,7 +1867,6 @@ def get_recharge_amount_stats(spark_df: SparkDataFrame) -> SparkDataFrame:
             StatsComputationMethodEnum.MEAN,
             StatsComputationMethodEnum.MIN,
             StatsComputationMethodEnum.MAX,
-            StatsComputationMethodEnum.STD,
         ],
     )
 

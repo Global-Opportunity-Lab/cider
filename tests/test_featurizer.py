@@ -3023,7 +3023,6 @@ class TestFeaturizerCoreRechargeData:
             "mean_amount": [150.0, 100.0, 200.0],
             "min_amount": [150.0, 100.0, 200.0],
             "max_amount": [150.0, 100.0, 200.0],
-            "std_amount": [0.0, 0.0, 0.0],
         }
         expected_results = pd.DataFrame(expected_results).reset_index(drop=True)
         assert set(["caller_id", *expected_results.columns]) == set(
