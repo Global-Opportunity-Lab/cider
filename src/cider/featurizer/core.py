@@ -544,7 +544,6 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
     )
 
     # Calculate time difference between consecutive texts
-    summary_stats_cols = _get_summary_stats_cols("response_time_delay")
     response_time_df = (
         filtered_df.withColumn(
             "prev_direction", lag(col("direction_of_transaction")).over(window)
@@ -558,25 +557,86 @@ def get_text_response_time_delay_stats(spark_df: SparkDataFrame) -> SparkDataFra
                 col("timestamp").cast("long") - col("prev_timestamp").cast("long"),
             ),
         )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(*summary_stats_cols)
     )
 
-    all_aggs = []
-    for pivot_col in [e.value for e in StatsComputationMethodEnum]:
-        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-            f"{pivot_col}_response_time_delay",
-            cols_to_use_for_pivot=[
-                AllowedPivotColumnsEnum.IS_WEEKEND,
-                AllowedPivotColumnsEnum.IS_DAYTIME,
-            ],
-            agg_func=first,
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        stat_comp_method: StatsComputationMethodEnum,
+        drop_cols: list[str] = [],
+    ):
+        summary_stats_col = _get_summary_stats_cols(
+            "response_time_delay", [stat_comp_method]
         )
-        all_aggs.extend(aggs)
+        stats_df = response_time_df.groupby(*groupby_cols).agg(*summary_stats_col)
 
-    stats_df = response_time_df.groupby("caller_id").agg(*all_aggs)
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                f"{stat_comp_method.value}_response_time_delay",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = stats_df.groupby("caller_id").agg(*aggs)
 
-    return stats_df
+        else:
+            pivoted_df = stats_df
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
+
+    base_groupby_cols = ["caller_id"]
+    base_pivot_cols: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+    for stats_col in StatsComputationMethodEnum:
+        for selection in meshgrid_for_dimensions:
+            if selection.sum() == 0:
+                groupby_cols = base_groupby_cols
+                pivot_cols_to_use = base_pivot_cols
+                drop_cols_to_use = []
+            else:
+                groupby_cols = base_groupby_cols + [
+                    dim
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                pivot_cols_to_use = base_pivot_cols + [
+                    pivot_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                drop_cols_to_use = [
+                    drop_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if not selected
+                ]
+
+            pivoted_df = _get_groupby_and_pivot_df(
+                groupby_cols,
+                pivot_cols_to_use,
+                stats_col,
+                drop_cols=drop_cols_to_use,
+            )
+            dfs_to_join.append(pivoted_df)
+
+    return reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"), dfs_to_join
+    )
 
 
 def get_text_response_rate(
