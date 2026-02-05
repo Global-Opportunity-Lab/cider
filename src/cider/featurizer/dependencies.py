@@ -46,7 +46,7 @@ from pyspark.sql.functions import (
     mean as pys_mean,
     min as pys_min,
     max as pys_max,
-    stddev,
+    stddev_pop as stddev,
     expr,
     skewness,
     kurtosis,
