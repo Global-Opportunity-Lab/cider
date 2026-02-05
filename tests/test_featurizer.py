@@ -2023,6 +2023,21 @@ class TestFeaturizerCoreCDRData:
                         0.0,
                         0.0,
                     ],
+                    "weekday_num_pareto_principle_antennas": [
+                        2.0,
+                        1.0,
+                        1.0,
+                        1.0,
+                    ],
+                    "weekend_num_pareto_principle_antennas": [0.0, 0.0, 0.0, 0.0],
+                    "nighttime_num_pareto_principle_antennas": [0.0, 0.0, 1.0, 1.0],
+                    "daytime_num_pareto_principle_antennas": [
+                        2.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "num_pareto_principle_antennas": [2.0, 1.0, 1.0, 1.0],
                 }
             case "get_average_num_of_interactions_from_home_antennas":
                 expected_results = {

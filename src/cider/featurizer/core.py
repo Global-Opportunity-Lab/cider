@@ -1449,43 +1449,85 @@ def get_pareto_principle_antennas(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    # Configure windows for calculations
-    window_1 = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
-    window_2 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
-        col("interaction_count").desc()
-    )
-    window_3 = Window.partitionBy("caller_id", "is_weekend", "is_daytime").orderBy(
-        "row_number"
-    )
-
-    # Calculate Pareto principle antenna stats
-    antenna_df = (
-        spark_df.groupby("caller_id", "caller_antenna_id", "is_weekend", "is_daytime")
-        .agg(count(lit(0)).alias("interaction_count"))
-        .withColumn("total_count", pys_sum("interaction_count").over(window_1))
-        .withColumn("row_number", row_number().over(window_2))
-        .withColumn("cumsum_count", pys_sum("interaction_count").over(window_3))
-        .withColumn(
-            "fraction_count", col("cumsum_count") / col("total_count").cast("float")
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
+        # Configure windows for calculations
+        window_1 = Window.partitionBy(*groupby_cols)
+        window_2 = Window.partitionBy(*groupby_cols).orderBy(
+            col("interaction_count").desc()
         )
-        .withColumn(
-            "row_number",
-            when(col("fraction_count") >= percentage_threshold, col("row_number")),
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(pys_min("row_number").alias("num_pareto_principle_antennas"))
-    )
+        window_3 = Window.partitionBy(*groupby_cols).orderBy("row_number")
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "num_pareto_principle_antennas",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
+        # Calculate Pareto principle antenna stats
+        antenna_df = (
+            spark_df.groupby("caller_antenna_id", *groupby_cols)
+            .agg(count(lit(0)).alias("interaction_count"))
+            .withColumn("total_count", pys_sum("interaction_count").over(window_1))
+            .withColumn("row_number", row_number().over(window_2))
+            .withColumn("cumsum_count", pys_sum("interaction_count").over(window_3))
+            .withColumn(
+                "fraction_count", col("cumsum_count") / col("total_count").cast("float")
+            )
+            .withColumn(
+                "row_number",
+                when(col("fraction_count") >= percentage_threshold, col("row_number")),
+            )
+            .groupby(*groupby_cols)
+            .agg(pys_min("row_number").alias("num_pareto_principle_antennas"))
+        )
+
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "num_pareto_principle_antennas",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = antenna_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = antenna_df.select("caller_id", "num_pareto_principle_antennas")
+        return pivoted_df
+
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = antenna_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        if setting.sum() == 0:
+            df = _get_groupby_and_pivot_df(groupby_cols, cols_to_use_for_pivot)
+        else:
+            for i, (dim_name, _) in enumerate(dimensions.items()):
+                if setting[i]:
+                    groupby_cols.append(dim_name)
+                    cols_to_use_for_pivot.extend(pivot_cols[dim_name])
+                else:
+                    cols_to_drop.extend(drop_cols[dim_name])
+            df = _get_groupby_and_pivot_df(
+                groupby_cols, cols_to_use_for_pivot, cols_to_drop
+            )
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_average_num_of_interactions_from_home_antennas(
