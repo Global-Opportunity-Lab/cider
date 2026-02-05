@@ -509,14 +509,15 @@ class Featurizer:
                     .groupby("caller_id", as_index=False)
                     .agg(agg)
                 )
-                grouped.columns = [name + "__" + c + "__" + ag for ag in agg]
+                new_cols = ["caller_id"] + [f"{name}__{c}__{metric}" for metric in agg]
+                grouped.columns = new_cols
                 feats.append(grouped)
 
         # Combine all aggregations together, write to file
         feats_df = long_join_pandas(feats, on="caller_id", how="outer").rename(
             {"caller_id": "name"}, axis=1
         )
-        feats_df["name"] = feats_df.index
+        # feats_df["name"] = feats_df.index
 
         feats_df = filter_by_phone_numbers_to_featurize(
             self.phone_numbers_to_featurize, feats_df, "name"
@@ -540,6 +541,7 @@ class Featurizer:
             self.features["international"] = read_parquet(
                 self.spark, self.outputs_path / "datasets" / "international_feats"
             )
+        return self.features["international"]
 
     def location_features(self) -> None:
 

@@ -1580,7 +1580,7 @@ def get_average_num_of_interactions_from_home_antennas(
             AllowedPivotColumnsEnum.IS_WEEKEND,
             AllowedPivotColumnsEnum.IS_DAYTIME,
         ],
-        agg_func=first,
+        agg_func=pys_sum,
     )
 
     return home_interaction_df.groupby("caller_id").agg(*aggs)
@@ -1613,6 +1613,16 @@ def get_international_interaction_statistics(
         pys_sum("duration").alias("total_call_duration"),
         countDistinct("day").alias("num_unique_days"),
     )
+    combined_stats_df = (
+        international_df.groupBy("caller_id")
+        .agg(
+            count("recipient_id").alias("num_interactions"),
+            countDistinct("recipient_id").alias("num_unique_recipients"),
+            countDistinct("day").alias("num_unique_days"),
+        )
+        .drop("transaction_type")
+    )
+
     all_aggs = []
     for pivot_col in [
         "num_interactions",
@@ -1632,7 +1642,8 @@ def get_international_interaction_statistics(
 
     # Drop call duration columns for texts
     stats_df = stats_df.drop("text_total_call_duration")
-    return stats_df
+
+    return stats_df.join(combined_stats_df, on="caller_id", how="inner")
 
 
 # TODO: this is a reimplementaion of deprecated.featurizer.location_features. However, there are additional calculations

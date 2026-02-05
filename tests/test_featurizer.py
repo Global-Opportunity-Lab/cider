@@ -2056,6 +2056,9 @@ class TestFeaturizerCoreCDRData:
                     "call_total_call_duration": [100.0, 100.0],
                     "text_num_unique_days": [1.0, 1.0],
                     "call_num_unique_days": [1.0, 1.0],
+                    "num_unique_days": [1.0, 1.0],
+                    "num_interactions": [2.0, 2.0],
+                    "num_unique_recipients": [2.0, 2.0],
                 }
 
             case _:
