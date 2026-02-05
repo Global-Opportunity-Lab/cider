@@ -1228,37 +1228,89 @@ def get_entropy_of_antennas_per_caller(spark_df: SparkDataFrame) -> SparkDataFra
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    window = Window.partitionBy("caller_id", "is_weekend", "is_daytime")
-    entropy_df = (
-        spark_df.groupby("caller_id", "caller_antenna_id", "is_weekend", "is_daytime")
-        .agg(count(lit(0)).alias("interaction_count"))
-        .withColumn("total_count", pys_sum("interaction_count").over(window))
-        .withColumn(
-            "fraction_of_interactions",
-            (col("interaction_count") / col("total_count").cast("float")),
-        )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(
-            (
-                -1
-                * pys_sum(
-                    col("fraction_of_interactions")
-                    * pys_log(col("fraction_of_interactions"))
-                )
-            ).alias("entropy_of_antennas")
-        )
-    )
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
+        # Build window based on groupby_cols
+        window = Window.partitionBy(*groupby_cols)
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "entropy_of_antennas",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=first,
+        entropy_df = (
+            spark_df.groupby(groupby_cols + ["caller_antenna_id"])
+            .agg(count(lit(0)).alias("interaction_count"))
+            .withColumn("total_count", pys_sum("interaction_count").over(window))
+            .withColumn(
+                "fraction_of_interactions",
+                (col("interaction_count") / col("total_count").cast("float")),
+            )
+            .groupby(groupby_cols)
+            .agg(
+                (
+                    -1
+                    * pys_sum(
+                        col("fraction_of_interactions")
+                        * pys_log(col("fraction_of_interactions"))
+                    )
+                ).alias("entropy_of_antennas")
+            )
+        )
+
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "entropy_of_antennas",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
+        else:
+            # No pivoting needed, just rename the column
+            pivoted_df = entropy_df.select("caller_id", "entropy_of_antennas")
+
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+
+        return pivoted_df
+
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": ["is_daytime"],
+        "is_daytime": ["is_weekend"],
+    }
+    pivot_cols = {
+        "is_weekend": [AllowedPivotColumnsEnum.IS_WEEKEND],
+        "is_daytime": [AllowedPivotColumnsEnum.IS_DAYTIME],
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
     )
-    pivoted_df = entropy_df.groupby("caller_id").agg(*aggs)
-    return pivoted_df
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        if setting.sum() == 0:
+            # No dimensions case
+            df = _get_groupby_and_pivot_df(groupby_cols, cols_to_use_for_pivot)
+        else:
+            for i, (dim_name, dim_value) in enumerate(dimensions.items()):
+                if setting[i]:
+                    groupby_cols.append(dim_name)
+                    cols_to_use_for_pivot.extend(pivot_cols[dim_name])
+                else:
+                    cols_to_drop.extend(drop_cols[dim_name])
+            df = _get_groupby_and_pivot_df(
+                groupby_cols, cols_to_use_for_pivot, cols_to_drop
+            )
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 def get_radius_of_gyration(

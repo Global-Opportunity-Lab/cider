@@ -1975,6 +1975,26 @@ class TestFeaturizerCoreCDRData:
                         0.0,
                     ],
                     "weekend_daytime_entropy_of_antennas": [0.0, 0.0, 0.0, 0.0],
+                    "weekday_entropy_of_antennas": [
+                        0.6931471805599453,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "weekend_entropy_of_antennas": [0.0, 0.0, 0.0, 0.0],
+                    "nighttime_entropy_of_antennas": [0.0, 0.0, 0.0, 0.0],
+                    "daytime_entropy_of_antennas": [
+                        0.6931471805599453,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "entropy_of_antennas": [
+                        0.6931471805599453,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
                 }
 
             case "get_pareto_principle_antennas":
