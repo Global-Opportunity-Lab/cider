@@ -859,6 +859,8 @@ class Featurizer:
         else:
             save_parquet(feats, self.outputs_path / "datasets" / "mobilemoney_feats")
         self.features["mobilemoney"] = feats
+    
+        return self.features["mobilemoney"]
 
     def recharges_features(self) -> None:
 
