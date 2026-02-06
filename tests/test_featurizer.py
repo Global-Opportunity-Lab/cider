@@ -2389,6 +2389,11 @@ class TestFeaturizerCoreCDRData:
                     "weekend_nighttime_mean_home_antenna_interaction": [0.0, 0.0],
                     "weekday_daytime_mean_home_antenna_interaction": [0.0, 0.0],
                     "weekend_daytime_mean_home_antenna_interaction": [0.0, 0.0],
+                    "weekday_mean_home_antenna_interaction": [0.0, 0.0],
+                    "weekend_mean_home_antenna_interaction": [0.0, 0.0],
+                    "nighttime_mean_home_antenna_interaction": [0.0, 0.0],
+                    "daytime_mean_home_antenna_interaction": [0.0, 0.0],
+                    "mean_home_antenna_interaction": [0.0, 0.0],
                 }
 
             case "get_international_interaction_statistics":

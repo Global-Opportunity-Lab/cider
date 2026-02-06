@@ -1707,41 +1707,99 @@ def get_average_num_of_interactions_from_home_antennas(
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
+    # Filter for outgoing transactions only to avoid double-counting
+    # after swap_caller_and_recipient operation
+    # spark_df = spark_df.filter(
+    #     col("direction_of_transaction") == DirectionOfTransactionEnum.OUTGOING.value
+    # )
+
     # Identify home antenna per caller:
     # home antenna is the antenna from which the most nightime-calls are made
     window = Window.partitionBy("caller_id").orderBy(
         col("filtered_interaction_count").desc()
     )
-    home_antenna_df = (
-        spark_df.where(col("is_daytime") == 0)
-        .groupby("caller_id", "caller_antenna_id")
-        .agg(count(lit(0)).alias("filtered_interaction_count"))
-        .withColumn("row_number", row_number().over(window))
-        .where(col("row_number") == 1)
-        .withColumnRenamed("caller_antenna_id", "home_antenna_id")
-        .drop("filtered_interaction_count")
-    )
+    spark_df = spark_df.dropna(subset=["caller_antenna_id"])
 
-    home_interaction_df = (
-        spark_df.join(home_antenna_df, on="caller_id", how="inner")
-        .withColumn(
-            "is_home_interaction",
-            when(col("caller_antenna_id") == col("home_antenna_id"), 1).otherwise(0),
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        drop_cols: list[str] = [],
+    ):
+        home_antenna_df = (
+            spark_df.where(col("is_daytime") == 0)
+            .groupby("caller_antenna_id", "caller_id")
+            .agg(count(lit(0)).alias("filtered_interaction_count"))
+            .withColumn("row_number", row_number().over(window))
+            .where(col("row_number") == 1)
+            .withColumnRenamed("caller_antenna_id", "home_antenna_id")
+            .select("caller_id", "home_antenna_id")
         )
-        .groupby("caller_id", "is_weekend", "is_daytime")
-        .agg(pys_mean("is_home_interaction").alias("mean_home_antenna_interaction"))
-    )
 
-    aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-        "mean_home_antenna_interaction",
-        cols_to_use_for_pivot=[
-            AllowedPivotColumnsEnum.IS_WEEKEND,
-            AllowedPivotColumnsEnum.IS_DAYTIME,
-        ],
-        agg_func=pys_sum,
-    )
+        mean_df = (
+            (
+                spark_df.join(home_antenna_df, on="caller_id", how="inner")
+                # .filter(col("caller_antenna_id").isNotNull() & col("home_antenna_id").isNotNull())
+                .withColumn(
+                    "is_home_interaction",
+                    when(
+                        col("caller_antenna_id") == col("home_antenna_id"), 1
+                    ).otherwise(0),
+                )
+            )
+            .groupby(groupby_cols)
+            .agg(pys_mean("is_home_interaction").alias("mean_home_antenna_interaction"))
+        )
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                "mean_home_antenna_interaction",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = mean_df.groupby("caller_id").agg(*aggs)
+        else:
+            pivoted_df = mean_df.select("caller_id", "mean_home_antenna_interaction")
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
 
-    return home_interaction_df.groupby("caller_id").agg(*aggs)
+    base_cols = ["caller_id"]
+    base_pivots: list[AllowedPivotColumnsEnum] = []
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+    for setting in meshgrid_for_dimensions:
+        groupby_cols = base_cols.copy()
+        cols_to_use_for_pivot = base_pivots.copy()
+        cols_to_drop = []
+        if setting.sum() == 0:
+            df = _get_groupby_and_pivot_df(groupby_cols, cols_to_use_for_pivot)
+        else:
+            for i, (dim_name, _) in enumerate(dimensions.items()):
+                if setting[i]:
+                    groupby_cols.append(dim_name)
+                    cols_to_use_for_pivot.append(pivot_cols[dim_name])
+                else:
+                    cols_to_drop.append(drop_cols[dim_name])
+            df = _get_groupby_and_pivot_df(
+                groupby_cols, cols_to_use_for_pivot, cols_to_drop
+            )
+        dfs_to_join.append(df)
+    return reduce(
+        lambda left, right: left.join(right, on="caller_id", how="inner"), dfs_to_join
+    )
 
 
 # International features
