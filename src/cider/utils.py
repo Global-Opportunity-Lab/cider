@@ -73,9 +73,11 @@ def get_spark_session():
     Create a spark session for converting pandas dataframes into spark dataframes.
     """
     global SPARK_SESSION
-    if not SPARK_SESSION:
+    if not SPARK_SESSION or SPARK_SESSION._jsc.sc().isStopped():
         SPARK_SESSION = (
             SparkSession.builder.master("local[1]")
+            .config("spark.driver.memory", "8g")
+            .config("spark.sql.shuffle.partitions", 8)
             .appName("pytest-spark")
             .getOrCreate()
         )
