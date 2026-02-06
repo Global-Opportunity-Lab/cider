@@ -977,341 +977,615 @@ class TestFeaturizerCoreCDRData:
 
             case "get_outgoing_interaction_fraction_stats":
                 expected_results = {
-                    "weekday_nighttime_text_mean_fraction_of_outgoing_calls": [
+                    # Both dimensions (transaction_type + is_weekend + is_daytime)
+                    "text_weekday_daytime_mean_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_nighttime_call_mean_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                    ],
-                    "weekend_nighttime_text_mean_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekend_nighttime_call_mean_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_daytime_text_mean_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_daytime_call_mean_fraction_of_outgoing_calls": [
+                    "call_weekday_daytime_mean_fraction_of_outgoing_calls": [
                         1.0,
                         1.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_text_mean_fraction_of_outgoing_calls": [
+                    "text_weekday_nighttime_mean_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_call_mean_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_text_min_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_call_min_fraction_of_outgoing_calls": [
+                    "call_weekday_nighttime_mean_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         1.0,
                     ],
-                    "weekend_nighttime_text_min_fraction_of_outgoing_calls": [
+                    "text_weekend_daytime_mean_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_nighttime_call_min_fraction_of_outgoing_calls": [
+                    "call_weekend_daytime_mean_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_text_min_fraction_of_outgoing_calls": [
+                    "text_weekend_nighttime_mean_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_call_min_fraction_of_outgoing_calls": [
+                    "call_weekend_nighttime_mean_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_daytime_min_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_daytime_min_fraction_of_outgoing_calls": [
                         1.0,
                         1.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_text_min_fraction_of_outgoing_calls": [
+                    "text_weekday_nighttime_min_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_call_min_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_text_max_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_call_max_fraction_of_outgoing_calls": [
+                    "call_weekday_nighttime_min_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         1.0,
                     ],
-                    "weekend_nighttime_text_max_fraction_of_outgoing_calls": [
+                    "text_weekend_daytime_min_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_nighttime_call_max_fraction_of_outgoing_calls": [
+                    "call_weekend_daytime_min_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_text_max_fraction_of_outgoing_calls": [
+                    "text_weekend_nighttime_min_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_call_max_fraction_of_outgoing_calls": [
+                    "call_weekend_nighttime_min_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_daytime_max_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_daytime_max_fraction_of_outgoing_calls": [
                         1.0,
                         1.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_text_max_fraction_of_outgoing_calls": [
+                    "text_weekday_nighttime_max_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_call_max_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_text_std_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_call_std_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekend_nighttime_text_std_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekend_nighttime_call_std_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_daytime_text_std_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_daytime_call_std_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekend_daytime_text_std_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekend_daytime_call_std_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_text_median_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_call_median_fraction_of_outgoing_calls": [
+                    "call_weekday_nighttime_max_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         1.0,
                     ],
-                    "weekend_nighttime_text_median_fraction_of_outgoing_calls": [
+                    "text_weekend_daytime_max_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_nighttime_call_median_fraction_of_outgoing_calls": [
+                    "call_weekend_daytime_max_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_text_median_fraction_of_outgoing_calls": [
+                    "text_weekend_nighttime_max_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_call_median_fraction_of_outgoing_calls": [
+                    "call_weekend_nighttime_max_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_daytime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_daytime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_nighttime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_nighttime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekend_daytime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekend_daytime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekend_nighttime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekend_nighttime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_daytime_median_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_daytime_median_fraction_of_outgoing_calls": [
                         1.0,
                         1.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_text_median_fraction_of_outgoing_calls": [
+                    "text_weekday_nighttime_median_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_call_median_fraction_of_outgoing_calls": [
+                    "call_weekday_nighttime_median_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                    ],
+                    "text_weekend_daytime_median_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_nighttime_text_skewness_fraction_of_outgoing_calls": [
+                    "call_weekend_daytime_median_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_nighttime_call_skewness_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        np.nan,
-                        np.nan,
-                    ],
-                    "weekend_nighttime_text_skewness_fraction_of_outgoing_calls": [
+                    "text_weekend_nighttime_median_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_nighttime_call_skewness_fraction_of_outgoing_calls": [
+                    "call_weekend_nighttime_median_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_text_skewness_fraction_of_outgoing_calls": [
+                    "text_weekday_daytime_skewness_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_call_skewness_fraction_of_outgoing_calls": [
+                    "call_weekday_daytime_skewness_fraction_of_outgoing_calls": [
                         np.nan,
                         np.nan,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_text_skewness_fraction_of_outgoing_calls": [
+                    "text_weekday_nighttime_skewness_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_call_skewness_fraction_of_outgoing_calls": [
+                    "call_weekday_nighttime_skewness_fraction_of_outgoing_calls": [
                         0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_text_kurtosis_fraction_of_outgoing_calls": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                    "weekday_nighttime_call_kurtosis_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         np.nan,
+                    ],
+                    "text_weekend_daytime_skewness_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekend_daytime_skewness_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekend_nighttime_skewness_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekend_nighttime_skewness_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_daytime_kurtosis_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_daytime_kurtosis_fraction_of_outgoing_calls": [
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_nighttime_kurtosis_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_nighttime_kurtosis_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
                         np.nan,
                     ],
-                    "weekend_nighttime_text_kurtosis_fraction_of_outgoing_calls": [
+                    "text_weekend_daytime_kurtosis_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_nighttime_call_kurtosis_fraction_of_outgoing_calls": [
+                    "call_weekend_daytime_kurtosis_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_text_kurtosis_fraction_of_outgoing_calls": [
+                    "text_weekend_nighttime_kurtosis_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekday_daytime_call_kurtosis_fraction_of_outgoing_calls": [
+                    "call_weekend_nighttime_kurtosis_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    # Only is_weekend dimension
+                    "text_weekday_mean_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_mean_fraction_of_outgoing_calls": [
+                        1.0,
+                        1.0,
+                        0.0,
+                        0.5,
+                    ],
+                    "text_weekend_mean_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekend_mean_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_min_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_weekday_min_fraction_of_outgoing_calls": [1.0, 1.0, 0.0, 0.5],
+                    "text_weekend_min_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_weekend_min_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "text_weekday_max_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_weekday_max_fraction_of_outgoing_calls": [1.0, 1.0, 0.0, 1.0],
+                    "text_weekend_max_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_weekend_max_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "text_weekday_std_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_weekday_std_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.5],
+                    "text_weekend_std_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_weekend_std_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "text_weekday_median_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_median_fraction_of_outgoing_calls": [
+                        1.0,
+                        1.0,
+                        0.0,
+                        0.5,
+                    ],
+                    "text_weekend_median_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekend_median_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_skewness_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_skewness_fraction_of_outgoing_calls": [
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        np.nan,
+                    ],
+                    "text_weekend_skewness_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekend_skewness_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_weekday_kurtosis_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekday_kurtosis_fraction_of_outgoing_calls": [
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        np.nan,
+                    ],
+                    "text_weekend_kurtosis_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_weekend_kurtosis_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    # Only is_daytime dimension
+                    "text_daytime_mean_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_daytime_mean_fraction_of_outgoing_calls": [
+                        1.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_nighttime_mean_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_nighttime_mean_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                    ],
+                    "text_daytime_min_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_daytime_min_fraction_of_outgoing_calls": [1.0, 1.0, 0.0, 0.0],
+                    "text_nighttime_min_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_nighttime_min_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                    ],
+                    "text_daytime_max_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_daytime_max_fraction_of_outgoing_calls": [1.0, 1.0, 0.0, 0.0],
+                    "text_nighttime_max_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_nighttime_max_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                    ],
+                    "text_daytime_std_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_daytime_std_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "text_nighttime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_nighttime_std_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_daytime_median_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_daytime_median_fraction_of_outgoing_calls": [
+                        1.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_nighttime_median_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_nighttime_median_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                    ],
+                    "text_daytime_skewness_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_daytime_skewness_fraction_of_outgoing_calls": [
                         np.nan,
                         np.nan,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_text_kurtosis_fraction_of_outgoing_calls": [
+                    "text_nighttime_skewness_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
                     ],
-                    "weekend_daytime_call_kurtosis_fraction_of_outgoing_calls": [
+                    "call_nighttime_skewness_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        np.nan,
+                    ],
+                    "text_daytime_kurtosis_fraction_of_outgoing_calls": [
                         0.0,
                         0.0,
                         0.0,
                         0.0,
+                    ],
+                    "call_daytime_kurtosis_fraction_of_outgoing_calls": [
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        0.0,
+                    ],
+                    "text_nighttime_kurtosis_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "call_nighttime_kurtosis_fraction_of_outgoing_calls": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        np.nan,
+                    ],
+                    # No time dimensions (transaction_type only)
+                    "text_mean_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_mean_fraction_of_outgoing_calls": [1.0, 1.0, 0.0, 0.5],
+                    "text_min_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_min_fraction_of_outgoing_calls": [1.0, 1.0, 0.0, 0.5],
+                    "text_max_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_max_fraction_of_outgoing_calls": [1.0, 1.0, 0.0, 1.0],
+                    "text_std_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_std_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.5],
+                    "text_median_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_median_fraction_of_outgoing_calls": [1.0, 1.0, 0.0, 0.5],
+                    "text_skewness_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_skewness_fraction_of_outgoing_calls": [
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        np.nan,
+                    ],
+                    "text_kurtosis_fraction_of_outgoing_calls": [0.0, 0.0, 0.0, 0.0],
+                    "call_kurtosis_fraction_of_outgoing_calls": [
+                        np.nan,
+                        np.nan,
+                        0.0,
+                        np.nan,
                     ],
                 }
             case "get_interaction_stats_per_caller":

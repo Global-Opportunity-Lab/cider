@@ -822,68 +822,113 @@ def get_outgoing_interaction_fraction_stats(spark_df: SparkDataFrame) -> SparkDa
     # Validate input dataframe
     validate_dataframe(spark_df, CallDataRecordTagged)
 
-    # Get interaction counts per caller-recipient pair
-    count_df = (
-        spark_df.groupby(
-            "caller_id",
-            "recipient_id",
-            "is_weekend",
-            "is_daytime",
-            "transaction_type",
-            "direction_of_transaction",
+    def _get_groupby_and_pivot_df(
+        groupby_cols: list[str],
+        pivot_cols: list[AllowedPivotColumnsEnum],
+        stat_comp_method: StatsComputationMethodEnum,
+        drop_cols: list[str] = [],
+    ):
+        # Get interaction counts per caller-recipient pair
+        count_df = (
+            spark_df.groupby("recipient_id", "direction_of_transaction", *groupby_cols)
+            .agg(count(lit(0)).alias("interaction_count"))
+            .groupby("recipient_id", *groupby_cols)
+            .pivot("direction_of_transaction")
+            .agg(pys_sum("interaction_count").alias("interaction_count"))
+            .fillna(0)
         )
-        .agg(count(lit(0)).alias("interaction_count"))
-        .groupby(
-            "caller_id", "recipient_id", "is_weekend", "is_daytime", "transaction_type"
-        )
-        .pivot("direction_of_transaction")
-        .agg(first("interaction_count").alias("interaction_count"))
-        .fillna(0)
-    )
 
-    # Add columns for missing direction of transactions
-    missing_direction_cols = [
-        e.value for e in DirectionOfTransactionEnum if e.value not in count_df.columns
-    ]
-    for col_name in missing_direction_cols:
-        count_df = count_df.withColumn(col_name, lit(0))
+        # Add columns for missing direction of transactions
+        missing_direction_cols = [
+            e.value
+            for e in DirectionOfTransactionEnum
+            if e.value not in count_df.columns
+        ]
+        for col_name in missing_direction_cols:
+            count_df = count_df.withColumn(col_name, lit(0))
 
-    # Calculate outgoing call fraction and corresponding stats
-    summary_stats_cols = _get_summary_stats_cols("fraction_of_outgoing_calls")
-    fraction_df = (
-        count_df.withColumn(
+        # Calculate outgoing call fraction and corresponding stats
+        fraction_df = count_df.withColumn(
             "total_interactions",
             sum([col(e.value) for e in DirectionOfTransactionEnum]),
-        )
-        .withColumn(
+        ).withColumn(
             "fraction_of_outgoing_calls",
             col(DirectionOfTransactionEnum.OUTGOING.value)
             / col("total_interactions").cast("float"),
         )
-        .groupby("caller_id", "is_weekend", "is_daytime", "transaction_type")
-        .agg(*summary_stats_cols)
-    )
-
-    all_aggs = []
-    cols_to_pivot = [
-        f"{e.value}_fraction_of_outgoing_calls" for e in StatsComputationMethodEnum
-    ]
-
-    for pivot_col in cols_to_pivot:
-        aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
-            pivot_col,
-            cols_to_use_for_pivot=[
-                AllowedPivotColumnsEnum.IS_WEEKEND,
-                AllowedPivotColumnsEnum.IS_DAYTIME,
-                AllowedPivotColumnsEnum.TRANSACTION_TYPE,
-            ],
-            agg_func=first,
+        summary_stats_col = _get_summary_stats_cols(
+            "fraction_of_outgoing_calls", [stat_comp_method]
         )
-        all_aggs.extend(aggs)
+        stats_df = fraction_df.groupby(*groupby_cols).agg(*summary_stats_col)
+        if pivot_cols:
+            aggs = _get_agg_columns_by_cdr_time_and_transaction_type(
+                f"{stat_comp_method.value}_fraction_of_outgoing_calls",
+                cols_to_use_for_pivot=pivot_cols,
+                agg_func=pys_sum,
+            )
+            pivoted_df = stats_df.groupby("caller_id").agg(*aggs)
 
-    stats_df = fraction_df.groupby("caller_id").agg(*all_aggs)
+        else:
+            pivoted_df = stats_df
 
-    return stats_df
+        if drop_cols:
+            pivoted_df = pivoted_df.drop(*drop_cols)
+        return pivoted_df
+
+    base_cols = ["caller_id", "transaction_type"]
+    base_pivots: list[AllowedPivotColumnsEnum] = [
+        AllowedPivotColumnsEnum.TRANSACTION_TYPE
+    ]
+    dimensions = {
+        "is_weekend": [True, False],
+        "is_daytime": [True, False],
+    }
+    drop_cols = {
+        "is_weekend": "is_daytime",
+        "is_daytime": "is_weekend",
+    }
+    pivot_cols = {
+        "is_weekend": AllowedPivotColumnsEnum.IS_WEEKEND,
+        "is_daytime": AllowedPivotColumnsEnum.IS_DAYTIME,
+    }
+    meshgrid_for_dimensions = (
+        np.array(np.meshgrid(*dimensions.values())).reshape(len(dimensions), -1).T
+    )
+    dfs_to_join = []
+    for stats_col in StatsComputationMethodEnum:
+        for selection in meshgrid_for_dimensions:
+            if selection.sum() == 0:
+                groupby_cols = base_cols
+                pivot_cols_to_use = base_pivots
+                drop_cols_to_use = []
+            else:
+                groupby_cols = base_cols + [
+                    dim
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                pivot_cols_to_use = base_pivots + [
+                    pivot_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if selected
+                ]
+                drop_cols_to_use = [
+                    drop_cols[dim]
+                    for dim, selected in zip(dimensions.keys(), selection)
+                    if not selected
+                ]
+
+            pivoted_df = _get_groupby_and_pivot_df(
+                groupby_cols,
+                pivot_cols_to_use,
+                stats_col,
+                drop_cols=drop_cols_to_use,
+            )
+            dfs_to_join.append(pivoted_df)
+
+    return reduce(
+        lambda df1, df2: df1.join(df2, on="caller_id", how="outer"), dfs_to_join
+    )
 
 
 def get_interaction_stats_per_caller(spark_df: SparkDataFrame) -> SparkDataFrame:
