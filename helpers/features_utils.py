@@ -123,13 +123,13 @@ def tag_conversations(df: SparkDataFrame, max_wait: int = 3600) -> SparkDataFram
           .withColumn('prev_txn', F.lag(col('txn_type')).over(w))
           .withColumn('prev_ts', F.lag(col('ts')).over(w))
           .withColumn('wait', col('ts') - col('prev_ts'))
-          .withColumn('conversation', F.when((col('txn_type') == 'text') &
+          .withColumn('conversation', F.when((col('txn_type') == 'text') | (col('txn_type') == 'sms') &
                                              ((col('prev_txn') == 'call') |
                                               (col('prev_txn').isNull()) |
                                               (col('wait') >= max_wait)), col('ts')))
           .withColumn('convo', F.last('conversation', ignorenulls=True).over(w))
           .withColumn('conversation', F.when(col('conversation').isNotNull(), col('conversation'))
-                                       .otherwise(F.when(col('txn_type') == 'text', col('convo'))))
+                                       .otherwise(F.when((col('txn_type') == 'text') | (col('txn_type') == 'sms'), col('convo'))))
           .drop('ts', 'prev_txn', 'prev_ts', 'convo'))
 
     return df

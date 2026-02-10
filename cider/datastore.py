@@ -78,6 +78,9 @@ class DataStore(InitializerInterface):
         cfg = build_config_from_file(config_file_path_string)
         self.cfg = cfg
 
+        if 'verbose' not in cfg:
+            cfg.verbose = 0
+
         self.data_format = get_data_format()
         self.io_utils = IOUtils(cfg, self.data_format)
 
@@ -90,7 +93,6 @@ class DataStore(InitializerInterface):
         # Parameters
         self.filter_hours = cfg.params.home_location.filter_hours
         self.geo = cfg.col_names.geo
-
         # Spark setup
         # TODO(lucio): Initialize spark separately ....
         spark = True
@@ -152,7 +154,6 @@ class DataStore(InitializerInterface):
             DataType.PHONE_NUMBERS_TO_FEATURIZE: self._load_phone_numbers_to_featurize
         }
 
-
     def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load cdr data: use file path specified in config as default, or spark/pandas df
@@ -163,9 +164,16 @@ class DataStore(InitializerInterface):
 
         fpath = self._get_input_data_file_path('cdr')
         if fpath or dataframe is not None:
-            print('Loading CDR...')
-            cdr = self.io_utils.load_cdr(fpath, df=dataframe)
+            if self.cfg.verbose >= 1:
+                print('Loading CDR...')
+            cdr = self.io_utils.load_cdr(fpath, df=dataframe, cfg=self.cfg)
             self.cdr = cdr
+            if self.cfg.verbose >= 2:
+                shape = (cdr.count(), len(cdr.columns))
+                print(f"Shape: {shape}")
+                print("Read in cdr:")
+                self.cdr.show()
+                print("\n")
 
     def _load_antennas(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -176,8 +184,15 @@ class DataStore(InitializerInterface):
         """
         fpath = self._get_input_data_file_path('antennas')
         if fpath or dataframe is not None:
-            print('Loading antennas...')
+            if self.cfg.verbose >= 1:
+                print('Loading antennas...')
             self.antennas = self.io_utils.load_antennas(fpath, df=dataframe)
+            if self.cfg.verbose >= 2:
+                shape = (self.antennas.count(), len(self.antennas.columns))
+                print(f"Shape: {shape}")
+                print("Read in antennas:")
+                self.antennas.show()
+                print("\n")
 
     def _load_recharges(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -188,9 +203,15 @@ class DataStore(InitializerInterface):
         """
         fpath = self._get_input_data_file_path('recharges')
         if fpath or dataframe is not None:
-            print('Loading recharges...')
+            if self.cfg.verbose >= 1:
+                print('Loading recharges...')
             self.recharges = self.io_utils.load_recharges(fpath, df=dataframe)
-            print("SUCCESS!")
+            if self.cfg.verbose >= 2:
+                shape = (self.recharges.count(), len(self.recharges.columns))
+                print(f"Shape: {shape}")
+                print("Read in recharges:")
+                self.recharges.show()
+                print("\n")
 
     def _load_mobiledata(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
@@ -201,20 +222,30 @@ class DataStore(InitializerInterface):
         """
         fpath = self._get_input_data_file_path('mobiledata')
         if fpath or dataframe is not None:
-            print('Loading mobile data...')
+            if self.cfg.verbose >= 1:
+                print('Loading mobile data...')
             self.mobiledata = self.io_utils.load_mobiledata(fpath, df=dataframe)
-
+            if self.cfg.verbose >= 2:
+                shape = (self.mobiledata.count(), len(self.mobiledata.columns))
+                print(f"Shape: {shape}")
+                print("Read in mobiledata:")
+                self.mobiledata.show()
+                print("\n")
     def _load_mobilemoney(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
         """
         Load mobile money data: use file path specified in config as default, or spark/pandas df
-
-        Args:
-            dataframe: spark/pandas df to assign if available
         """
         fpath = self._get_input_data_file_path('mobilemoney')
         if fpath or dataframe is not None:
-            print('Loading mobile money...')
+            if self.cfg.verbose >= 1:
+                print('Loading mobile money...')
             self.mobilemoney = self.io_utils.load_mobilemoney(fpath, df=dataframe)
+            if self.cfg.verbose >= 2:
+                shape = (self.mobilemoney.count(), len(self.mobilemoney.columns))
+                print(f"Shape: {shape}")
+                print("Read in mobilemoney:")
+                self.mobilemoney.show()
+                print("\n")
 
     def _load_shapefiles(self) -> None:
         """
@@ -224,44 +255,89 @@ class DataStore(InitializerInterface):
         shapefiles = self._get_input_data_file_path('shapefiles', missing_allowed=True)
         if shapefiles is not None:
             for shapefile_name, shapefile_fpath in shapefiles.items():
+                if self.cfg.verbose >= 1:
+                    print(f"Loading shapefile... {shapefile_name}")
                 self.shapefiles[shapefile_name] = self.io_utils.load_shapefile(shapefile_fpath)
+                if self.cfg.verbose >= 2:
+                    shape = (self.shapefiles[shapefile_name].count(), len(self.shapefiles[shapefile_name].columns))
+                    print(f"Shape: {shape}")
+                    print(f"Read in shapefile: {shapefile_name}")
+                    print(self.shapefiles[shapefile_name].head())
+                    print(f"Projection: {self.shapefiles[shapefile_name].crs}")
+                    print("\n")
 
     def _load_home_ground_truth(self) -> None:
         """
         Load ground truth data for home locations
         """
+        if self.cfg.verbose >= 1:
+            print("Loading home ground truth")
         home_ground_truth_fpath = self._get_input_data_file_path('home_ground_truth', missing_allowed=False)
         self.home_ground_truth = pd.read_csv(home_ground_truth_fpath)
-        
+        if self.cfg.verbose >= 2:
+            print(self.home_ground_truth.head())
+            shape = (self.home_ground_truth.count(), len(self.home_ground_truth.columns))
+            print(f"Shape: {shape}")
+            print(f"Read in home ground truth:")
+            self.home_ground_truth.show()
+            print("\n")
+
     def _load_poverty_scores(self) -> None:
         """
         Load poverty scores (e.g. those produced by the ML module)
         """
+        if self.cfg.verbose >= 1:
+            print("Loading poverty scores")
         poverty_scores_fpath = self._get_input_data_file_path('poverty_scores')
         if poverty_scores_fpath is not None:
             self.poverty_scores = pd.read_csv(poverty_scores_fpath)
         else:
             self.poverty_scores = pd.DataFrame()
+        if self.cfg.verbose >= 2:
+            shape = (self.poverty_scores.count(), len(self.poverty_scores.columns))
+            print(f"Shape: {shape}")
+            print(f"Read in poverty scores:")
+            self.poverty_scores.show()
+            print("\n")
 
     def _load_features(self) -> None:
         """
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
+        if self.cfg.verbose >= 1:
+            print("Loading features")
         if self.features_path.exists():
             self.features = read_csv(self.spark, self.features_path, header=True)
             if 'name' not in self.features.columns:
                 raise ValueError('Features dataframe must include name column')
-
             if 'features_to_use' in self.cfg.params:
                 self.features = self.features.select(self.cfg.params.features_to_use)
+            if self.cfg.verbose >= 2:
+                shape = (self.features.count(), len(self.features.columns))
+                print(f"Shape: {shape}")
+                print(f"Read in features:")
+                self.features.show()
+                print("\n")
+        else:
+            if self.cfg.verbose >= 1:
+                print("Features file not found")
+
 
     def _load_labels(self) -> None:
         """
         Load labels to train ML model on
         """
         labels_fpath = self._get_input_data_file_path('labels', missing_allowed=True)
+        if self.cfg.verbose >= 1:
+            print("Loading labels")
         if labels_fpath is not None:
             self.labels = self.io_utils.load_labels(labels_fpath)
+            if self.cfg.verbose >= 2:
+                shape = (self.labels.count(), len(self.labels.columns))
+                print(f"Shape: {shape}")
+                print(f"Read in labels:")
+                self.labels.show()
+                print("\n")
 
     def _load_targeting(self) -> None:
         """
@@ -333,13 +409,19 @@ class DataStore(InitializerInterface):
 
 
     def _load_phone_numbers_to_featurize(self, dataframe: Optional[PandasDataFrame]) -> None:
-
         fpath = self._get_input_data_file_path('phone_numbers_to_featurize', missing_allowed=True)
         if fpath or dataframe is not None:
-            print('Loading phone numbers of interest...')
+            if self.cfg.verbose >= 1:
+                print('Loading phone numbers of interest...')
             self.phone_numbers_to_featurize = self.io_utils.load_phone_numbers_to_featurize(
                 fpath, df=dataframe
             )
+            if self.cfg.verbose >= 2:
+                shape = (self.phone_numbers_to_featurize.count(), len(self.phone_numbers_to_featurize.columns))
+                print(f"Shape: {shape}")
+                print(f"Read in phone numbers of interest:")
+                self.phone_numbers_to_featurize.show()
+                print("\n")
 
 
     def merge(self) -> None:
@@ -370,7 +452,8 @@ class DataStore(InitializerInterface):
         all_required: bool = True
     ) -> None:
         """
-        Load all datasets defined by data_type_map; raise an error if any of them failed to load
+        Load all datasets defined by data_type_map; raise an error if any of them failed to load.
+        Handles hierarchical folder structures by recursively reading all files under a specific folder.
 
         Args:
             data_type_map: mapping between DataType(s) and dataframes, if provided. If None look at config file
@@ -409,7 +492,16 @@ class DataStore(InitializerInterface):
         for dataset_name in self.datasets:
             dataset = getattr(self, dataset_name, None)
             if dataset is not None:
+                if self.cfg.verbose >= 1:
+                    print(f"Filtering {dataset_name}...")
+                if self.cfg.verbose >= 2:
+                    shape = (dataset.count(), len(dataset.columns))
+                    print(f"Shape before filtering: {shape}")
+                    print("\n")
                 setattr(self, dataset_name, filter_dates_dataframe(dataset, start_date, end_date))
+                if self.cfg.verbose >= 2:
+                    shape = (getattr(self, dataset_name, None).count(), len(getattr(self, dataset_name, None).columns))
+                    print(f"Shape after filtering dates: {shape}")
 
     def deduplicate(self) -> None:
         """
@@ -437,7 +529,8 @@ class DataStore(InitializerInterface):
         self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(
             lambda r: r[0]).collect()
         pd.DataFrame(self.spammers).to_csv(self.working_directory_path / 'datasets' / 'spammers.csv', index=False)
-        print('Number of spammers identified: %i' % len(self.spammers))
+        if self.cfg.verbose >= 1:
+            print('Number of spammers identified: %i' % len(self.spammers))
 
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
         self.cdr = self.cdr.where(~col('caller_id').isin(self.spammers))
@@ -477,13 +570,17 @@ class DataStore(InitializerInterface):
         outliers = list(outliers['day'])
         if outliers and isinstance(outliers[0], str):
             outliers = [outlier.split('T')[0] for outlier in outliers]
-            print('Outliers removed: ' + ', '.join(outliers))
+            if self.cfg.verbose >= 1:
+                print('Outliers removed: ' + ', '.join(outliers))
         else:
             outliers = [outlier.strftime("%Y-%m-%d") for outlier in outliers]
-            print('Outliers removed: ' + ', '.join(outliers))
+            if self.cfg.verbose >= 1:
+                print('Outliers removed: ' + ', '.join(outliers))
 
         # Remove outlier days from all datasets
         for df_name in ['cdr', 'recharges', 'mobiledata', 'mobilemoney']:
+            if self.cfg.verbose >= 1:
+                print(f"Filtering outlier days from {df_name}...")
             for outlier in outliers:
                 outlier = pd.to_datetime(outlier)
                 if getattr(self, df_name, None) is not None:
@@ -523,10 +620,12 @@ class DataStore(InitializerInterface):
             outliers.update(list(data[(data[col] < bottom) | (data[col] > toprange[i])].index.values))
 
         if dry_run:
-            print(f"There are {len(outliers)} outliers that could be removed.")
+            if self.cfg.verbose >= 1:
+                print(f"There are {len(outliers)} outliers that could be removed.")
         else:
             self.survey_data = self.survey_data[~self.survey_data['unique_id'].isin(outliers)]
-            print(f"Removed {len(outliers)} outliers!")
+            if self.cfg.verbose >= 1:
+                print(f"Removed {len(outliers)} outliers!")
 
         return outliers
 

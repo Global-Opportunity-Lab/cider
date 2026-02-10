@@ -30,14 +30,23 @@ from typing import Optional
 from box import Box
 from helpers.features_utils import *
 from helpers.utils import filter_by_phone_numbers_to_featurize
-
+import psutil
+import os
+import pyspark as spark
+import gc
+from pathlib import Path
+from pyspark.sql import SparkSession
+from pyspark import StorageLevel
 
 
 def all_spark(
     df: SparkDataFrame,
     antennas: SparkDataFrame,
     cfg: Box,
-    phone_numbers_to_featurize: Optional[SparkDataFrame]
+    phone_numbers_to_featurize: Optional[SparkDataFrame],
+    spark_context: Optional[spark.SparkContext],
+    output_path: Optional[str],
+    verbose: Optional[int] = 1
 ) -> List[SparkDataFrame]:
     """
     Compute cdr features starting from raw interaction data
@@ -50,56 +59,134 @@ def all_spark(
     Returns:
         features: list of features as spark dataframes
     """
+    def save_feature(feature_df: SparkDataFrame, feature_name: str, output_path: str):
+        """Save feature dataframe to parquet file"""
+        # Repartition to a reasonable size before saving
+        num_partitions = max(1, feature_df.rdd.getNumPartitions() // 4)
+        feature_df.repartition(num_partitions).write.mode('errorifexists').parquet(f"{output_path}/{feature_name}")
+        if verbose >= 2:
+            print(f"Saved {feature_name} to {output_path}")
+        # Force cleanup
+        feature_df.unpersist(blocking=True)
+        gc.collect()
+
     features = []
-    df_input = df
+    checkpoint_path = f"{output_path}/checkpoints"
+    spark_context.setCheckpointDir(checkpoint_path)    
+    df = (df.repartition(200, 'caller_id')
+          .persist(StorageLevel.MEMORY_AND_DISK_2))
     df = (df
-          # Add weekday and daytime columns for subsequent groupby(s)
-          .withColumn('weekday', F.when(F.dayofweek('day').isin(cfg.weekend), 'weekend').otherwise('weekday'))
-          .withColumn('daytime', F.when((F.hour('timestamp') < cfg.start_of_day) |
-                                        (F.hour('timestamp') >= cfg.end_of_day), 'night').otherwise('day'))
-          # Duplicate rows, switching caller and recipient columns
-          .withColumn('direction', lit('out'))
-          .withColumn('directions', F.array(lit('in'), col('direction')))
-          .withColumn('direction', F.explode('directions'))
-          .withColumn('caller_id_copy', col('caller_id'))
-          .withColumn('caller_antenna_copy', col('caller_antenna'))
-          .withColumn('caller_id', F.when(col('direction') == 'in', col('recipient_id')).otherwise(col('caller_id')))
-          .withColumn('recipient_id',
-                      F.when(col('direction') == 'in', col('caller_id_copy')).otherwise(col('recipient_id')))
-          .withColumn('caller_antenna',
-                      F.when(col('direction') == 'in', col('recipient_antenna')).otherwise(col('caller_antenna')))
-          .withColumn('recipient_antenna',
-                      F.when(col('direction') == 'in', col('caller_antenna_copy')).otherwise(col('recipient_antenna')))
-          .drop('directions', 'caller_id_copy', 'recipient_antenna_copy'))
-
-    # 'caller_id' contains the subscriber in question for featurization purposes; that's what we'll filter by.
+        .withColumn('weekday', F.when(F.dayofweek('day').isin(cfg.weekend), 'weekend').otherwise('weekday'))
+        .withColumn('daytime', F.when((F.hour('timestamp') < cfg.start_of_day) |
+                                    (F.hour('timestamp') >= cfg.end_of_day), 'night').otherwise('day')))
+    
+    # Process duplicated rows in batches
+    columns_to_keep = [
+        'caller_id',
+        'recipient_id', 
+        'caller_antenna',
+        'recipient_antenna',
+        'timestamp',
+        'day',
+        'weekday',
+        'daytime',
+        'txn_type',
+        'duration',
+        'direction'
+    ]
+    
+    df_out = (df
+        .withColumn('direction', lit('out'))
+        .select(*columns_to_keep))
+        
+    df_in = (df
+        .withColumn('direction', lit('in'))
+        .select(
+            col('recipient_id').alias('caller_id'),
+            col('caller_id').alias('recipient_id'),
+            col('recipient_antenna').alias('caller_antenna'),
+            col('caller_antenna').alias('recipient_antenna'),
+            *[col(c) for c in columns_to_keep[4:]]
+        ))
+    
+    df = df_out.unionAll(df_in)
+    unfiltered_count = df.count()
     df = filter_by_phone_numbers_to_featurize(phone_numbers_to_featurize, df, 'caller_id')
-
-    # Assign interactions to conversations if relevant
+    filtered_count = df.count()
+    if verbose >= 1:
+        print(f"Number of rows before filtering by phone numbers: {unfiltered_count:,}")
+        print(f"Number of rows after filtering by phone numbers: {filtered_count:,}")
     df = tag_conversations(df)
-    # Compute features and append them to list
+    
+    # Cache with serialization
+    df = df.persist(StorageLevel.MEMORY_AND_DISK_2)
+    
+    # Clear previous DataFrames
+    df_out.unpersist(blocking=True)
+    df_in.unpersist(blocking=True)
+    
+    all_features_functions = [
+        active_days,
+        number_of_contacts,
+        call_duration,
+        percent_nocturnal,
+        percent_initiated_conversations,
+        percent_initiated_interactions,
+        response_delay_text,
+        response_rate_text,
+        entropy_of_contacts,
+        balance_of_contacts,
+        interactions_per_contact,
+        interevent_time,
+        percent_pareto_interactions,
+        percent_pareto_durations,
+        number_of_interactions,
+        number_of_antennas,
+        entropy_of_antennas,
+        lambda x: radius_of_gyration(x, antennas),
+        frequent_antennas,
+        percent_at_home
+    ]
+    # Check for most recent checkpoint
+    completed_features = []
+    checkpoint_dir = Path(checkpoint_path)
+    if checkpoint_dir.exists():
+        for feature_function in reversed(all_features_functions):
+            feature_name = feature_function.__name__
+            print(f"Checking for checkpoint: {checkpoint_dir / feature_name}")
+            if (checkpoint_dir / feature_name).exists():
+                completed_features.append(feature_name)
+                if verbose >= 1:
+                    print(f"Found most recent checkpoint: {feature_name}")
+                last_completed_idx = all_features_functions.index(feature_function)
+                break
+        if completed_features:
+            # Load all completed features up to this checkpoint
+            spark_session = SparkSession.builder.getOrCreate()
+            for completed_feature in all_features_functions[:last_completed_idx + 1]:
+                feature_name = completed_feature.__name__
+                if verbose >= 1:
+                    print(f"Loading checkpoint for {feature_name}")
+                feature = spark_session.read.parquet(f"{checkpoint_path}/{feature_name}")
+                features.append(feature)
+            remaining_features = all_features_functions[last_completed_idx + 1:]
+            
+        else:
+            if verbose >= 1:
+                print("No checkpoints found, will recompute all features")
+            remaining_features = all_features_functions
+    else:
+        if verbose >= 1:
+            print("No checkpoints found, will recompute all features")
+        remaining_features = all_features_functions
 
-    features.append(active_days(df))
-    features.append(number_of_contacts(df))
-    features.append(call_duration(df))
-    features.append(percent_nocturnal(df))
-    features.append(percent_initiated_conversations(df))
-    features.append(percent_initiated_interactions(df))
-    features.append(response_delay_text(df))
-    features.append(response_rate_text(df))
-    features.append(entropy_of_contacts(df))
-    features.append((balance_of_contacts(df)))
-    features.append(interactions_per_contact(df))
-    features.append(interevent_time(df))
-    features.append(percent_pareto_interactions(df))
-    features.append((percent_pareto_durations(df)))
-    features.append(number_of_interactions(df))
-    features.append(number_of_antennas(df))
-    features.append(entropy_of_antennas(df))
-    features.append(radius_of_gyration(df, antennas))
-    features.append(frequent_antennas(df))
-    features.append(percent_at_home(df))
 
+    for feature_function in remaining_features:
+        feature_name = feature_function.__name__        
+        feature = feature_function(df)
+        features.append(feature)
+        save_feature(feature, feature_name, checkpoint_path)
+    
     return features
 
 
@@ -211,7 +298,7 @@ def response_delay_text(df: SparkDataFrame) -> SparkDataFrame:
     """
     Returns summary stats of users' delays in responding to texts, disaggregated by type and time of day
     """
-    df = df.where(col('txn_type') == 'text')
+    df = df.where((col('txn_type') == 'text') | (col('txn_type') == 'sms'))
     df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'recipient_id', 'conversation').orderBy('timestamp')
@@ -232,7 +319,7 @@ def response_rate_text(df: SparkDataFrame) -> SparkDataFrame:
     """
     Returns the percentage of texts to which the users responded, disaggregated by type and time of day
     """
-    df = df.where(col('txn_type') == 'text')
+    df = df.where((col('txn_type') == 'text') | (col('txn_type') == 'sms'))
     df = add_all_cat(df, cols='week_day')
 
     w = Window.partitionBy('caller_id', 'recipient_id', 'conversation')
@@ -250,23 +337,34 @@ def response_rate_text(df: SparkDataFrame) -> SparkDataFrame:
 
 
 def entropy_of_contacts(df: SparkDataFrame) -> SparkDataFrame:
-    """
-    Returns the entropy of interactions the users had with their contacts, disaggregated by type and time of day, and
-    transaction type
-    """
+    """Returns the entropy of interactions users had with their contacts"""
     df = add_all_cat(df, cols='week_day')
 
+    # Break down the computation into smaller steps
+    contact_counts = (df
+        .groupby('caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type')
+        .agg(F.count(lit(0)).alias('n'))
+        .persist(StorageLevel.MEMORY_AND_DISK_2))
+    
     w = Window.partitionBy('caller_id', 'weekday', 'daytime', 'txn_type')
-    out = (df
-           .groupby('caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type')
-           .agg(F.count(lit(0)).alias('n'))
-           .withColumn('n_total', F.sum('n').over(w))
-           .withColumn('n', (col('n')/col('n_total').cast('float')))
-           .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
-           .agg((-1*F.sum(col('n')*F.log(col('n')))).alias('entropy')))
+    
+    probabilities = (contact_counts
+        .withColumn('n_total', F.sum('n').over(w))
+        .withColumn('n', (col('n')/col('n_total').cast('float')))
+        .persist(StorageLevel.MEMORY_AND_DISK_2))
+    
+    contact_counts.unpersist(blocking=True)
+    
+    out = (probabilities
+        .groupby('caller_id', 'weekday', 'daytime', 'txn_type')
+        .agg((-1*F.sum(col('n')*F.log(col('n')))).alias('entropy')))
+    
+    probabilities.unpersist(blocking=True)
 
-    out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['entropy'],
-                   indicator_name='entropy_of_contacts')
+    out = pivot_df(out, index=['caller_id'], 
+                  columns=['weekday', 'daytime', 'txn_type'],
+                  values=['entropy'],
+                  indicator_name='entropy_of_contacts')
 
     return out
 
