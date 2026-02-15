@@ -33,19 +33,21 @@ from typing import Callable, Dict, List, Mapping, Optional, Set, Union
 
 import numpy as np
 import pandas as pd
-import pyspark.sql.functions as F
+import dask.dataframe as dd
 from geopandas import GeoDataFrame  # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
 from pandas import Series
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import col, count, countDistinct, lit
 
 from helpers.io_utils import IOUtils
 from helpers.opt_utils import generate_user_consent_list
 from helpers.utils import (
     build_config_from_file, filter_dates_dataframe,
-    get_data_format, get_spark_session, make_dir, read_csv, save_df
+    get_data_format, get_dask_client, make_dir, read_csv, save_df
 )
+
+# Type alias
+DaskDataFrame = dd.DataFrame
+
 
 class DataType(Enum):
     CDR = 0
@@ -67,12 +69,12 @@ class DataType(Enum):
 
 class InitializerInterface(ABC):
     @abstractmethod
-    def load_data(self, data_type_map: Dict[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]]) -> None:
+    def load_data(self, data_type_map: Dict[DataType, Optional[Union[DaskDataFrame, PandasDataFrame]]]) -> None:
         pass
 
 
 class DataStore(InitializerInterface):
-    def __init__(self, config_file_path_string: str, spark: bool = True):
+    def __init__(self, config_file_path_string: str, dask: bool = True):
 
         # Read config file and store paths
         cfg = build_config_from_file(config_file_path_string)
@@ -84,35 +86,34 @@ class DataStore(InitializerInterface):
         self.working_directory_path = cfg.path.working.directory_path
         self.input_data_file_paths = cfg.path.input_data.file_paths
 
-        # Create directories TODO(leo): Is this necessary?
+        # Create directories
         make_dir(self.working_directory_path / 'datasets')
 
         # Parameters
         self.filter_hours = cfg.params.home_location.filter_hours
         self.geo = cfg.col_names.geo
 
-        # Spark setup
-        # TODO(lucio): Initialize spark separately ....
-        spark = True
-        if spark:
-            spark = get_spark_session(cfg)
-        self.spark = spark
+        # Dask setup
+        dask = True
+        if dask:
+            client = get_dask_client(cfg)
+        self.client = client
 
         # Possible datasets to opt in/out of
         self.datasets = ['cdr', 'cdr_bandicoot', 'recharges', 'mobiledata', 'mobilemoney', 'features']
         # featurizer/home location datasets
-        self.cdr: SparkDataFrame
-        self.cdr_bandicoot: Optional[SparkDataFrame]
-        self.recharges: SparkDataFrame
-        self.mobiledata: SparkDataFrame
-        self.mobilemoney: SparkDataFrame
-        self.antennas: SparkDataFrame
+        self.cdr: DaskDataFrame
+        self.cdr_bandicoot: Optional[DaskDataFrame]
+        self.recharges: DaskDataFrame
+        self.mobiledata: DaskDataFrame
+        self.mobilemoney: DaskDataFrame
+        self.antennas: DaskDataFrame
         self.shapefiles: Union[Dict[str, GeoDataFrame]] = {}
         self.home_ground_truth: PandasDataFrame
         self.poverty_scores: PandasDataFrame
         # ml datasets
-        self.features: SparkDataFrame
-        self.labels: SparkDataFrame
+        self.features: DaskDataFrame
+        self.labels: DaskDataFrame
         self.merged: PandasDataFrame
         self.x: PandasDataFrame
         self.y: Series
@@ -124,7 +125,7 @@ class DataStore(InitializerInterface):
         self.rwi: PandasDataFrame
         # survey
         self.survey_data: PandasDataFrame
-        self.phone_numbers_to_featurize: SparkDataFrame
+        self.phone_numbers_to_featurize: DaskDataFrame
         
         # If the user specified a location for the features, use it. Otherwise, use the default location where
         # features are written by the featurizer.
@@ -153,12 +154,12 @@ class DataStore(InitializerInterface):
         }
 
 
-    def _load_cdr(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
+    def _load_cdr(self, dataframe: Optional[Union[DaskDataFrame, PandasDataFrame]] = None) -> None:
         """
-        Load cdr data: use file path specified in config as default, or spark/pandas df
+        Load cdr data: use file path specified in config as default, or dask/pandas df
 
         Args:
-            dataframe: spark/pandas df to assign if available
+            dataframe: dask/pandas df to assign if available
         """
 
         fpath = self._get_input_data_file_path('cdr')
@@ -167,24 +168,24 @@ class DataStore(InitializerInterface):
             cdr = self.io_utils.load_cdr(fpath, df=dataframe)
             self.cdr = cdr
 
-    def _load_antennas(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
+    def _load_antennas(self, dataframe: Optional[Union[DaskDataFrame, PandasDataFrame]] = None) -> None:
         """
-        Load antennas data: use file path specified in config as default, or spark/pandas df
+        Load antennas data: use file path specified in config as default, or dask/pandas df
 
         Args:
-            dataframe: spark/pandas df to assign if available
+            dataframe: dask/pandas df to assign if available
         """
         fpath = self._get_input_data_file_path('antennas')
         if fpath or dataframe is not None:
             print('Loading antennas...')
             self.antennas = self.io_utils.load_antennas(fpath, df=dataframe)
 
-    def _load_recharges(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
+    def _load_recharges(self, dataframe: Optional[Union[DaskDataFrame, PandasDataFrame]] = None) -> None:
         """
-        Load recharges data: use file path specified in config as default, or spark/pandas df
+        Load recharges data: use file path specified in config as default, or dask/pandas df
 
         Args:
-            dataframe: spark/pandas df to assign if available
+            dataframe: dask/pandas df to assign if available
         """
         fpath = self._get_input_data_file_path('recharges')
         if fpath or dataframe is not None:
@@ -192,24 +193,24 @@ class DataStore(InitializerInterface):
             self.recharges = self.io_utils.load_recharges(fpath, df=dataframe)
             print("SUCCESS!")
 
-    def _load_mobiledata(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
+    def _load_mobiledata(self, dataframe: Optional[Union[DaskDataFrame, PandasDataFrame]] = None) -> None:
         """
-        Load mobile data: use file path specified in config as default, or spark/pandas df
+        Load mobile data: use file path specified in config as default, or dask/pandas df
 
         Args:
-            dataframe: spark/pandas df to assign if available
+            dataframe: dask/pandas df to assign if available
         """
         fpath = self._get_input_data_file_path('mobiledata')
         if fpath or dataframe is not None:
             print('Loading mobile data...')
             self.mobiledata = self.io_utils.load_mobiledata(fpath, df=dataframe)
 
-    def _load_mobilemoney(self, dataframe: Optional[Union[SparkDataFrame, PandasDataFrame]] = None) -> None:
+    def _load_mobilemoney(self, dataframe: Optional[Union[DaskDataFrame, PandasDataFrame]] = None) -> None:
         """
-        Load mobile money data: use file path specified in config as default, or spark/pandas df
+        Load mobile money data: use file path specified in config as default, or dask/pandas df
 
         Args:
-            dataframe: spark/pandas df to assign if available
+            dataframe: dask/pandas df to assign if available
         """
         fpath = self._get_input_data_file_path('mobilemoney')
         if fpath or dataframe is not None:
@@ -248,12 +249,12 @@ class DataStore(InitializerInterface):
         Load phone usage features to be used for training ML model and subsequent poverty prediction
         """
         if self.features_path.exists():
-            self.features = read_csv(self.spark, self.features_path, header=True)
+            self.features = read_csv(self.client, self.features_path, header=True)
             if 'name' not in self.features.columns:
                 raise ValueError('Features dataframe must include name column')
 
             if 'features_to_use' in self.cfg.params:
-                self.features = self.features.select(self.cfg.params.features_to_use)
+                self.features = self.features[self.cfg.params.features_to_use]
 
     def _load_labels(self) -> None:
         """
@@ -270,7 +271,6 @@ class DataStore(InitializerInterface):
         self.targeting = pd.read_csv(self._get_input_data_file_path('targeting', missing_allowed=False))
         self.targeting['random'] = np.random.rand(len(self.targeting))
 
-        # TODO: use decorator
         # Unweighted data
         self.unweighted_targeting = self.targeting.copy()
         self.unweighted_targeting['weight'] = 1
@@ -295,7 +295,6 @@ class DataStore(InitializerInterface):
         self.fairness = pd.read_csv(self._get_input_data_file_path('fairness', missing_allowed=False))
         self.fairness['random'] = np.random.rand(len(self.fairness))
 
-        # TODO: use decorator
         # Unweighted data
         self.unweighted_fairness = self.fairness.copy()
         self.unweighted_fairness['weight'] = 1
@@ -348,14 +347,21 @@ class DataStore(InitializerInterface):
         """
         if getattr(self, 'features', None) is None or getattr(self, 'labels', None) is None:
             raise ValueError("Features and/or labels have not been loaded!")
-        print('Number of observations with features: %i (%i unique)' %
-              (self.features.count(), self.features.select('name').distinct().count()))
-        print('Number of observations with labels: %i (%i unique)' %
-              (self.labels.count(), self.labels.select('name').distinct().count()))
+        
+        # Count rows in Dask
+        features_count = len(self.features)
+        features_unique = self.features['name'].nunique().compute()
+        labels_count = len(self.labels)
+        labels_unique = self.labels['name'].nunique().compute()
+        
+        print('Number of observations with features: %i (%i unique)' % (features_count, features_unique))
+        print('Number of observations with labels: %i (%i unique)' % (labels_count, labels_unique))
 
-        merged = self.labels.join(self.features, on='name', how='inner')
-        print('Number of matched observations: %i (%i unique)' %
-              (merged.count(), merged.select('name').distinct().count()))
+        merged = self.labels.merge(self.features, on='name', how='inner')
+        
+        merged_count = len(merged)
+        merged_unique = merged['name'].nunique().compute()
+        print('Number of matched observations: %i (%i unique)' % (merged_count, merged_unique))
 
         save_df(merged, self.working_directory_path / 'merged.csv')
         self.merged = pd.read_csv(self.working_directory_path / 'merged.csv', dtype={'name': 'str'})
@@ -366,7 +372,7 @@ class DataStore(InitializerInterface):
 
     def load_data(
         self, 
-        data_type_map: Mapping[DataType, Optional[Union[SparkDataFrame, PandasDataFrame]]],
+        data_type_map: Mapping[DataType, Optional[Union[DaskDataFrame, PandasDataFrame]]],
         all_required: bool = True
     ) -> None:
         """
@@ -413,14 +419,13 @@ class DataStore(InitializerInterface):
 
     def deduplicate(self) -> None:
         """
-        Remove duplicate rows from alla available datasets
+        Remove duplicate rows from all available datasets
         """
         for dataset_name in self.datasets:
             dataset = getattr(self, dataset_name, None)
             if dataset is not None:
-                setattr(self, dataset_name, dataset.distinct())
+                setattr(self, dataset_name, dataset.drop_duplicates())
 
-    # TODO: adapt for OptDataStore
     def remove_spammers(self, spammer_threshold: float = 100) -> List[str]:
         # Raise exception if no CDR, since spammers are calculated only on the basis of call and text
         if getattr(self, 'cdr', None) is None:
@@ -428,27 +433,32 @@ class DataStore(InitializerInterface):
 
         # Get average number of calls and SMS per day
         grouped = (self.cdr
-                   .groupby('caller_id', 'txn_type')
-                   .agg(count(lit(0)).alias('n_transactions'),
-                        countDistinct(col('day')).alias('active_days'))
-                   .withColumn('count', col('n_transactions') / col('active_days')))
+                   .groupby(['caller_id', 'txn_type'])
+                   .agg({
+                       'caller_id': 'count',  # n_transactions
+                       'day': 'nunique'  # active_days
+                   }))
+        
+        grouped = grouped.rename(columns={'caller_id': 'n_transactions', 'day': 'active_days'})
+        grouped['count'] = grouped['n_transactions'] / grouped['active_days']
 
         # Get list of spammers
-        self.spammers = grouped.where(col('count') > spammer_threshold).select('caller_id').distinct().rdd.map(
-            lambda r: r[0]).collect()
+        spammers_df = grouped[grouped['count'] > spammer_threshold].reset_index()
+        self.spammers = spammers_df['caller_id'].unique().compute().tolist()
+        
         pd.DataFrame(self.spammers).to_csv(self.working_directory_path / 'datasets' / 'spammers.csv', index=False)
         print('Number of spammers identified: %i' % len(self.spammers))
 
         # Remove transactions (incoming or outgoing) associated with spammers from all dataframes
-        self.cdr = self.cdr.where(~col('caller_id').isin(self.spammers))
-        self.cdr = self.cdr.where(~col('recipient_id').isin(self.spammers))
+        self.cdr = self.cdr[~self.cdr['caller_id'].isin(self.spammers)]
+        self.cdr = self.cdr[~self.cdr['recipient_id'].isin(self.spammers)]
         if getattr(self, 'recharges', None) is not None:
-            self.recharges = self.recharges.where(~col('caller_id').isin(self.spammers))
+            self.recharges = self.recharges[~self.recharges['caller_id'].isin(self.spammers)]
         if getattr(self, 'mobiledata', None) is not None:
-            self.mobiledata = self.mobiledata.where(~col('caller_id').isin(self.spammers))
+            self.mobiledata = self.mobiledata[~self.mobiledata['caller_id'].isin(self.spammers)]
         if getattr(self, 'mobilemoney', None) is not None:
-            self.mobilemoney = self.mobilemoney.where(~col('caller_id').isin(self.spammers))
-            self.mobilemoney = self.mobilemoney.where(~col('recipient_id').isin(self.spammers))
+            self.mobilemoney = self.mobilemoney[~self.mobilemoney['caller_id'].isin(self.spammers)]
+            self.mobilemoney = self.mobilemoney[~self.mobilemoney['recipient_id'].isin(self.spammers)]
 
         return self.spammers
 
@@ -459,7 +469,8 @@ class DataStore(InitializerInterface):
 
         # If haven't already obtained timeseries of subscribers by day (e.g. in diagnostic plots), calculate it
         if not os.path.isfile(self.working_directory_path / 'datasets' / 'CDR_transactionsbyday.csv'):
-            save_df(self.cdr.groupby(['txn_type', 'day']).count(), self.working_directory_path / 'datasets' / 'CDR_transactionsbyday.csv')
+            transactions_by_day = self.cdr.groupby(['txn_type', 'day']).size().reset_index(name='count')
+            save_df(transactions_by_day, self.working_directory_path / 'datasets' / 'CDR_transactionsbyday.csv')
 
         # Read in timeseries of subscribers by day
         timeseries = pd.read_csv(self.working_directory_path / 'datasets' / 'CDR_transactionsbyday.csv')
@@ -487,9 +498,10 @@ class DataStore(InitializerInterface):
             for outlier in outliers:
                 outlier = pd.to_datetime(outlier)
                 if getattr(self, df_name, None) is not None:
-                    setattr(self, df_name, getattr(self, df_name)
-                            .where((col('timestamp') < outlier) |
-                                   (col('timestamp') >= outlier + pd.Timedelta(value=1, unit='days'))))
+                    df = getattr(self, df_name)
+                    setattr(self, df_name, 
+                           df[(df['timestamp'] < outlier) |
+                              (df['timestamp'] >= outlier + pd.Timedelta(value=1, unit='days'))])
 
         return outliers
 
@@ -519,7 +531,7 @@ class DataStore(InitializerInterface):
         toprange = data.mean() + num_sds * data.std()
 
         outliers: Set[str] = set()
-        for i, (col, bottom) in enumerate(bottomrange.iteritems()):
+        for i, (col, bottom) in enumerate(bottomrange.items()):
             outliers.update(list(data[(data[col] < bottom) | (data[col] > toprange[i])].index.values))
 
         if dry_run:
@@ -544,20 +556,20 @@ class DataStore(InitializerInterface):
 class OptDataStore(DataStore):
     def __init__(self, config_file_path_string: str):
         super(OptDataStore, self).__init__(config_file_path_string)
-        self._user_consent: SparkDataFrame
+        self._user_consent: DaskDataFrame
 
     @property
-    def user_consent(self) -> SparkDataFrame:
+    def user_consent(self) -> DaskDataFrame:
         return self._user_consent
 
     @user_consent.setter
-    def user_consent(self, val: SparkDataFrame) -> None:
+    def user_consent(self, val: DaskDataFrame) -> None:
         """
         Whenever the user consent table is updated, also update all datasets in the datastore to include only users that
         have given their consent
 
         Args:
-            val: new user consent table as spark df
+            val: new user consent table as dask df
         """
         self._user_consent = val
         # Get name of user id column
@@ -566,8 +578,8 @@ class OptDataStore(DataStore):
         for dataset_name in self.datasets:
             dataset = getattr(self, '_' + dataset_name, None)
             if dataset is not None and val is not None:
-                setattr(self, dataset_name, dataset.join(val.where(col('include') == True).select(user_col_name),
-                                                         on=user_col_name, how='inner'))
+                consenting_users = val[val['include'] == True][[user_col_name]]
+                setattr(self, dataset_name, dataset.merge(consenting_users, on=user_col_name, how='inner'))
 
     def initialize_user_consent_table(self, read_from_file: bool = False) -> None:
         """
@@ -624,9 +636,11 @@ class OptDataStore(DataStore):
             user_ids: list of user ids to flag as opted in, i.e. include = True
         """
         user_col_name = self.user_consent.columns[0]
-        self.user_consent = (self.user_consent
-                             .withColumn('include', F.when(col(user_col_name).isin(user_ids), True)
-                                         .otherwise(col('include'))))
+        self.user_consent['include'] = self.user_consent.apply(
+            lambda row: True if row[user_col_name] in user_ids else row['include'],
+            axis=1,
+            meta=('include', 'bool')
+        )
 
     def opt_out(self, user_ids: List[str]) -> None:
         """
@@ -636,6 +650,8 @@ class OptDataStore(DataStore):
             user_ids: list of user ids to flag as opted out, i.e. include = False
         """
         user_col_name = self.user_consent.columns[0]
-        self.user_consent = (self.user_consent
-                             .withColumn('include', F.when(col(user_col_name).isin(user_ids), False)
-                                         .otherwise(col('include'))))
+        self.user_consent['include'] = self.user_consent.apply(
+            lambda row: False if row[user_col_name] in user_ids else row['include'],
+            axis=1,
+            meta=('include', 'bool')
+        )
