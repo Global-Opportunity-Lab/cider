@@ -131,6 +131,19 @@ def read_csv(client: Optional[Client], file_path: Path, **kwargs) -> DaskDataFra
     Returns:
         Dask DataFrame
     """
+    # Dask forwards to pandas.read_csv; normalize common Spark-style kwargs.
+    header = kwargs.get("header", None)
+    if isinstance(header, bool):
+        # Spark uses header=True/False; pandas expects None/int/list-like.
+        if header:
+            kwargs.pop("header", None)  # default is header='infer'
+        else:
+            kwargs["header"] = None
+
+    # Avoid dtype mismatch across partitions when integer columns contain missing values.
+    # If callers want strict dtypes they must pass dtype= explicitly.
+    kwargs.setdefault("assume_missing", True)
+
     # Set default dtype for phone number columns to string
     dtype = kwargs.pop('dtype', None)
     if dtype is None:

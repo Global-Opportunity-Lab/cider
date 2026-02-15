@@ -432,15 +432,13 @@ class DataStore(InitializerInterface):
             raise ValueError('CDR must be loaded to identify and remove spammers.')
 
         # Get average number of calls and SMS per day
-        grouped = (self.cdr
-                   .groupby(['caller_id', 'txn_type'])
-                   .agg({
-                       'caller_id': 'count',  # n_transactions
-                       'day': 'nunique'  # active_days
-                   }))
-        
-        grouped = grouped.rename(columns={'caller_id': 'n_transactions', 'day': 'active_days'})
-        grouped['count'] = grouped['n_transactions'] / grouped['active_days']
+        n_transactions = self.cdr.groupby(["caller_id", "txn_type"]).size().reset_index()
+        n_transactions = n_transactions.rename(columns={0: "n_transactions"})
+
+        active_days = self.cdr.groupby(["caller_id", "txn_type"])["day"].nunique().reset_index()
+        active_days = active_days.rename(columns={"day": "active_days"})
+        grouped = n_transactions.merge(active_days, on=["caller_id", "txn_type"], how="inner")
+        grouped["count"] = grouped["n_transactions"] / grouped["active_days"]
 
         # Get list of spammers
         spammers_df = grouped[grouped['count'] > spammer_threshold].reset_index()

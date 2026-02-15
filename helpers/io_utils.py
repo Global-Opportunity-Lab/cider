@@ -70,6 +70,14 @@ class IOUtils:
         Returns:
             Dask DataFrame
         """
+        # Prefer provided dataframe over reading from disk
+        if df is not None:
+            if isinstance(df, PandasDataFrame):
+                return dd.from_pandas(df, npartitions=4)
+            if isinstance(df, dd.DataFrame):
+                return df
+            raise TypeError("df must be a pandas or dask dataframe")
+
         # Load from file
         if fpath is not None:
             # Load data if in a single file
@@ -104,17 +112,10 @@ class IOUtils:
                 else:
                     raise ValueError(f'Found file with unknown extension {example_file}.')
 
-        # Load from pandas dataframe
-        elif df is not None:
-            if isinstance(df, PandasDataFrame):
-                df = dd.from_pandas(df, npartitions=4)
-            # If already Dask, return as-is
+            return df
 
         # Issue with filename/dataframe provided
-        else:
-            raise ValueError('No filename or pandas/dask dataframe provided.')
-
-        return df
+        raise ValueError('No filename or pandas/dask dataframe provided.')
 
 
     def check_cols(
