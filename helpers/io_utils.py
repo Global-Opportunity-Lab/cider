@@ -30,16 +30,18 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 import re
 
+import dask.dataframe as dd
 import geopandas as gpd  # type: ignore[import]
+import pandas as pd
 from box import Box
 from geopandas import GeoDataFrame
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import col, date_trunc, lit, to_timestamp
-from pyspark.sql.types import StringType
 
+from helpers.utils import get_dask_client
 
-from helpers.utils import get_spark_session
+# Type alias for Dask DataFrame
+DaskDataFrame = dd.DataFrame
+
 
 class IOUtils:
     
@@ -50,25 +52,34 @@ class IOUtils:
     ):
         self.cfg = cfg
         self.data_format = data_format
-        self.spark = get_spark_session(cfg)
+        self.client = get_dask_client(cfg)
 
     
     def load_generic(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
-    ) -> SparkDataFrame:
-
+        df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None
+    ) -> DaskDataFrame:
+        """
+        Load data from file or dataframe
+        
+        Args:
+            fpath: Path to data file or directory
+            df: Existing dataframe (Dask or Pandas)
+            
+        Returns:
+            Dask DataFrame
+        """
         # Load from file
         if fpath is not None:
             # Load data if in a single file
             if fpath.is_file():
 
                 if fpath.suffix == '.csv':
-                    df = self.spark.read.csv(str(fpath), header=True)
+                    df = dd.read_csv(str(fpath), dtype={'caller_id': 'str', 'recipient_id': 'str', 'name': 'str'})
 
                 elif fpath.suffix == '.parquet':
-                    df = self.spark.read.parquet(str(fpath))
+                    df = dd.read_parquet(str(fpath))
 
                 else:
                     raise ValueError(f'File with unknown extension {fpath}.')
@@ -85,38 +96,38 @@ class IOUtils:
                     raise ValueError(f"Could not locate or read data for '{fpath}'")
 
                 if example_file.suffix == '.csv':
-                    df = self.spark.read.csv(str(fpath / '*.csv'), header=True)
+                    df = dd.read_csv(str(fpath / '*.csv'), dtype={'caller_id': 'str', 'recipient_id': 'str', 'name': 'str'})
 
                 elif example_file.suffix == '.parquet':
-                    df = self.spark.read.parquet(str(fpath / '*.parquet'), header=True)
+                    df = dd.read_parquet(str(fpath / '*.parquet'))
 
                 else:
                     raise ValueError(f'Found file with unknown extension {example_file}.')
 
         # Load from pandas dataframe
         elif df is not None:
-            if not isinstance(df, SparkDataFrame):
-                df = spark.createDataFrame(df)
+            if isinstance(df, PandasDataFrame):
+                df = dd.from_pandas(df, npartitions=4)
+            # If already Dask, return as-is
 
         # Issue with filename/dataframe provided
         else:
-            raise ValueError('No filename or pandas/spark dataframe provided.')
+            raise ValueError('No filename or pandas/dask dataframe provided.')
 
         return df
 
 
     def check_cols(
         self,
-        df: Union[GeoDataFrame, PandasDataFrame, SparkDataFrame],
+        df: Union[GeoDataFrame, PandasDataFrame, DaskDataFrame],
         dataset_name: str,
     ) -> None:
         """
         Check that the df has all required columns
 
         Args:
-            df: spark df
+            df: dataframe
             dataset_name: name of dataset, to be used in error messages.
-            dataset_data_format: box containing data format information.
         """
         dataset_data_format = self.data_format[dataset_name]
         required_cols = set(dataset_data_format.required)
@@ -131,50 +142,62 @@ class IOUtils:
 
 
     def check_colvalues(
-        self, df: SparkDataFrame, colname: str, colvalues: list, error_msg: str
+        self, df: DaskDataFrame, colname: str, colvalues: list, error_msg: str
     ) -> None:
         """
         Check that a column has all required values
 
         Args:
-            df: spark df
+            df: dask df
             colname: column to check
-            colvalues: requires values
+            colvalues: required values
             error_msg: error message to print if values don't match
         """
-        if set(df.select(colname).distinct().rdd.map(lambda r: r[0]).collect()).union(set(colvalues)) != set(colvalues):
+        unique_values = set(df[colname].unique().compute().tolist())
+        if not unique_values.issubset(set(colvalues)):
             raise ValueError(error_msg)
 
 
     def standardize_col_names(
-        self, df: SparkDataFrame, col_names: Dict[str, str]
-    ) -> SparkDataFrame:
+        self, df: DaskDataFrame, col_names: Dict[str, str]
+    ) -> DaskDataFrame:
         """
         Rename columns, as specified in config file, to standard format
 
         Args:
-            df: spark df
+            df: dask df
             col_names: mapping between standard column names and existing ones
 
-        Returns: spark df with standardized column names
-
+        Returns: 
+            Dask df with standardized column names
         """
         col_mapping = {v: k for k, v in col_names.items()}
 
-        for col in df.columns:
-            if col in col_mapping:
-                df = df.withColumnRenamed(col, col_mapping[col])
+        # Only rename columns that exist in the dataframe
+        rename_dict = {col: col_mapping[col] for col in df.columns if col in col_mapping}
+        
+        if rename_dict:
+            df = df.rename(columns=rename_dict)
 
         return df
 
-    # TODO: Rename to "load_generic", rename load_generic to "load_from_disk" or something
     def load_dataset(
         self,
         dataset_name: str,
         fpath: Optional[Path] = None,
-        provided_df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
-    ) -> SparkDataFrame:
-
+        provided_df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None
+    ) -> DaskDataFrame:
+        """
+        Load a dataset with standardized column names and validation
+        
+        Args:
+            dataset_name: Name of the dataset (for validation)
+            fpath: Path to data file
+            provided_df: Existing dataframe
+            
+        Returns:
+            Dask DataFrame
+        """
         dataset = self.load_generic(fpath, provided_df)
 
         if dataset_name in self.cfg.col_names:
@@ -188,12 +211,13 @@ class IOUtils:
     def load_cdr(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
-    ) -> SparkDataFrame:
+        df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None
+    ) -> DaskDataFrame:
         """
-        Load CDR data into spark df
+        Load CDR data into dask df
 
-        Returns: spark df
+        Returns: 
+            Dask df
         """
         cdr = self.load_dataset(
             dataset_name='cdr',
@@ -210,15 +234,15 @@ class IOUtils:
         self.check_colvalues(cdr, 'international', ['domestic', 'international', 'other'], error_msg)
 
         # if no recipient antennas are present, add a null column to enable the featurizer to work
-        # TODO(leo): Consider cleaning up featurizer logic so this isn't needed.
         if 'recipient_antenna' not in cdr.columns:
-            cdr = cdr.withColumn('recipient_antenna', lit(None).cast(StringType()))
+            cdr['recipient_antenna'] = None
+            cdr['recipient_antenna'] = cdr['recipient_antenna'].astype('object')
 
         # Clean timestamp column
         cdr = self.clean_timestamp_and_add_day_column(cdr, 'timestamp')
 
         # Clean duration column
-        cdr = cdr.withColumn('duration', col('duration').cast('float'))
+        cdr['duration'] = cdr['duration'].astype('float')
 
         return cdr
 
@@ -226,38 +250,37 @@ class IOUtils:
     def load_labels(
         self,
         fpath: Path = None
-    ) -> SparkDataFrame:
-
+    ) -> DaskDataFrame:
         """
         Load labels on which to train ML model.
         """
-
         labels = self.load_dataset('labels', fpath=fpath)
 
         if 'weight' not in labels.columns:
-            labels = labels.withColumn('weight', lit(1))
+            labels['weight'] = 1
 
-        return labels.select(['name', 'label', 'weight'])
+        return labels[['name', 'label', 'weight']]
 
 
     def load_antennas(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
-    ) -> SparkDataFrame:
+        df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None
+    ) -> DaskDataFrame:
         """
         Load antennas' dataset, and print % of antennas that are missing coordinates
 
-        Returns: spark df
+        Returns: 
+            Dask df
         """
+        antennas = self.load_dataset('antennas', fpath=fpath, provided_df=df)
 
-        antennas = self.load_dataset('antennas', fpath=fpath, provided_df = df)
-
-        antennas = antennas.withColumn('latitude', col('latitude').cast('float')).withColumn('longitude',
-                                                                                             col('longitude').cast(
-                                                                                                 'float'))
+        antennas['latitude'] = antennas['latitude'].astype('float')
+        antennas['longitude'] = antennas['longitude'].astype('float')
         
-        number_missing_location = antennas.count() - antennas.select(['latitude', 'longitude']).na.drop().count()
+        total_count = len(antennas)
+        valid_count = len(antennas[['latitude', 'longitude']].dropna())
+        number_missing_location = total_count - valid_count
         
         if number_missing_location > 0:
             print(f'Warning: {number_missing_location} antennas missing location')
@@ -268,21 +291,21 @@ class IOUtils:
     def load_recharges(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
-    ) -> SparkDataFrame:
+        df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None
+    ) -> DaskDataFrame:
         """
         Load recharges dataset
 
-        Returns: spark df
+        Returns: 
+            Dask df
         """
-
         recharges = self.load_dataset('recharges', fpath=fpath, provided_df=df)
 
         # Clean timestamp column
         recharges = self.clean_timestamp_and_add_day_column(recharges, 'timestamp')
 
         # Clean amount column
-        recharges = recharges.withColumn('amount', col('amount').cast('float'))
+        recharges['amount'] = recharges['amount'].astype('float')
 
         return recharges
 
@@ -290,20 +313,18 @@ class IOUtils:
     def load_mobiledata(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None
-    ) -> SparkDataFrame:
+        df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None
+    ) -> DaskDataFrame:
         """
         Load mobile data dataset
-
         """
-
         mobiledata = self.load_dataset('mobiledata', fpath=fpath, provided_df=df)
 
         # Clean timestamp column
         mobiledata = self.clean_timestamp_and_add_day_column(mobiledata, 'timestamp')
 
-        # Clean duration column
-        mobiledata = mobiledata.withColumn('volume', col('volume').cast('float'))
+        # Clean volume column
+        mobiledata['volume'] = mobiledata['volume'].astype('float')
 
         return mobiledata
 
@@ -311,19 +332,19 @@ class IOUtils:
     def load_mobilemoney(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
+        df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None,
         verify: bool = True
-    ) -> SparkDataFrame:
+    ) -> DaskDataFrame:
         """
         Load mobile money dataset
 
-        Returns: spark df
+        Returns: 
+            Dask df
         """
-
         # load data as generic df and standardize column_names
         mobilemoney = self.load_dataset('mobilemoney', fpath=fpath, provided_df=df)
 
-         # Check txn_type column
+        # Check txn_type column
         txn_types = ['cashin', 'cashout', 'p2p', 'billpay', 'other']
         error_msg = 'Mobile money format incorrect. Column txn_type can only include ' + ', '.join(txn_types)
         self.check_colvalues(mobilemoney, 'txn_type', txn_types, error_msg)
@@ -331,13 +352,13 @@ class IOUtils:
         # Clean timestamp column
         mobilemoney = self.clean_timestamp_and_add_day_column(mobilemoney, 'timestamp')
 
-        # Clean duration column
-        mobilemoney = mobilemoney.withColumn('amount', col('amount').cast('float'))
+        # Clean amount column
+        mobilemoney['amount'] = mobilemoney['amount'].astype('float')
 
         # Clean balance columns
         for c in mobilemoney.columns:
             if 'balance' in c:
-                mobilemoney = mobilemoney.withColumn(c, col(c).cast('float'))
+                mobilemoney[c] = mobilemoney[c].astype('float')
 
         return mobilemoney
 
@@ -349,8 +370,8 @@ class IOUtils:
         Args:
             fpath: path to file, which can be .shp or .geojson
 
-        Returns: GeoDataFrame
-
+        Returns: 
+            GeoDataFrame
         """
         shapefile = gpd.read_file(fpath)
 
@@ -367,42 +388,59 @@ class IOUtils:
 
     def clean_timestamp_and_add_day_column(
         self,
-        df: SparkDataFrame,
+        df: DaskDataFrame,
         existing_timestamp_column_name: str
-    ):
-
+    ) -> DaskDataFrame:
+        """
+        Convert timestamp column to datetime and add day column
+        
+        Args:
+            df: Dask DataFrame
+            existing_timestamp_column_name: Name of timestamp column
+            
+        Returns:
+            Dask DataFrame with cleaned timestamp and day columns
+        """
         # Check the first row for time info, and assume the format is consistent
-        existing_timestamp_sample = df.take(1)[0][existing_timestamp_column_name]
+        existing_timestamp_sample = df[existing_timestamp_column_name].head(1).iloc[0]
         timestamp_with_time_regex = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
 
-        has_time_info = bool(re.match(timestamp_with_time_regex, existing_timestamp_sample))
+        has_time_info = bool(re.match(timestamp_with_time_regex, str(existing_timestamp_sample)))
 
         timestamp_format = (
-            'yyyy-MM-dd HH:mm:ss' if has_time_info else 'yyyy-MM-dd'
+            '%Y-%m-%d %H:%M:%S' if has_time_info else '%Y-%m-%d'
         )
 
-        return (
-            df
-            .withColumn(
-                'timestamp',
-                to_timestamp(existing_timestamp_column_name, timestamp_format)
-            )
-            .withColumn('day', date_trunc('day', col('timestamp')))
-        )
+        # Convert to datetime
+        df['timestamp'] = dd.to_datetime(df[existing_timestamp_column_name], format=timestamp_format)
+        
+        # Add day column (truncated to day)
+        df['day'] = df['timestamp'].dt.floor('D')
+
+        return df
 
 
     def load_phone_numbers_to_featurize(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[SparkDataFrame, PandasDataFrame]] = None,
-    ) -> SparkDataFrame:
-
+        df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None,
+    ) -> DaskDataFrame:
+        """
+        Load list of phone numbers to featurize
+        
+        Args:
+            fpath: Path to file with phone numbers
+            df: Existing dataframe with phone numbers
+            
+        Returns:
+            Dask DataFrame with phone_number column
+        """
         phone_numbers_to_featurize = self.load_dataset(
             'phone_numbers_to_featurize', fpath=fpath, provided_df=df
         )
         
-        distinct_count = phone_numbers_to_featurize.select(col('phone_number')).distinct().count()
-        length = phone_numbers_to_featurize.count()
+        distinct_count = phone_numbers_to_featurize['phone_number'].nunique().compute()
+        length = len(phone_numbers_to_featurize)
 
         if distinct_count != length:
             raise ValueError(
@@ -410,4 +448,4 @@ class IOUtils:
                 f'in a list of length {length}.'
             )
 
-        return phone_numbers_to_featurize.select('phone_number')
+        return phone_numbers_to_featurize[['phone_number']]

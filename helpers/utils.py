@@ -35,160 +35,167 @@ import warnings
 from importlib_resources import files as importlib_resources_files
 import numpy as np
 import pandas as pd
+import dask.dataframe as dd
+from dask.distributed import Client, LocalCluster
 from box import Box
 from numpy import ndarray
 from pandas import DataFrame as PandasDataFrame
 from pandas.api.types import is_numeric_dtype
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, date_format, lit
-from pyspark.sql.types import IntegerType, StringType
 from typing_extensions import Literal
 from yaml import FullLoader, load as yaml_load
 
+# Type alias for Dask DataFrames
+DaskDataFrame = dd.DataFrame
 
-def get_spark_session(cfg: Box) -> SparkSession:
+
+def get_dask_client(cfg: Box) -> Client:
     """
-    Gets or creates spark session, with context and logging preferences set
-    """
-    # Build spark session
-
-    # Prevents python version mismatches between spark driver and executor,
-    # assuming the executable python binary is available via sys.
-    python_executable = sys.executable
-    if python_executable:
-        os.environ['PYSPARK_PYTHON'] = python_executable
-        os.environ['PYSPARK_DRIVER_PYTHON'] = python_executable
-
-    # Recursively get all specified spark options
-    def all_spark_options(config: Box):
-        for key, value in config.items():
-            if value is None:
-                return None
-
-            elif isinstance(value, Box):
-                for r_key, r_value in all_spark_options(value):
-                    yield f'{key}.{r_key}', r_value
-        
-            else:
-                yield key, value
-
-    spark_session_builder = SparkSession.builder
-    for spark_option, value in all_spark_options(cfg.spark):
-        spark_session_builder = spark_session_builder.config(f'spark.{spark_option}', value)
+    Gets or creates Dask client with configuration preferences set
     
-    # Cider config used to expect some Spark config specified a little differently - check for those entries
-    # for backwards compatibility. Throw warnings because this config file can't be understood using Spark
-    # documentation.
-    if 'app_name' in cfg.spark:
-        spark_session_builder = spark_session_builder.appName(cfg.spark.app_name)
-        warnings.warn('Please specify app name using spark: app: name rather than spark: app_name.')
+    Args:
+        cfg: Configuration box containing dask settings
         
-    if ('files' in cfg.spark) and ('max_partition_bytes' in cfg.spark.files):
-        spark_session_builder = spark_session_builder.config("spark.sql.files.maxPartitionBytes", cfg.spark.files.max_partition_bytes) 
-        warnings.warn(
-            'Please specify max bytes per partition using variable name(s) specified at '
-            'https://spark.apache.org/docs/latest/configuration.html#available-properties'
-        )
-        
-    if ('driver' in cfg.spark) and ('max_result_size' in cfg.spark.driver):
-        spark_session_builder = (
-            spark_session_builder.config("spark.driver.maxResultSize", cfg.spark.driver.max_result_size)
-        )
-        warnings.warn(
-            'Please specify max result size using variable name(s) specified at '
-            'https://spark.apache.org/docs/latest/configuration.html#available-properties'
-        )
-
-    # Create the Spark session
-    spark = spark_session_builder.getOrCreate()
-    spark.sparkContext.setLogLevel(cfg.spark.loglevel)
+    Returns:
+        Configured Dask client
+    """
+    # Check if client already exists
+    try:
+        client = Client.current()
+        return client
+    except ValueError:
+        # No client exists, create one
+        pass
     
-    return spark
+    # Extract dask configuration
+    dask_cfg = cfg.get('dask', Box())
+    
+    # Build cluster configuration
+    n_workers = dask_cfg.get('n_workers', 4)
+    threads_per_worker = dask_cfg.get('threads_per_worker', 1)
+    memory_limit = dask_cfg.get('memory_limit', 'auto')
+    
+    # Create local cluster
+    cluster = LocalCluster(
+        n_workers=n_workers,
+        threads_per_worker=threads_per_worker,
+        memory_limit=memory_limit,
+        silence_logs=dask_cfg.get('silence_logs', True)
+    )
+    
+    # Create and connect client
+    client = Client(cluster)
+    
+    return client
 
 
-def save_df(df: SparkDataFrame, out_file_path: Path, sep: str = ',', single_file=True) -> None:
+def save_df(df: Union[DaskDataFrame, PandasDataFrame], out_file_path: Path, sep: str = ',', single_file=True) -> None:
     """
-    Saves spark/pandas dataframe to csv file
+    Saves dask/pandas dataframe to csv file
+    
+    Args:
+        df: Dask or Pandas DataFrame
+        out_file_path: Path to output file
+        sep: Separator character
+        single_file: If True, write to a single file. If False, write partitioned files.
     """
-    if single_file: 
-        if isinstance(df, PandasDataFrame): # Pandas case
-            df.to_csv(str(out_file_path),  header="true", sep=sep)
-        elif isinstance(df, SparkDataFrame): # Spark case
-            # we need to work around spark's automatic partitioning/naming
-            # create a temporary folder in the directory where the output will ultimately live
-            temp_folder = out_file_path.parent / 'temp'
-
-            # Ask spark to write output there. The repartition(1) call will tell spark to write a single file.
-            # It will name it with some meaningless partition name, but we can find it easily bc it's the only
-            # csv in the temp directory.
-            df.repartition(1).write.csv(path=str(temp_folder), mode="overwrite", header="true", sep=sep)
-            spark_generated_file_name = [
-                fname for fname in os.listdir(temp_folder) if os.path.splitext(fname)[1] == '.csv'
-            ][0]
-
-            # move the file out of the temporary directory and rename it
-            os.rename(temp_folder / spark_generated_file_name, out_file_path)
-
-            # delete the temp directory and everything in it
-            shutil.rmtree(temp_folder)
+    if single_file:
+        if isinstance(df, PandasDataFrame):  # Pandas case
+            df.to_csv(str(out_file_path), header=True, sep=sep, index=False)
+        elif isinstance(df, dd.DataFrame):  # Dask case
+            # Convert to pandas for single file output
+            pandas_df = df.compute()
+            pandas_df.to_csv(str(out_file_path), header=True, sep=sep, index=False)
         else:
-            raise TypeError("Not a spark or pandas dataframe")
+            raise TypeError("Not a dask or pandas dataframe")
     else:
         if isinstance(df, PandasDataFrame):  # Pandas case
             out_file_path.mkdir(parents=False, exist_ok=True)
-            df.to_csv(str(out_file_path / "0.csv"),  header="true", sep=sep)
-        elif isinstance(df, SparkDataFrame): # Spark case
-            df.write.csv(path=str(out_file_path), mode="overwrite", header="true", sep=sep)
+            df.to_csv(str(out_file_path / "0.csv"), header=True, sep=sep, index=False)
+        elif isinstance(df, dd.DataFrame):  # Dask case
+            # Write partitioned output
+            out_file_path.mkdir(parents=True, exist_ok=True)
+            df.to_csv(str(out_file_path / "*.csv"), header=True, sep=sep, index=False)
         else:
-            raise TypeError("Not a spark or pandas dataframe")
+            raise TypeError("Not a dask or pandas dataframe")
 
 
-def read_csv(spark_session, file_path: Path, **kwargs):
+def read_csv(client: Optional[Client], file_path: Path, **kwargs) -> DaskDataFrame:
     """
-    A wrapper around spark.read.csv which accepts pathlib.Path objects as input.
+    A wrapper around dd.read_csv which accepts pathlib.Path objects as input.
+    
+    Args:
+        client: Dask client (kept for API compatibility, not used)
+        file_path: Path to CSV file(s)
+        **kwargs: Additional arguments to pass to dd.read_csv
+        
+    Returns:
+        Dask DataFrame
     """
-    return spark_session.read.csv(str(file_path), **kwargs)
+    # Set default dtype for phone number columns to string
+    dtype = kwargs.pop('dtype', None)
+    if dtype is None:
+        dtype = {'caller_id': 'str', 'recipient_id': 'str', 'name': 'str'}
+    
+    return dd.read_csv(str(file_path), dtype=dtype, **kwargs)
 
 
-def read_parquet(spark_session, file_path: Path, **kwargs):
+def read_parquet(client: Optional[Client], file_path: Path, **kwargs) -> DaskDataFrame:
     """
-    A wrapper around spark.read.parquet which accepts pathlib.Path objects as input.
+    A wrapper around dd.read_parquet which accepts pathlib.Path objects as input.
+    
+    Args:
+        client: Dask client (kept for API compatibility, not used)
+        file_path: Path to Parquet file(s)
+        **kwargs: Additional arguments to pass to dd.read_parquet
+        
+    Returns:
+        Dask DataFrame
     """
-    return spark_session.read.parquet(str(file_path), **kwargs)
+    return dd.read_parquet(str(file_path), **kwargs)
 
 
-def save_parquet(df, out_directory_path: Path) -> None:
+def save_parquet(df: Union[DaskDataFrame, PandasDataFrame], out_directory_path: Path) -> None:
     """
-    Save spark or pandas dataframe to parquet file(s).
+    Save dask or pandas dataframe to parquet file(s).
+    
+    Args:
+        df: Dask or Pandas DataFrame
+        out_directory_path: Path to output directory
     """
-    if isinstance(df, SparkDataFrame):
-        df.write.parquet(str(out_directory_path), mode='overwrite')
+    if isinstance(df, dd.DataFrame):
+        out_directory_path.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(str(out_directory_path), write_index=False, overwrite=True)
     
     elif isinstance(df, PandasDataFrame):
-        
-        out_directory_path.mkdir(parents=False, exist_ok=True)
+        out_directory_path.mkdir(parents=True, exist_ok=True)
         df.to_parquet(out_directory_path / '0.parquet', index=False)
 
 
-def filter_dates_dataframe(df: SparkDataFrame,
-                           start_date: str, end_date: str, colname: str = 'timestamp') -> SparkDataFrame:
+def filter_dates_dataframe(df: DaskDataFrame,
+                           start_date: str, end_date: str, colname: str = 'timestamp') -> DaskDataFrame:
     """
-    Filter dataframe rows whose timestamp is outside [start_date, end_date)
+    Filter dataframe rows whose timestamp is outside [start_date, end_date]
 
     Args:
-        df: spark df
+        df: dask dataframe
         start_date: initial date to keep
-        end_date: first date to exclude
+        end_date: last date to include (inclusive)
         colname: name of timestamp column
 
-    Returns: filtered spark df
-
+    Returns: 
+        Filtered dask dataframe
     """
     if colname not in df.columns:
         raise ValueError('Cannot filter dates because missing timestamp column')
-    df = df.where(col(colname) >= pd.to_datetime(start_date))
-    df = df.where(col(colname) < pd.to_datetime(end_date) + pd.Timedelta(value=1, unit='days'))
+    
+    # Ensure column is datetime type
+    if not pd.api.types.is_datetime64_any_dtype(df[colname]):
+        df[colname] = dd.to_datetime(df[colname])
+    
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date) + pd.Timedelta(value=1, unit='days')
+    
+    df = df[(df[colname] >= start_dt) & (df[colname] < end_dt)]
     return df
 
 
@@ -207,10 +214,20 @@ def make_dir(directory_path: Path, remove: bool = False) -> None:
 
 
 def flatten_lst(lst: List[List]) -> List:
+    """Flatten a list of lists"""
     return [item for sublist in lst for item in sublist]
 
 
 def flatten_folder(args: Tuple) -> List[str]:
+    """
+    Helper function to flatten bandicoot folder structure
+    
+    Args:
+        args: Tuple of (ids, recs_folder)
+        
+    Returns:
+        List of unmatched IDs
+    """
     ids, recs_folder = args
     unmatched: List[str] = []
     for p in ids:
@@ -222,49 +239,62 @@ def flatten_folder(args: Tuple) -> List[str]:
     return unmatched
 
 
-def cdr_bandicoot_format(cdr: SparkDataFrame, antennas: SparkDataFrame, cfg: Box) -> SparkDataFrame:
+def cdr_bandicoot_format(cdr: DaskDataFrame, antennas: DaskDataFrame, cfg: Box) -> DaskDataFrame:
     """
     Convert CDR df into format that can be used by bandicoot
 
     Args:
-        cdr: spark df with CDRs
+        cdr: dask df with CDRs
         antennas: antenna dataframe
         cfg: box object with cdr column names
 
-    Returns: spark df in bandicoot format
+    Returns: 
+        Dask df in bandicoot format
     """
-
     cols = list(cfg.keys())
 
-    outgoing = cdr.select(cols)\
-        .withColumnRenamed('txn_type', 'interaction')\
-        .withColumnRenamed('caller_id', 'name')\
-        .withColumnRenamed('recipient_id', 'correspondent_id')\
-        .withColumnRenamed('timestamp', 'datetime')\
-        .withColumnRenamed('duration', 'call_duration')\
-        .withColumnRenamed('caller_antenna', 'antenna_id')\
-        .withColumn('direction', lit('out'))\
-        .drop('recipient_antenna')
+    # Create outgoing transactions
+    outgoing = cdr[cols].copy()
+    outgoing = outgoing.rename(columns={
+        'txn_type': 'interaction',
+        'caller_id': 'name',
+        'recipient_id': 'correspondent_id',
+        'timestamp': 'datetime',
+        'duration': 'call_duration',
+        'caller_antenna': 'antenna_id'
+    })
+    outgoing['direction'] = 'out'
+    outgoing = outgoing.drop(columns=['recipient_antenna'], errors='ignore')
 
-    incoming = cdr.select(cols)\
-        .withColumnRenamed('txn_type', 'interaction')\
-        .withColumnRenamed('recipient_id', 'name')\
-        .withColumnRenamed('caller_id', 'correspondent_id')\
-        .withColumnRenamed('timestamp', 'datetime')\
-        .withColumnRenamed('duration', 'call_duration')\
-        .withColumnRenamed('recipient_antenna', 'antenna_id')\
-        .withColumn('direction', lit('in'))\
-        .drop('caller_antenna')
+    # Create incoming transactions
+    incoming = cdr[cols].copy()
+    incoming = incoming.rename(columns={
+        'txn_type': 'interaction',
+        'recipient_id': 'name',
+        'caller_id': 'correspondent_id',
+        'timestamp': 'datetime',
+        'duration': 'call_duration',
+        'recipient_antenna': 'antenna_id'
+    })
+    incoming['direction'] = 'in'
+    incoming = incoming.drop(columns=['caller_antenna'], errors='ignore')
 
-    cdr_bandicoot = outgoing.select(incoming.columns).union(incoming)\
-        .withColumn('call_duration', col('call_duration').cast(IntegerType()).cast(StringType()))\
-        .withColumn('datetime', date_format(col('datetime'), 'yyyy-MM-dd HH:mm:ss'))
+    # Combine
+    cdr_bandicoot = dd.concat([outgoing, incoming], axis=0)
     
+    # Convert call_duration to string
+    cdr_bandicoot['call_duration'] = cdr_bandicoot['call_duration'].astype('Int64').astype(str)
+    
+    # Format datetime
+    cdr_bandicoot['datetime'] = dd.to_datetime(cdr_bandicoot['datetime']).dt.strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Join with antennas if available
     if antennas is not None:
-        cdr_bandicoot = cdr_bandicoot.join(antennas.select(['antenna_id', 'latitude', 'longitude']),
-                                           on='antenna_id', how='left')
+        antenna_cols = antennas[['antenna_id', 'latitude', 'longitude']]
+        cdr_bandicoot = cdr_bandicoot.merge(antenna_cols, on='antenna_id', how='left')
     
-    cdr_bandicoot = cdr_bandicoot.na.fill('')
+    # Fill missing values
+    cdr_bandicoot = cdr_bandicoot.fillna('')
     
     return cdr_bandicoot
 
@@ -280,7 +310,8 @@ def long_join_pandas(dfs: List[PandasDataFrame], on: str,
         on: column on which to join
         how: type of join
 
-    Returns: single joined pandas df
+    Returns: 
+        Single joined pandas df
     """
     if len(dfs) == 0:
         return None
@@ -290,31 +321,36 @@ def long_join_pandas(dfs: List[PandasDataFrame], on: str,
     return df
 
 
-def long_join_pyspark(dfs: List[SparkDataFrame], on: str, how: str) -> SparkDataFrame:
+def long_join_dask(dfs: List[DaskDataFrame], on: str, how: str) -> DaskDataFrame:
     """
-    Join list of spark dfs
+    Join list of dask dfs
 
     Args:
-        dfs: list of spark df
+        dfs: list of dask df
         on: column on which to join
         how: type of join
 
-    Returns: single joined spark df
+    Returns: 
+        Single joined dask df
     """
     if len(dfs) == 0:
         return None
     df = dfs[0]
     for i in range(1, len(dfs)):
-        df = df.join(dfs[i], on=on, how=how)
+        df = df.merge(dfs[i], on=on, how=how)
     return df
 
 
+# Backwards compatibility alias
+long_join_pyspark = long_join_dask
+
+
 def strictly_increasing(L: List[float]) -> bool:
-    # Check that the list's values are strictly increasing
+    """Check that the list's values are strictly increasing"""
     return all(x < y for x, y in zip(L, L[1:]))
 
 
-def check_columns_exist(data: Union[PandasDataFrame, SparkDataFrame],
+def check_columns_exist(data: Union[PandasDataFrame, DaskDataFrame],
                         columns: List[str],
                         data_name: str = '') -> None:
     """
@@ -355,19 +391,22 @@ def check_column_types(data: PandasDataFrame, continuous: List[str], categorical
 
 # Source: https://stackoverflow.com/questions/38641691/weighted-correlation-coefficient-with-pandas
 def weighted_mean(x: ndarray, w: ndarray) -> float:
+    """Calculate weighted mean"""
     return np.sum(x * w) / np.sum(w)
 
 
 def weighted_cov(x: ndarray, y: ndarray, w: ndarray) -> float:
+    """Calculate weighted covariance"""
     return np.sum(w * (x - weighted_mean(x, w)) * (y - weighted_mean(y, w))) / np.sum(w)
 
 
 def weighted_corr(x: ndarray, y: ndarray, w: ndarray) -> float:
+    """Calculate weighted correlation"""
     return weighted_cov(x, y, w) / np.sqrt(weighted_cov(x, x, w) * weighted_cov(y, y, w))
 
 
 def get_data_format():
-
+    """Load data format configuration"""
     data_format_path = importlib_resources_files('data_format') / 'data_format.yml'
 
     with open(data_format_path, 'r') as data_format_file:
@@ -416,14 +455,12 @@ def build_config_from_file(config_file_path_string: str) -> Box:
     # get the working directory path
     working_directory_path = Path(input_path_dict['working']['directory_path'])
     if not os.path.isabs(working_directory_path):
-        # raise ValueError(f'expected absolute path to working directory; got {working_directory_path} instead.')
         # This is only allowed because our tests rely on it. TODO: Change tests so this isn't necessary
         working_directory_path = Path(__file__).parent.parent / working_directory_path
     
     # get the top level input data directory
     input_data_directory_path = Path(input_path_dict['input_data']['directory_path'])
     if not os.path.isabs(input_data_directory_path):
-        # raise ValueError(f'expected absolute path to input data directory; got {input_data_directory_path} instead.')
         # This is only allowed because our tests rely on it. TODO: Change tests so this isn't necessary
         input_data_directory_path = Path(__file__).parent.parent / input_data_directory_path
 
@@ -442,24 +479,35 @@ def build_config_from_file(config_file_path_string: str) -> Box:
 
 
 def filter_by_phone_numbers_to_featurize(
-    phone_numbers_to_featurize: Optional[SparkDataFrame],
-    df,
+    phone_numbers_to_featurize: Optional[DaskDataFrame],
+    df: Union[DaskDataFrame, PandasDataFrame],
     phone_number_column_name: str
-):
-
+) -> Union[DaskDataFrame, PandasDataFrame]:
+    """
+    Filter dataframe to only include specified phone numbers
+    
+    Args:
+        phone_numbers_to_featurize: DataFrame with 'phone_number' column
+        df: DataFrame to filter
+        phone_number_column_name: Name of column in df containing phone numbers
+        
+    Returns:
+        Filtered dataframe
+    """
     if phone_numbers_to_featurize is None:
         return df
 
-    elif isinstance(df, SparkDataFrame):
-        return df.join(
+    elif isinstance(df, dd.DataFrame):
+        return df.merge(
             phone_numbers_to_featurize,
-            df[phone_number_column_name] == phone_numbers_to_featurize.phone_number,
-            'inner'
-        ).drop(phone_numbers_to_featurize.phone_number)
+            left_on=phone_number_column_name,
+            right_on='phone_number',
+            how='inner'
+        ).drop(columns='phone_number')
 
     else:
-        # TODO(leo): Consider storing this
-        phone_numbers_to_featurize_pandas = phone_numbers_to_featurize.toPandas()
+        # Pandas case
+        phone_numbers_to_featurize_pandas = phone_numbers_to_featurize.compute() if isinstance(phone_numbers_to_featurize, dd.DataFrame) else phone_numbers_to_featurize
 
         return df.merge(
             phone_numbers_to_featurize_pandas,
@@ -472,7 +520,18 @@ def filter_by_phone_numbers_to_featurize(
 # For testing only. Compare two dataframes that are expected to be similar or identical. Obtain info
 # about matches/mismatches row- and column-wise.
 def testonly_compare_dataframes(left: pd.DataFrame, right: pd.DataFrame, left_on: str = 'name', right_on: str = 'name'):
-
+    """
+    Compare two dataframes for testing purposes
+    
+    Args:
+        left: First dataframe
+        right: Second dataframe
+        left_on: Join column in left dataframe
+        right_on: Join column in right dataframe
+        
+    Returns:
+        Tuple of (merged dataframe, mismatches dataframe)
+    """
     merged = left.merge(right, how='outer', left_on=left_on, right_on=right_on, indicator=True)
 
     print(f'Merge indicator column: {merged._merge.value_counts()}')
@@ -511,3 +570,7 @@ def testonly_compare_dataframes(left: pd.DataFrame, right: pd.DataFrame, left_on
     mismatches = pd.DataFrame.from_dict(data=mismatches, orient='index', columns=['mismatches'])
 
     return merged.sort_index(axis=1), mismatches
+
+
+# Backwards compatibility: Keep old function names
+get_spark_session = get_dask_client
