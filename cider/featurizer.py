@@ -33,28 +33,29 @@ from multiprocessing import Pool
 from typing import Any, Dict, Optional, Union
 
 import bandicoot as bc  # type: ignore[import]
+import dask.dataframe as dd
 import geopandas as gpd  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
+import numpy as np
 import pandas as pd
 import seaborn as sns  # type: ignore[import]
-from helpers.features import all_spark
+
+from helpers.features import all_dask
 from helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
 from helpers.utils import (cdr_bandicoot_format, filter_by_phone_numbers_to_featurize,
-                           flatten_folder, flatten_lst, get_spark_session,
-                           long_join_pandas, long_join_pyspark, make_dir,
+                           flatten_folder, flatten_lst, get_dask_client,
+                           long_join_pandas, long_join_dask, make_dir,
                            read_csv, read_parquet, save_parquet, save_df)
 from numpy import nan
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import (array, col, count, countDistinct, explode,
-                                   first, lit, max, mean, min, stddev, sum)
-from pyspark.sql.types import StringType, DoubleType
-
 
 from .datastore import DataStore, DataType
 
-class _OutputFormat(Enum):
+# Type alias
+DaskDataFrame = dd.DataFrame
 
+
+class _OutputFormat(Enum):
     CSV = 1
     PARQUET = 2
 
@@ -63,7 +64,7 @@ class Featurizer:
 
     def __init__(self,
                  datastore: DataStore,
-                 dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, SparkDataFrame]]]] = None,
+                 dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, DaskDataFrame]]]] = None,
                  clean_folders: bool = False) -> None:
 
         self.cfg = datastore.cfg
@@ -73,16 +74,15 @@ class Featurizer:
         # Prepare working directories
         make_dir(outputs_path, clean_folders)
         make_dir(outputs_path / 'outputs')
-        make_dir(outputs_path/ 'plots')
+        make_dir(outputs_path / 'plots')
         make_dir(outputs_path / 'tables')
 
-        self.features: Dict[str, Optional[SparkDataFrame]] = {'cdr': None, 'international': None, 'recharges': None,
+        self.features: Dict[str, Optional[DaskDataFrame]] = {'cdr': None, 'international': None, 'recharges': None,
                                                               'location': None, 'mobiledata': None, 'mobilemoney': None}
 
-        # Spark setup
-        # TODO(lucio): Initialize spark separately ....
-        spark = get_spark_session(self.cfg)
-        self.spark = spark
+        # Dask setup
+        client = get_dask_client(self.cfg)
+        self.client = client
 
         # Create default dicts to avoid key errors
         dataframes = dataframes if dataframes else defaultdict(lambda: None)
@@ -134,19 +134,19 @@ class Featurizer:
                 statistics[name] = {}
 
                 # Number of days
-                lastday = pd.to_datetime(df.agg({'timestamp': 'max'}).collect()[0][0])
-                firstday = pd.to_datetime(df.agg({'timestamp': 'min'}).collect()[0][0])
+                lastday = pd.to_datetime(df['timestamp'].max().compute())
+                firstday = pd.to_datetime(df['timestamp'].min().compute())
                 statistics[name]['Days'] = (lastday - firstday).days + 1
 
                 # Number of transactions
-                statistics[name]['Transactions'] = df.count()
+                statistics[name]['Transactions'] = len(df)
 
                 # Number of subscribers
-                statistics[name]['Subscribers'] = df.select('caller_id').distinct().count()
+                statistics[name]['Subscribers'] = df['caller_id'].nunique().compute()
 
                 # Number of recipients
                 if 'recipient_id' in df.columns:
-                    statistics[name]['Recipients'] = df.select('recipient_id').distinct().count()
+                    statistics[name]['Recipients'] = df['recipient_id'].nunique().compute()
 
         if write:
             with open(self.outputs_path / 'tables' / 'statistics.json', 'w') as f:
@@ -171,23 +171,20 @@ class Featurizer:
                 name_without_spaces = name.replace(' ', '')
 
                 if 'txn_type' not in df.columns:
-                    df = df.withColumn('txn_type', lit('txn'))
+                    df['txn_type'] = 'txn'
 
                 # Save timeseries of transactions by day
-                save_df(df.groupby(['txn_type', 'day']).count(),
+                transactions_by_day = df.groupby(['txn_type', 'day']).size().reset_index(name='count')
+                save_df(transactions_by_day,
                         self.outputs_path / 'datasets' / f'{name_without_spaces}_transactionsbyday.csv')
 
                 # Save timeseries of subscribers by day
-                save_df(
-                    df.groupby(['txn_type', 'day'])
-                    .agg(countDistinct('caller_id'))
-                    .withColumnRenamed('count(caller_id)', 'count'),
-                    self.outputs_path / 'datasets' / f'{name_without_spaces}_subscribersbyday.csv'
-                )
+                subscribers_by_day = df.groupby(['txn_type', 'day'])['caller_id'].nunique().reset_index(name='count')
+                save_df(subscribers_by_day,
+                        self.outputs_path / 'datasets' / f'{name_without_spaces}_subscribersbyday.csv')
 
                 if plot:
                     # Plot timeseries of transactions by day
-
                     timeseries = pd.read_csv(
                         self.outputs_path / 'datasets' / f'{name_without_spaces}_transactionsbyday.csv'
                     )
@@ -244,8 +241,9 @@ class Featurizer:
         self.ds.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
 
         # Get list of unique subscribers, write to file
-        save_df(self.ds.cdr_bandicoot.select('name').distinct(), self.outputs_path / 'datasets' / 'subscribers.csv')
-        subscribers = self.ds.cdr_bandicoot.select('name').distinct().rdd.map(lambda r: r[0]).collect()
+        unique_subscribers = self.ds.cdr_bandicoot[['name']].drop_duplicates()
+        save_df(unique_subscribers, self.outputs_path / 'datasets' / 'subscribers.csv')
+        subscribers = unique_subscribers['name'].compute().tolist()
 
         subscribers = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, subscribers, 'name')
 
@@ -270,19 +268,25 @@ class Featurizer:
 
             # Name outfolders
             recs_folder = self.outputs_path / 'datasets' / 'bandicoot_records' / f'{start}to{end}'
-            bc_folder = self.outputs_path / 'datasets' /' bandicoot_features' / f'{start}to{end}'
+            bc_folder = self.outputs_path / 'datasets' / 'bandicoot_features' / f'{start}to{end}'
 
             make_dir(bc_folder)
 
             # Get records for this chunk and write out to csv files per person
-            nums_spark = self.spark.createDataFrame(chunk, StringType()).withColumnRenamed('value', 'name')
-            matched_chunk = self.ds.cdr_bandicoot.join(nums_spark, on='name', how='inner')
-            matched_chunk.repartition('name').write.partitionBy('name').mode('append').format('csv').save(
-                str(recs_folder), header=True
-            )
+            chunk_df = pd.DataFrame({'name': chunk})
+            chunk_dask = dd.from_pandas(chunk_df, npartitions=4)
+            matched_chunk = self.ds.cdr_bandicoot.merge(chunk_dask, on='name', how='inner')
+            
+            # Write partitioned by name for bandicoot
+            matched_chunk_pd = matched_chunk.compute()
+            for name_val in matched_chunk_pd['name'].unique():
+                person_data = matched_chunk_pd[matched_chunk_pd['name'] == name_val]
+                person_folder = recs_folder / f'name={name_val}'
+                person_folder.mkdir(parents=True, exist_ok=True)
+                person_data.to_csv(person_folder / 'data.csv', index=False, header=True)
 
             # Move csv files around on disk to get into position for bandicoot
-            n = int(len(chunk) / bc_processes)
+            n = int(len(chunk) / bc_processes) if bc_processes > 0 else len(chunk)
             subchunks = [chunk[i:i + n] for i in range(0, len(chunk), n)]
             pool = Pool(bc_processes)
             unmatched = pool.map(flatten_folder, [(subchunk, recs_folder) for subchunk in subchunks])
@@ -298,26 +302,30 @@ class Featurizer:
                                     split_day=True, groupby=None)
 
             # Write out bandicoot feature files
-            def write_bc(index: Any, iterator: Any) -> Any:
-                bc.to_csv(list(iterator), bc_folder / f'{index}.csv')
-                return ['index: ' + str(index)]
+            def write_bc_chunk(chunk_subscribers):
+                results = []
+                for sub in chunk_subscribers:
+                    if os.path.isfile(recs_folder / f'{sub}.csv'):
+                        results.append(get_bc(sub))
+                return results
 
-            # Run calculations and writing of bandicoot features in parallel
-            feature_df = self.spark.sparkContext.emptyRDD()
-            subscriber_rdd = self.spark.sparkContext.parallelize(chunk)
-            features = subscriber_rdd.mapPartitions(
-                lambda s: [get_bc(sub) for sub in s if os.path.isfile(recs_folder / f'{sub}.csv')])
-            feature_df = feature_df.union(features)
-            out = feature_df.coalesce(bc_processes).mapPartitionsWithIndex(write_bc)
-            out.count()
+            # Process in chunks
+            all_features = []
+            for subchunk in subchunks:
+                features = write_bc_chunk(subchunk)
+                all_features.extend(features)
+            
+            # Write bandicoot features
+            for idx, feature_chunk in enumerate(np.array_split(all_features, bc_processes)):
+                bc.to_csv(list(feature_chunk), bc_folder / f'{idx}.csv')
+            
             start = start + bc_chunksize
 
         # Combine all bandicoot features into a single file, fix column names, and write to disk
-        # TODO(leo): does this path need to be cast to a string, or could we use a glob?
-        cdr_features = read_csv(self.spark, self.outputs_path / 'datasets' / 'bandicoot_features' / '*' / '*', header=True)
-        cdr_features = cdr_features.select([col for col in cdr_features.columns if
-                                            ('reporting' not in col) or (col == 'reporting__number_of_records')])
-        cdr_features = cdr_features.toDF(*[c if c == 'name' else 'cdr_' + c for c in cdr_features.columns])
+        cdr_features = read_csv(self.client, self.outputs_path / 'datasets' / 'bandicoot_features' / '*' / '*', header=True)
+        cdr_features = cdr_features[[col for col in cdr_features.columns if
+                                            ('reporting' not in col) or (col == 'reporting__number_of_records')]]
+        cdr_features = cdr_features.rename(columns={c: c if c == 'name' else 'cdr_' + c for c in cdr_features.columns})
         
         if self.output_format == _OutputFormat.CSV:
             save_df(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all', single_file=False)
@@ -326,29 +334,32 @@ class Featurizer:
         self.features['cdr'] = cdr_features
 
 
-    def cdr_features_spark(self) -> None:
+    def cdr_features_dask(self) -> None:
         """
-        Compute CDR features using spark and save to disk
+        Compute CDR features using dask and save to disk
         """
         # Check that CDR is present to calculate international features
         if self.ds.cdr is None:
             raise ValueError('CDR file must be loaded to calculate CDR features.')
         print('Calculating CDR features...')
 
-        cdr_features = all_spark(
+        cdr_features = all_dask(
             self.ds.cdr,
             self.ds.antennas,
             cfg=self.cfg.params.cdr,
             phone_numbers_to_featurize=self.phone_numbers_to_featurize
         )
-        cdr_features_df = long_join_pyspark(cdr_features, on='caller_id', how='outer')
-        cdr_features_df = cdr_features_df.withColumnRenamed('caller_id', 'name')
+        cdr_features_df = long_join_dask(cdr_features, on='caller_id', how='outer')
+        cdr_features_df = cdr_features_df.rename(columns={'caller_id': 'name'})
 
         if self.output_format == _OutputFormat.CSV:
-            save_df(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all', single_file=False)
+            save_df(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_dask' / 'all', single_file=False)
         else:
-            save_parquet(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_spark' / 'all')
+            save_parquet(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_dask' / 'all')
         self.features['cdr'] = cdr_features_df
+
+    # Backward compatibility
+    cdr_features_spark = cdr_features_dask
 
     def international_features(self) -> None:
         # Check that CDR is present to calculate international features
@@ -357,7 +368,7 @@ class Featurizer:
         print('Calculating international features...')
 
         # Write international transactions to file
-        international_trans = self.ds.cdr.filter(col('international') == 'international')
+        international_trans = self.ds.cdr[self.ds.cdr['international'] == 'international']
         save_df(international_trans, self.outputs_path / 'datasets' / 'international_transactions.csv')
 
         # Read international calls
@@ -388,10 +399,10 @@ class Featurizer:
 
         if self.output_format == _OutputFormat.CSV:
             save_df(feats_df, self.outputs_path / 'datasets' / 'international_feats', single_file=False)
-            self.features['international'] = self.spark.createDataFrame(feats_df)
+            self.features['international'] = dd.from_pandas(feats_df, npartitions=4)
         else:
             save_parquet(feats_df, self.outputs_path / 'datasets' / 'international_feats')
-            self.features['international'] = read_parquet(self.spark, self.outputs_path / 'datasets' / 'international_feats')
+            self.features['international'] = read_parquet(self.client, self.outputs_path / 'datasets' / 'international_feats')
         
 
     def location_features(self) -> None:
@@ -408,37 +419,37 @@ class Featurizer:
             self.ds.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
 
         # Get dataframe of antennas located within regions
-        antennas = self.ds.antennas.toPandas()
+        antennas = self.ds.antennas.compute()
         antennas = gpd.GeoDataFrame(antennas, geometry=gpd.points_from_xy(antennas['longitude'], antennas['latitude']))
         antennas.crs = {"init": "epsg:4326"}
         antennas = antennas[antennas.is_valid]
         for shapefile_name in self.ds.shapefiles.keys():
             shapefile = self.ds.shapefiles[shapefile_name].rename({'region': shapefile_name}, axis=1)
-            antennas = gpd.sjoin(antennas, shapefile, op='within', how='left').drop('index_right', axis=1)
+            antennas = gpd.sjoin(antennas, shapefile, predicate='within', how='left').drop('index_right', axis=1)
             antennas[shapefile_name] = antennas[shapefile_name].fillna('Unknown')
-        antennas = self.spark.createDataFrame(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''))
+        antennas = dd.from_pandas(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''), npartitions=4)
 
         cdr_bandicoot_filtered = filter_by_phone_numbers_to_featurize(
             self.phone_numbers_to_featurize, self.ds.cdr_bandicoot, 'name'
         )
 
         # Merge CDR to antennas
-        cdr = cdr_bandicoot_filtered.join(antennas, on='antenna_id', how='left') \
-            .na.fill({shapefile_name: 'Unknown' for shapefile_name in self.ds.shapefiles.keys()})
+        cdr = cdr_bandicoot_filtered.merge(antennas, on='antenna_id', how='left')
+        cdr = cdr.fillna({shapefile_name: 'Unknown' for shapefile_name in self.ds.shapefiles.keys()})
 
         # Get counts by region
         for shapefile_name in self.ds.shapefiles.keys():
-            countbyregion = cdr.groupby(['name', shapefile_name]).count()
+            countbyregion = cdr.groupby(['name', shapefile_name]).size().reset_index(name='count')
             save_df(countbyregion, self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv')
 
         # Get unique regions (and unique towers)
-        unique_regions = cdr.select('name').distinct()
+        unique_regions = cdr[['name']].drop_duplicates()
         for shapefile_name in self.ds.shapefiles.keys():
-            unique_regions = unique_regions.join(cdr.groupby('name').agg(countDistinct(shapefile_name)), on='name',
-                                                 how='left')
+            region_counts = cdr.groupby('name')[shapefile_name].nunique().reset_index(name=f'count(DISTINCT {shapefile_name})')
+            unique_regions = unique_regions.merge(region_counts, on='name', how='left')
         if 'tower_id' in cdr.columns:
-            unique_regions = unique_regions.join(cdr.groupby('name').agg(countDistinct('tower_id')), on='name',
-                                                 how='left')
+            tower_counts = cdr.groupby('name')['tower_id'].nunique().reset_index(name='count(DISTINCT tower_id)')
+            unique_regions = unique_regions.merge(tower_counts, on='name', how='left')
         save_df(unique_regions, self.outputs_path / 'datasets' / 'uniqueregions.csv')
         feats = pd.read_csv(self.outputs_path / 'datasets' / 'uniqueregions.csv', dtype={'name': 'str'})
 
@@ -478,11 +489,11 @@ class Featurizer:
 
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
         if self.output_format == _OutputFormat.CSV:
-            save_df(feats, self.outputs_path /'datasets' / 'location_features', single_file=False)
-            self.features['location'] = self.spark.createDataFrame(feats)
+            save_df(feats, self.outputs_path / 'datasets' / 'location_features', single_file=False)
+            self.features['location'] = dd.from_pandas(feats, npartitions=4)
         else:
-            save_parquet(feats, self.outputs_path /'datasets' / 'location_features')
-            self.features['location'] = read_parquet(self.spark, self.outputs_path /'datasets' / 'location_features')
+            save_parquet(feats, self.outputs_path / 'datasets' / 'location_features')
+            self.features['location'] = read_parquet(self.client, self.outputs_path / 'datasets' / 'location_features')
 
 
     def mobiledata_features(self) -> None:
@@ -493,32 +504,35 @@ class Featurizer:
         print('Calculating mobile data features...')
         
         # Aggregate mobiledata use by day, to control for different definitions of "one transaction."
-        mobiledata_aggregated_by_day = (
-            self.ds.mobiledata.groupby('caller_id', 'day').agg(sum('volume').alias('volume'))
-        )
+        mobiledata_aggregated_by_day = self.ds.mobiledata.groupby(['caller_id', 'day'])['volume'].sum().reset_index()
         
         mobiledata_aggregated_by_day = filter_by_phone_numbers_to_featurize(
             self.phone_numbers_to_featurize, mobiledata_aggregated_by_day, 'caller_id'
         )
 
         # Aggregate to obtain features
-        feats = mobiledata_aggregated_by_day.groupby('caller_id').agg(
-            sum('volume').alias('total_volume'),
-            mean('volume').alias('mean_daily_volume'),
-            min('volume').alias('min_daily_volume'),
-            max('volume').alias('max_daily_volume'),
-            stddev('volume').alias('std_daily_volume'),
-            countDistinct('day').alias('num_days')
-        )
+        feats = mobiledata_aggregated_by_day.groupby('caller_id').agg({
+            'volume': ['sum', 'mean', 'min', 'max', 'std'],
+            'day': 'nunique'
+        }).reset_index()
+        
+        # Flatten column names
+        feats.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in feats.columns.values]
+        feats = feats.rename(columns={
+            'volume_sum': 'total_volume',
+            'volume_mean': 'mean_daily_volume',
+            'volume_min': 'min_daily_volume',
+            'volume_max': 'max_daily_volume',
+            'volume_std': 'std_daily_volume',
+            'day_nunique': 'num_days',
+            'caller_id': 'name'
+        })
 
-        # Save to file
-        feats = feats.withColumnRenamed('caller_id', 'name')
-        feats = feats.toDF(*[c if c == 'name' else 'mobiledata_' + c for c in feats.columns])
+        feats = feats.rename(columns={c: c if c == 'name' else 'mobiledata_' + c for c in feats.columns})
 
         self.features['mobiledata'] = feats
         if self.output_format == _OutputFormat.CSV:
             save_df(feats, self.outputs_path / 'datasets' / 'mobiledata_features', single_file=False)
-            
         else:
             save_parquet(feats, self.outputs_path / 'datasets' / 'mobiledata_features')
 
@@ -535,79 +549,75 @@ class Featurizer:
             'sender_balance_before', 'sender_balance_after', 'recipient_balance_before', 'recipient_balance_after'
         ]:
             if col_name not in self.ds.mobilemoney.columns:
-                self.ds.mobilemoney = self.ds.mobilemoney.withColumn(col_name, lit(None).cast(DoubleType()))
+                self.ds.mobilemoney[col_name] = np.nan
 
         # Get outgoing transactions
         sender_cols = ['txn_type', 'caller_id', 'recipient_id', 'day', 'amount', 'sender_balance_before',
                        'sender_balance_after']
-        outgoing = (self.ds.mobilemoney
-                    .select(sender_cols)
-                    .withColumnRenamed('caller_id', 'name')
-                    .withColumnRenamed('recipient_id', 'correspondent_id')
-                    .withColumnRenamed('sender_balance_before', 'balance_before')
-                    .withColumnRenamed('sender_balance_after', 'balance_after')
-                    .withColumn('direction', lit('out')))
+        outgoing = self.ds.mobilemoney[sender_cols].rename(columns={
+            'caller_id': 'name',
+            'recipient_id': 'correspondent_id',
+            'sender_balance_before': 'balance_before',
+            'sender_balance_after': 'balance_after'
+        })
+        outgoing['direction'] = 'out'
 
         # Get incoming transactions
         recipient_cols = ['txn_type', 'caller_id', 'recipient_id', 'day', 'amount', 'recipient_balance_before',
                           'recipient_balance_after']
-        incoming = (self.ds.mobilemoney.select(recipient_cols)
-                    .withColumnRenamed('recipient_id', 'name')
-                    .withColumnRenamed('caller_id', 'correspondent_id')
-                    .withColumnRenamed('recipient_balance_before', 'balance_before')
-                    .withColumnRenamed('recipient_balance_after', 'balance_after')
-                    .withColumn('direction', lit('in')))
+        incoming = self.ds.mobilemoney[recipient_cols].rename(columns={
+            'recipient_id': 'name',
+            'caller_id': 'correspondent_id',
+            'recipient_balance_before': 'balance_before',
+            'recipient_balance_after': 'balance_after'
+        })
+        incoming['direction'] = 'in'
 
         # Combine incoming and outgoing with unified schema
-        mm = outgoing.select(incoming.columns).union(incoming)
+        mm = dd.concat([outgoing, incoming], axis=0)
         save_parquet(mm, self.outputs_path / 'datasets' / 'mobilemoney')
-        mm = self.spark.read.parquet(str(self.outputs_path / 'datasets' / 'mobilemoney'))
-        outgoing = mm.where(col('direction') == 'out')
-        incoming = mm.where(col('direction') == 'in')
+        mm = read_parquet(self.client, self.outputs_path / 'datasets' / 'mobilemoney')
+        outgoing = mm[mm['direction'] == 'out']
+        incoming = mm[mm['direction'] == 'in']
 
         # Get mobile money features
         features = []
         for dfname, df in [('all', mm), ('incoming', incoming), ('outgoing', outgoing)]:
-            # add 'all' txn type
-            df = (df
-                  .withColumn('txn_types', array(lit('all'), col('txn_type')))
-                  .withColumn('txn_type', explode('txn_types')))
+            # Create dataframe with 'all' txn type by duplicating rows
+            df_all = df.copy()
+            df_all['txn_type'] = 'all'
+            df = dd.concat([df, df_all], axis=0)
 
-            aggs = (df
-                    .groupby('name', 'txn_type')
-                    .agg(mean('amount').alias('amount_mean'),
-                         min('amount').alias('amount_min'),
-                         max('amount').alias('amount_max'),
-                         mean('balance_before').alias('balance_before_mean'),
-                         min('balance_before').alias('balance_before_min'),
-                         max('balance_before').alias('balance_before_max'),
-                         mean('balance_after').alias('balance_after_mean'),
-                         min('balance_after').alias('balance_after_min'),
-                         max('balance_after').alias('balance_after_max'),
-                         count('correspondent_id').alias('txns'),
-                         countDistinct('correspondent_id').alias('contacts'))
-                    .groupby('name')
-                    .pivot('txn_type')
-                    .agg(first('amount_mean').alias('amount_mean'),
-                         first('amount_min').alias('amount_min'),
-                         first('amount_max').alias('amount_max'),
-                         first('balance_before_mean').alias('balance_before_mean'),
-                         first('balance_before_min').alias('balance_before_min'),
-                         first('balance_before_max').alias('balance_before_max'),
-                         first('balance_after_mean').alias('balance_after_mean'),
-                         first('balance_after_min').alias('balance_after_min'),
-                         first('balance_after_max').alias('balance_after_max'),
-                         first('txns').alias('txns'),
-                         first('contacts').alias('contacts')))
-            # add df name to columns
-            for col_name in aggs.columns[1:]:  # exclude 'name'
-                aggs = aggs.withColumnRenamed(col_name, dfname + '_' + col_name)
-
+            # Compute aggregations using pandas-style syntax
+            aggs_pd = df.compute().groupby(['name', 'txn_type']).agg({
+                'amount': ['mean', 'min', 'max'],
+                'balance_before': ['mean', 'min', 'max'],
+                'balance_after': ['mean', 'min', 'max'],
+                'correspondent_id': ['count', 'nunique']
+            })
+            
+            # Flatten and pivot
+            aggs_pd.columns = ['_'.join(col).strip() for col in aggs_pd.columns.values]
+            aggs_pd = aggs_pd.reset_index()
+            aggs_pd = aggs_pd.pivot(index='name', columns='txn_type')
+            aggs_pd.columns = ['_'.join(col).strip('_') for col in aggs_pd.columns.values]
+            aggs_pd = aggs_pd.reset_index()
+            
+            # Rename columns with amount/balance/txns/contacts
+            rename_dict = {}
+            for col in aggs_pd.columns:
+                if col != 'name':
+                    # Parse column name and add df name prefix
+                    rename_dict[col] = dfname + '_' + col
+            aggs_pd = aggs_pd.rename(columns=rename_dict)
+            
+            # Convert back to Dask
+            aggs = dd.from_pandas(aggs_pd, npartitions=4)
             features.append(aggs)
 
         # Combine all mobile money features together and save them
-        feats = long_join_pyspark(features, on='name', how='outer')
-        feats = feats.toDF(*[c if c == 'name' else 'mobilemoney_' + c for c in feats.columns])
+        feats = long_join_dask(features, on='name', how='outer')
+        feats = feats.rename(columns={c: c if c == 'name' else 'mobilemoney_' + c for c in feats.columns})
 
         feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
         if self.output_format == _OutputFormat.CSV:
@@ -622,15 +632,24 @@ class Featurizer:
             raise ValueError('Recharges file must be loaded to calculate recharges features.')
         print('Calculating recharges features...')
 
-        feats = self.ds.recharges.groupby('caller_id').agg(sum('amount').alias('sum'),
-                                                           mean('amount').alias('mean'),
-                                                           min('amount').alias('min'),
-                                                           max('amount').alias('max'),
-                                                           count('amount').alias('count'),
-                                                           countDistinct('day').alias('days'))
+        feats = self.ds.recharges.groupby('caller_id').agg({
+            'amount': ['sum', 'mean', 'min', 'max', 'count'],
+            'day': 'nunique'
+        }).reset_index()
+        
+        # Flatten column names
+        feats.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in feats.columns.values]
+        feats = feats.rename(columns={
+            'amount_sum': 'sum',
+            'amount_mean': 'mean',
+            'amount_min': 'min',
+            'amount_max': 'max',
+            'amount_count': 'count',
+            'day_nunique': 'days',
+            'caller_id': 'name'
+        })
 
-        feats = feats.withColumnRenamed('caller_id', 'name')
-        feats = feats.toDF(*[c if c == 'name' else 'recharges_' + c for c in feats.columns])
+        feats = feats.rename(columns={c: c if c == 'name' else 'recharges_' + c for c in feats.columns})
 
         feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
         if self.output_format == _OutputFormat.CSV:
@@ -646,14 +665,15 @@ class Featurizer:
         data_path = self.outputs_path / 'datasets'
 
         features = ['cdr', 'cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
-        paths_to_datasets = ['bandicoot_features/all', 'cdr_features_spark/all', 'international_feats', 'location_features',
+        paths_to_datasets = ['bandicoot_features/all', 'cdr_features_dask/all', 'international_feats', 'location_features',
                     'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
 
         # Read data from disk if requested
         for feature, path_to_dataset in zip(features, paths_to_datasets):
             if not self.features[feature]:
+                full_path = data_path / path_to_dataset
                 try:
-                    example_file = next(path_to_dataset.iterdir())
+                    example_file = next(full_path.iterdir())
 
                 except StopIteration:
                     raise ValueError(f'Directory {path_to_dataset} for {feature} features is empty. Error during featurization?')
@@ -663,24 +683,14 @@ class Featurizer:
                     continue
 
                 if example_file.suffix == '.csv':
-                    # reading through pandas to prevent phone numbers being read as integers without either having to specify
-                    # the whole schema or having to read twice with spark.
-                    # Alternatives if this ends up being too slow:
-                    #  - use pyspark.pandas (would require spark 3.2 upgrde)
-                    #  - do a limited read, grab schema, edit and re-read
-                    pandas_df = pd.read_csv(data_path / f'{path_to_dataset}.csv', dtype={'caller_id': 'str', 'name': 'str'})
-
-                    # spark chokes on NaN in str columns, so replace with expected None
-                    if "caller_id" in pandas_df:
-                        pandas_df.caller_id = pandas_df.caller_id.replace(nan, None)
-                    if "name" in pandas_df:
-                        pandas_df.name = pandas_df.name.replace(nan, None)
-
-                    self.features[feature] = self.spark.createDataFrame(pandas_df)
+                    # Use Dask to read with proper dtypes
+                    self.features[feature] = dd.read_csv(
+                        str(data_path / f'{path_to_dataset}.csv'),
+                        dtype={'caller_id': 'str', 'name': 'str'}
+                    )
 
                 elif example_file.suffix == '.parquet':
-
-                    self.features[feature] = read_parquet(self.spark, data_path / f'{path_to_dataset}.csv')
+                    self.features[feature] = read_parquet(self.client, data_path / path_to_dataset)
 
     def all_features(self, read_from_disk: bool = False) -> None:
         """
@@ -692,21 +702,18 @@ class Featurizer:
         if read_from_disk:
             self.load_features()
 
-        # Recompute set of all features if it was already computed (perhaps the user has computed more 
-        # features since then)
+        # Recompute set of all features if it was already computed
         if 'all' in self.features.keys():
             del self.features['all']
 
         all_features_list = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         if all_features_list:
-            all_features = long_join_pyspark(all_features_list, how='outer', on='name')
+            all_features = long_join_dask(all_features_list, how='outer', on='name')
 
             if self.output_format == _OutputFormat.CSV:
                 save_df(all_features, self.outputs_path / 'datasets' / 'features', single_file=False)
             else:
-                all_features.write.parquet(
-                    path=str(self.outputs_path / 'datasets' / 'features'), mode="overwrite"
-                )
+                save_parquet(all_features, self.outputs_path / 'datasets' / 'features')
             self.features['all'] = all_features
         else:
             print('No features have been computed yet.')
@@ -735,7 +742,7 @@ class Featurizer:
         # Plot of distributions of CDR features
         if self.features['cdr'] is not None:
             
-            # Features are given different names by spark and bandicoot featurization logic; here we check
+            # Features are given different names by dask and bandicoot featurization logic; here we check
             # which exists.
             active_days_key = (
                 'cdr_active_days__allweek__day__callandtext' 
@@ -805,10 +812,12 @@ class Featurizer:
                 fig, ax = plt.subplots(1, 1, figsize=(10, 10))
                 columns = [c for c in self.features['location'].columns if
                            shapefile_name in c and 'percent' not in c and 'Unknown' not in c]
-                counts = self.features['location'].select([sum(c) for c in columns]).toPandas()
-                counts.columns = ['_'.join(c.split('_')[2:])[:-1] for c in counts.columns]
-                counts = counts.T
+                
+                # Sum columns and convert to pandas
+                location_pd = self.features['location'].compute()
+                counts = location_pd[columns].sum().to_frame()
                 counts.columns = ['txn_count']
+                counts.index = ['_'.join(c.split('_')[2:])[:-1] for c in counts.index]
                 counts['region'] = counts.index
                 counts = self.ds.shapefiles[shapefile_name].merge(counts, on='region', how='left')
                 counts['txn_count'] = counts['txn_count'].fillna(0) / counts['txn_count'].sum()
@@ -822,23 +831,26 @@ class Featurizer:
         # Cuts by feature usage (mobile money, mobile data, international calls)
         if self.features['cdr'] is not None:
 
-            all_subscribers = self.features['cdr'].select('name')
+            all_subscribers = self.features['cdr'][['name']]
 
             if self.features['international'] is not None:
-                international_subscribers: Optional[SparkDataFrame] = self.features['international'].where(
-                    col('international_all__recipient_id__count') > 0).select('name')
+                international_subscribers: Optional[DaskDataFrame] = self.features['international'][
+                    self.features['international']['international_all__recipient_id__count'] > 0
+                ][['name']]
             else:
                 international_subscribers = None
 
             if self.features['mobiledata'] is not None:
-                mobiledata_subscribers: Optional[SparkDataFrame] = self.features['mobiledata'].where(
-                    col('mobiledata_num_transactions') > 0).select('name')
+                mobiledata_subscribers: Optional[DaskDataFrame] = self.features['mobiledata'][
+                    self.features['mobiledata']['mobiledata_num_transactions'] > 0
+                ][['name']]
             else:
                 mobiledata_subscribers = None
 
             if self.features['mobilemoney'] is not None:
-                mobilemoney_subscribers: Optional[SparkDataFrame] = self.features['mobilemoney'].where(
-                    col('mobilemoney_all_all_txns') > 0).select('name')
+                mobilemoney_subscribers: Optional[DaskDataFrame] = self.features['mobilemoney'][
+                    self.features['mobilemoney']['mobilemoney_all_all_txns'] > 0
+                ][['name']]
             else:
                 mobilemoney_subscribers = None
 
@@ -853,8 +865,8 @@ class Featurizer:
                                                 (mobiledata_subscribers, 'MD Users'),
                                                 (mobilemoney_subscribers, 'MM Users')]:
                     if subscribers is not None:
-                        users = self.features['cdr'].join(subscribers, how='inner', on='name')
-                        slice = users.select(['name', features[a]]).toPandas()
+                        users = self.features['cdr'].merge(subscribers, how='inner', on='name')
+                        slice = users[['name', features[a]]].compute()
                         slice['slice_name'] = slice_name
                         boxplot.append(slice)
                 boxplot_df = pd.concat(boxplot)
