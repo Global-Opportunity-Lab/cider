@@ -30,13 +30,11 @@ from collections import defaultdict
 from numbers import Number
 from typing import Callable, Dict, Iterable, List, Optional, Union
 
+import dask.dataframe as dd
+import pandas as pd
 from hashids import Hashids
 from numpy import isnan
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import col, date_format, udf
-
-from pyspark.sql.types import StringType
 
 from helpers.utils import make_dir, save_df
 
@@ -48,7 +46,7 @@ class Anonymizer:
     def __init__(
         self, 
         datastore: DataStore, 
-        dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, SparkDataFrame]]]] = None,
+        dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, dd.DataFrame]]]] = None,
         clean_folders = True, 
         format_checker: Optional[Callable] = None):
         """
@@ -137,22 +135,27 @@ class Anonymizer:
         for column_name in column_names:
             
             if column_name in dataset.columns:
-                
-                new_column = udf(
-                    lambda raw: Anonymizer._check_identifier_format_and_hash(raw, encoder, format_checker), StringType()
-                )(dataset[column_name])
-                
-                dataset_with_anonymized_columns = dataset_with_anonymized_columns.withColumn(column_name, new_column)
+                fn = lambda raw: Anonymizer._check_identifier_format_and_hash(raw, encoder, format_checker)
+                if isinstance(dataset_with_anonymized_columns, dd.DataFrame):
+                    dataset_with_anonymized_columns[column_name] = dataset_with_anonymized_columns[column_name].apply(
+                        fn, meta=(column_name, "object")
+                    )
+                else:
+                    dataset_with_anonymized_columns[column_name] = dataset_with_anonymized_columns[column_name].apply(fn)
         
         # Make sure timestamp column is formatted properly to be read back in
         if 'timestamp' in dataset_with_anonymized_columns.columns:
-            dataset_with_anonymized_columns = (
-                dataset_with_anonymized_columns.withColumn("timestamp",  date_format(col("timestamp"), 'yyyy-MM-dd HH:mm:ss')))
+            if isinstance(dataset_with_anonymized_columns, dd.DataFrame):
+                ts = dd.to_datetime(dataset_with_anonymized_columns["timestamp"], errors="coerce")
+                dataset_with_anonymized_columns["timestamp"] = ts.dt.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                ts = pd.to_datetime(dataset_with_anonymized_columns["timestamp"], errors="coerce")
+                dataset_with_anonymized_columns["timestamp"] = ts.dt.strftime("%Y-%m-%d %H:%M:%S")
 
         # Cider adds a 'day' column by extracting the day from the timestamp. Remove it; it's not expected to be present in input files.
         # TODO: Perhaps we should add suffixes or otherwise distinguish generated columns in Cider, to make this robust.
         if 'day' in dataset_with_anonymized_columns.columns:
-            dataset_with_anonymized_columns = dataset_with_anonymized_columns.drop(col('day'))
+            dataset_with_anonymized_columns = dataset_with_anonymized_columns.drop(columns=["day"])
         
         save_df(dataset_with_anonymized_columns, self.outputs_path / 'outputs' / f'{dataset_name}.csv')
 
@@ -186,7 +189,7 @@ class Anonymizer:
         else:
             raw_string = str(raw).strip('+')
             if raw_string.isdigit():
-                raw_int = int(raw)
+                raw_int = int(raw_string)
 
             else:
                 print(raw)

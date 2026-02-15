@@ -38,9 +38,8 @@ import pandas as pd
 import rasterio  # type: ignore[import]
 from helpers.plot_utils import voronoi_tessellation
 from helpers.satellite_utils import quadkey_to_polygon
-from helpers.utils import get_spark_session, make_dir
+from helpers.utils import get_dask_client, make_dir
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
 from rasterio.mask import mask  # type: ignore[import]
 from rasterio.merge import merge  # type: ignore[import]
 from shapely.geometry import mapping  # type: ignore[import]
@@ -52,7 +51,7 @@ class Satellite:
 
     def __init__(self,
                  datastore: DataStore,
-                 dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, SparkDataFrame]]]] = None,
+                 dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, "dd.DataFrame"]]]] = None,
                  clean_folders: bool = False):
         self.cfg = datastore.cfg
         self.ds = datastore
@@ -63,9 +62,8 @@ class Satellite:
         make_dir(self.outputs / 'maps')
         make_dir(self.outputs / 'tables')
 
-        # Spark setup
-        spark = get_spark_session(self.cfg)
-        self.spark = spark
+        # Dask client (kept for parity; not directly used in this module)
+        self.client = get_dask_client(self.cfg)
 
         # Load data into datastore
         dataframes = dataframes if dataframes else defaultdict(lambda: None)
@@ -100,9 +98,9 @@ class Satellite:
                 raise ValueError("Antennas have not been loaded!")
             # Get pandas dataframes of antennas/towers
             if geo == 'antenna_id':
-                points = self.ds.antennas.toPandas().dropna(subset=['antenna_id', 'latitude', 'longitude'])
+                points = self.ds.antennas.compute().dropna(subset=['antenna_id', 'latitude', 'longitude'])
             else:
-                points = self.ds.antennas.toPandas()[
+                points = self.ds.antennas.compute()[
                     ['tower_id', 'latitude', 'longitude']].dropna().drop_duplicates().copy()
 
             # Calculate voronoi tesselation

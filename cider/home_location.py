@@ -29,18 +29,15 @@
 from collections import defaultdict
 from typing import Dict, Optional, Tuple, Union
 
+import dask.dataframe as dd
 import geopandas as gpd  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
 import rasterio  # type: ignore[import]
 from helpers.plot_utils import voronoi_tessellation
-from helpers.utils import get_spark_session, make_dir
+from helpers.utils import get_dask_client, make_dir
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import (col, count, countDistinct, desc_nulls_last,
-                                   hour, row_number)
-from pyspark.sql.window import Window
 from rasterio.mask import mask  # type: ignore[import]
 from shapely.geometry import mapping  # type: ignore[import]
 
@@ -51,11 +48,11 @@ class HomeLocator:
 
     def __init__(self,
                  datastore: DataStore,
-                 dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, SparkDataFrame]]]] = None,
+                 dataframes: Optional[Dict[str, Optional[Union[PandasDataFrame, dd.DataFrame]]]] = None,
                  clean_folders: bool = False):
         self.cfg = datastore.cfg
         self.ds = datastore
-        self.outputs = datastore.outputs + 'homelocation/'
+        self.outputs = self.cfg.path.working.directory_path / "homelocation"
 
         # Initialize values
         self.user_id = 'subscriber_id'
@@ -64,13 +61,12 @@ class HomeLocator:
 
         # Prepare working directories
         make_dir(self.outputs, clean_folders)
-        make_dir(self.outputs + '/outputs/')
-        make_dir(self.outputs + '/maps/')
-        make_dir(self.outputs + '/tables/')
+        make_dir(self.outputs / "outputs")
+        make_dir(self.outputs / "maps")
+        make_dir(self.outputs / "tables")
 
-        # Spark setup
-        spark = get_spark_session(self.cfg)
-        self.spark = spark
+        # Dask client (kept for parity; not directly used in this module)
+        self.client = get_dask_client(self.cfg)
 
         # Load data into datastore
         dataframes = dataframes if dataframes else defaultdict(lambda: None)
@@ -82,23 +78,18 @@ class HomeLocator:
         self.ds.load_data(data_type_map=data_type_map)
 
         # Clean and merge CDR data
-        outgoing = (self.ds.cdr
-                    .select(['caller_id', 'caller_antenna', 'timestamp', 'day'])
-                    .withColumnRenamed('caller_id', 'subscriber_id')
-                    .withColumnRenamed('caller_antenna', 'antenna_id'))
-        incoming = (self.ds.cdr
-                    .select(['recipient_id', 'recipient_antenna', 'timestamp', 'day'])
-                    .withColumnRenamed('recipient_id', 'subscriber_id')
-                    .withColumnRenamed('recipient_antenna', 'antenna_id'))
-        self.ds.cdr = (outgoing
-                       .select(incoming.columns)
-                       .union(incoming)
-                       .na.drop()
-                       .withColumn('hour', hour('timestamp')))
+        outgoing = self.ds.cdr[["caller_id", "caller_antenna", "timestamp", "day"]].rename(
+            columns={"caller_id": "subscriber_id", "caller_antenna": "antenna_id"}
+        )
+        incoming = self.ds.cdr[["recipient_id", "recipient_antenna", "timestamp", "day"]].rename(
+            columns={"recipient_id": "subscriber_id", "recipient_antenna": "antenna_id"}
+        )
+        self.ds.cdr = dd.concat([outgoing, incoming], axis=0).dropna()
+        self.ds.cdr["hour"] = dd.to_datetime(self.ds.cdr["timestamp"]).dt.hour
 
         # Filter CDR to only desired hours
         if self.ds.filter_hours is not None:
-            self.ds.cdr = self.ds.cdr.where(col('hour').isin(self.ds.filter_hours))
+            self.ds.cdr = self.ds.cdr[self.ds.cdr["hour"].isin(self.ds.filter_hours)]
 
     def get_home_locations(self, geo: str, algo: str = 'count_transactions') -> PandasDataFrame:
         """
@@ -114,24 +105,23 @@ class HomeLocator:
         # Get tower ID for each transaction
         if geo == 'tower_id':
             if 'tower_id' not in self.ds.cdr.columns:
-                self.ds.cdr = (self.ds.cdr
-                               .join(self.ds.antennas
-                                     .select(['antenna_id', 'tower_id']).na.drop(), on='antenna_id', how='inner'))
+                antennas_towers = self.ds.antennas[["antenna_id", "tower_id"]].dropna()
+                self.ds.cdr = self.ds.cdr.merge(antennas_towers, on="antenna_id", how="inner")
 
         # Get polygon for each transaction based on antenna latitude and longitudes
         elif geo in self.ds.shapefiles.keys():
             if geo not in self.ds.cdr.columns:
-                antennas_df = self.ds.antennas.na.drop().toPandas()
+                antennas_df = self.ds.antennas.dropna().compute()
                 antennas = gpd.GeoDataFrame(antennas_df,
                                             geometry=gpd.points_from_xy(antennas_df['longitude'],
                                                                         antennas_df['latitude']))
                 antennas.crs = {"init": "epsg:4326"}
-                antennas = gpd.sjoin(antennas, self.ds.shapefiles[geo], op='within', how='left')[
+                antennas = gpd.sjoin(antennas, self.ds.shapefiles[geo], predicate='within', how='left')[
                     ['antenna_id', 'region']].rename({'region': geo}, axis=1)
-                antennas = self.spark.createDataFrame(antennas.dropna())
-                length_before = self.ds.cdr.count()
-                self.ds.cdr = self.ds.cdr.join(antennas, on='antenna_id', how='inner')
-                length_after = self.ds.cdr.count()
+                antennas_dd = dd.from_pandas(antennas.dropna()[["antenna_id", geo]], npartitions=4)
+                length_before = len(self.ds.cdr)
+                self.ds.cdr = self.ds.cdr.merge(antennas_dd, on='antenna_id', how='inner')
+                length_after = len(self.ds.cdr)
                 if length_before != length_after:
                     print('Warning: %i (%.2f percent of) transactions not located in a polygon' %
                           (length_before - length_after, 100 * (length_before - length_after) / length_before))
@@ -139,39 +129,38 @@ class HomeLocator:
         elif geo != 'antenna_id':
             raise ValueError('Invalid geography, must be antenna_id, tower_id, or shapefile name')
 
-        if algo == 'count_transactions':
-            grouped = self.ds.cdr.groupby([self.user_id, geo]).agg(count('timestamp').alias('count_transactions'))
-            window = Window.partitionBy(self.user_id).orderBy(desc_nulls_last('count_transactions'))
-            grouped = grouped.withColumn('order', row_number().over(window))\
-                .where(col('order') == 1)\
-                .select([self.user_id, geo, 'count_transactions'])
-        
-        elif algo == 'count_days':
-            grouped = self.ds.cdr.groupby([self.user_id, geo]).agg(countDistinct('day').alias('count_days'))
-            window = Window.partitionBy(self.user_id).orderBy(desc_nulls_last('count_days'))
-            grouped = grouped.withColumn('order', row_number().over(window))\
-                .where(col('order') == 1)\
-                .select([self.user_id, geo, 'count_days'])
+        if algo == "count_transactions":
+            grouped = self.ds.cdr.groupby([self.user_id, geo]).size().reset_index(name="count_transactions")
+            grouped_pd = grouped.compute()
+            grouped_pd = grouped_pd.sort_values([self.user_id, "count_transactions", geo], ascending=[True, False, True])
+            grouped_df = grouped_pd.groupby(self.user_id, as_index=False).first()
 
-        elif algo == 'count_modal_days':
-            grouped = self.ds.cdr.groupby([self.user_id, 'day', geo])\
-                .agg(count('timestamp').alias('count_transactions_per_day'))
-            window = Window.partitionBy([self.user_id, 'day']).orderBy(desc_nulls_last('count_transactions_per_day'))
-            grouped = grouped.withColumn('order', row_number().over(window))\
-                .where(col('order') == 1)\
-                .groupby([self.user_id, geo])\
-                .agg(count('order').alias('count_modal_days'))
-            window = Window.partitionBy([self.user_id]).orderBy(desc_nulls_last('count_modal_days'))
-            grouped = grouped.withColumn('order', row_number().over(window))\
-                .where(col('order') == 1)\
-                .select([self.user_id, geo, 'count_modal_days'])
+        elif algo == "count_days":
+            grouped = self.ds.cdr.groupby([self.user_id, geo])["day"].nunique().reset_index(name="count_days")
+            grouped_pd = grouped.compute()
+            grouped_pd = grouped_pd.sort_values([self.user_id, "count_days", geo], ascending=[True, False, True])
+            grouped_df = grouped_pd.groupby(self.user_id, as_index=False).first()
+
+        elif algo == "count_modal_days":
+            per_day = (
+                self.ds.cdr.groupby([self.user_id, "day", geo]).size().reset_index(name="count_transactions_per_day")
+            ).compute()
+            per_day = per_day.sort_values(
+                [self.user_id, "day", "count_transactions_per_day", geo],
+                ascending=[True, True, False, True],
+            )
+            modal = per_day.groupby([self.user_id, "day"], as_index=False).first()
+            modal_counts = modal.groupby([self.user_id, geo], as_index=False).agg(count_modal_days=("day", "count"))
+            modal_counts = modal_counts.sort_values(
+                [self.user_id, "count_modal_days", geo], ascending=[True, False, True]
+            )
+            grouped_df = modal_counts.groupby(self.user_id, as_index=False).first()
 
         else:
             raise ValueError('Home location algorithm not recognized. Must be one of count_transactions, count_days, '
                              'or count_modal_days')
 
-        grouped_df = grouped.toPandas()
-        grouped_df.to_csv(self.outputs + '/outputs/' + geo + '_' + algo + '.csv', index=False)
+        grouped_df.to_csv(self.outputs / "outputs" / f"{geo}_{algo}.csv", index=False)
         self.home_locations[(geo, algo)] = grouped_df
         return grouped_df
 

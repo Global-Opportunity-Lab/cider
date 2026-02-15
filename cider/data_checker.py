@@ -29,12 +29,10 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
+import dask.dataframe as dd
 import numpy as np
 import pandas as pd
-import pyspark.sql.functions as F
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.types import DecimalType
 
 from cider.datastore import DataStore, DataType
 from helpers.plot_utils import clean_plot, dates_xaxis
@@ -53,16 +51,17 @@ class DataChecker:
         self.datastore = datastore
         self.data_format = datastore.data_format
                 
-        # TODO: Change
         self.outputs_path = self.cfg.path.working.directory_path / 'data_checker'
-        make_dir(outputs_path, clean_folders)
+        make_dir(self.outputs_path, clean_folders)
+        make_dir(self.outputs_path / "datasets")
+        make_dir(self.outputs_path / "plots")
 
 
     # TODO: change signature maybe
     def load_data(
         self,
         data_type: DataType,
-        dataframe: Optional[Union[PandasDataFrame, SparkDataFrame]] = None
+        dataframe: Optional[Union[PandasDataFrame, dd.DataFrame]] = None
     ):
 
         data_type_map = {
@@ -72,18 +71,17 @@ class DataChecker:
         self.datastore.load_data(data_type_map=data_type_map, all_required=True)
 
 
-    def round_fraction_spark(self, col):
-        # Rounds to 3 total digits, 2 of which are right of the decimal.
-        return F.round(col, 2).cast(DecimalType(3, 2))
+    def round_fraction(self, x: Union[float, pd.Series]) -> Union[float, pd.Series]:
+        return np.round(x, 2)
 
     
-    def display_dataframe(self, df: Union[PandasDataFrame, SparkDataFrame]):
+    def display_dataframe(self, df: Union[PandasDataFrame, dd.DataFrame]):
         
         # TODO: Improve
         ipython = True
         
-        if isinstance(df, SparkDataFrame):
-            df = df.toPandas()
+        if isinstance(df, dd.DataFrame):
+            df = df.compute()
 
         if ipython:
             display(df)
@@ -101,40 +99,36 @@ class DataChecker:
         
         df = getattr(self.datastore, df_name)
 
-        null_fractions = df.select(
-            [F.count('*').alias('total_count')] + 
-            [F.count(F.when(F.col(c).isNull(), c)).alias(c) for c in df.columns]
-        )
+        if isinstance(df, dd.DataFrame):
+            total_count = len(df)
+            null_counts = df.isna().sum().compute()
+        else:
+            total_count = len(df)
+            null_counts = df.isna().sum()
 
-        for c in null_fractions.columns:
-
-            if c == 'total_count':
-                continue
-
-            null_fractions = null_fractions.withColumn(
-                c, self.round_fraction_spark(F.col(c) / F.col('total_count'))
-            )
+        null_fractions = pd.DataFrame([{"total_count": total_count, **null_counts.to_dict()}])
+        for c in null_counts.index:
+            null_fractions[c] = self.round_fraction(null_fractions[c] / null_fractions["total_count"])
         
         print(f'Nulls by column in {df_name} table\n')
         self.display_dataframe(null_fractions)
         if column_to_disaggregate:
+            if isinstance(df, dd.DataFrame):
+                pdf = df.compute()
+            else:
+                pdf = df
 
-            null_fractions_disaggregated = df.groupby(
-                column_to_disaggregate
-            ).agg(
-                * [
-                    F.count('*').alias('total_count')] + [
-                        F.count(F.when(F.col(c).isNull(), c)).alias(c) 
-                        for c in df.columns if c != column_to_disaggregate
-                ] 
-            )
-
-            for c in null_fractions_disaggregated.columns:
-                if c == column_to_disaggregate or c == 'total_count':
-                    continue
-                null_fractions_disaggregated = null_fractions_disaggregated.withColumn(
-                    c, self.round_fraction_spark(F.col(c) / F.col('total_count'))
-                )
+            rows = []
+            for key, g in pdf.groupby(column_to_disaggregate):
+                total = len(g)
+                nulls = g.isna().sum().to_dict()
+                row = {column_to_disaggregate: key, "total_count": total, **nulls}
+                for c in g.columns:
+                    if c in (column_to_disaggregate,):
+                        continue
+                    row[c] = self.round_fraction((nulls.get(c, 0) / total) if total else 0.0)
+                rows.append(row)
+            null_fractions_disaggregated = pd.DataFrame(rows)
 
             print(f'Nulls by column in {df_name} table, disaggregated by {column_to_disaggregate}\n')
             self.display_dataframe(null_fractions_disaggregated)
@@ -143,29 +137,28 @@ class DataChecker:
     def summarize_timestamp_column(self, df_name, column_name):
         
         df = getattr(self.datastore, df_name)
+        if isinstance(df, dd.DataFrame):
+            ts = dd.to_datetime(df[column_name], errors="coerce")
+            count_not_null = ts.notna().sum().compute()
+            earliest = ts.min().compute()
+            latest = ts.max().compute()
+            has_time = ((ts.dt.hour.fillna(0) != 0) | (ts.dt.minute.fillna(0) != 0) | (ts.dt.second.fillna(0) != 0))
+            num_with_time = has_time.sum().compute()
+        else:
+            ts = pd.to_datetime(df[column_name], errors="coerce")
+            count_not_null = ts.notna().sum()
+            earliest = ts.min()
+            latest = ts.max()
+            has_time = ((ts.dt.hour.fillna(0) != 0) | (ts.dt.minute.fillna(0) != 0) | (ts.dt.second.fillna(0) != 0))
+            num_with_time = int(has_time.sum())
 
-        df = df.withColumn(
-            'has_time',  
-            F.when(
-                (
-                    F.hour(column_name).isNotNull() & (F.hour(column_name) != 0)
-                    | F.minute(column_name).isNotNull() & (F.minute(column_name) != 0) 
-                    | F.second(column_name).isNotNull() & (F.second(column_name) != 0)
-                ),
-                1
-            ).otherwise(0)
-
-        )
-
-        summary = df.select([
-            F.lit(column_name).alias('column_name'),
-            F.count(column_name).alias('count_not_null'),
-            F.min(F.col(column_name)).alias('earliest'), 
-            F.max(F.col(column_name)).alias('latest'), 
-            F.sum(F.col('has_time')).alias('num_with_time')
-        ])
-
-        summary = summary.withColumn('fraction_with_time_of_day', F.col('num_with_time') / F.col('count_not_null')).drop('num_with_time')
+        summary = pd.DataFrame([{
+            "column_name": column_name,
+            "count_not_null": int(count_not_null),
+            "earliest": earliest,
+            "latest": latest,
+            "fraction_with_time_of_day": (num_with_time / count_not_null) if count_not_null else 0.0
+        }])
         
         print(f'Temporal summary of {df_name}.{column_name}\n')
         
@@ -181,13 +174,16 @@ class DataChecker:
         for df_name, column_name in zip(df_names, column_names):
             labels.append(f'{df_name}.{column_name}')
             df = getattr(self.datastore, df_name)
-            unique_subscriber_lists.append(df.select(F.col(column_name).alias('subscribers')).distinct())
+            if isinstance(df, dd.DataFrame):
+                unique_subscriber_lists.append(df[[column_name]].rename(columns={column_name: "subscribers"}).drop_duplicates())
+            else:
+                unique_subscriber_lists.append(df[[column_name]].rename(columns={column_name: "subscribers"}).drop_duplicates())
 
         if hasattr(self.datastore, 'phone_numbers_to_featurize'):
 
             phone_numbers_to_featurize = getattr(self.datastore, 'phone_numbers_to_featurize')
             phone_numbers_to_featurize_colname = phone_numbers_to_featurize.columns[0]
-            num_phone_numbers_to_featurize = phone_numbers_to_featurize.count()
+            num_phone_numbers_to_featurize = len(phone_numbers_to_featurize)
 
             numbers_to_featurize_comparison_table = [
                 {
@@ -204,12 +200,23 @@ class DataChecker:
 
                 row = dict()
 
-                total_unique_subscribers = unique_subscriber_list.count()
-                number_matching = unique_subscriber_list.alias("subs").join(
-                    phone_numbers_to_featurize.alias("to_feat"), 
-                    F.col("subs.subscribers") == F.col(f"to_feat.{phone_numbers_to_featurize_colname}"),
-                    how='inner'
-                ).count()
+                total_unique_subscribers = len(unique_subscriber_list)
+                if isinstance(unique_subscriber_list, dd.DataFrame) or isinstance(phone_numbers_to_featurize, dd.DataFrame):
+                    number_matching = len(
+                        unique_subscriber_list.merge(
+                            phone_numbers_to_featurize.rename(columns={phone_numbers_to_featurize_colname: "subscribers"}),
+                            on="subscribers",
+                            how="inner",
+                        ).drop_duplicates()
+                    )
+                else:
+                    number_matching = len(
+                        unique_subscriber_list.merge(
+                            phone_numbers_to_featurize.rename(columns={phone_numbers_to_featurize_colname: "subscribers"}),
+                            on="subscribers",
+                            how="inner",
+                        ).drop_duplicates()
+                    )
                 row['name']= label
                 row['# unique subscribers'] = total_unique_subscribers
                 row['# matching nums to featurize'] = number_matching
@@ -234,22 +241,12 @@ class DataChecker:
             for j, unique_subscriber_list_j in enumerate(unique_subscriber_lists):
 
                 if i == j:
-                    pairwise_table[i,i] = unique_subscriber_list_i.count()
+                    pairwise_table[i,i] = len(unique_subscriber_list_i)
 
                 elif i > j:
-
-                    pairwise_table[i,j] = (
-                        unique_subscriber_list_i
-                        .alias("dfi")
-                        .join(
-                            unique_subscriber_list_j.alias("dfj"), 
-                            F.col("dfi.subscribers") == F.col("dfj.subscribers"), 
-                            how='inner'
-                        )
-                        .select(F.col("dfi.subscribers"))
-                        .distinct()
-                        .count()
-                    )    
+                    pairwise_table[i,j] = len(
+                        unique_subscriber_list_i.merge(unique_subscriber_list_j, on="subscribers", how="inner").drop_duplicates()
+                    )
         print(
             'Summary of subscriber counts between datasets\n'
             '* Diagonal contains # unique subscribers for each dataset/column\n'
@@ -271,15 +268,17 @@ class DataChecker:
 
         # TODO: Remove drop-duplicates once I drop duplicates on antenna load.
         antennas = antennas.drop_duplicates(subset=['antenna_id'])
-        transaction_count = cdr.count()
+        transaction_count = len(cdr)
 
         rows = []
         for antenna_column in ('caller_antenna', 'recipient_antenna'):
 
-            joined = cdr.alias('cdr').join(antennas.alias('antennas'), F.col(f'cdr.{antenna_column}') == F.col('antennas.antenna_id'), how='inner')
-
-            count_with_antenna = joined.count()
-            count_with_lat_lon = joined.select(['latitude', 'longitude']).na.drop().count()
+            joined = cdr.merge(antennas, left_on=antenna_column, right_on="antenna_id", how="inner")
+            count_with_antenna = len(joined)
+            if isinstance(joined, dd.DataFrame):
+                count_with_lat_lon = len(joined.dropna(subset=["latitude", "longitude"]))
+            else:
+                count_with_lat_lon = len(joined.dropna(subset=["latitude", "longitude"]))
 
             row = {
                 'column': f'cdr.{antenna_column}',
@@ -308,17 +307,15 @@ class DataChecker:
         name_without_spaces = df_name.replace(' ', '').lower()
 
         if 'txn_type' not in df.columns:
-            df = df.withColumn('txn_type', lit('txn'))
+            df["txn_type"] = "txn"
 
         # Save timeseries of transactions by day
-        save_df(df.groupby(['txn_type', 'day']).count(),
+        save_df(df.groupby(['txn_type', 'day']).size().reset_index(name="count"),
             outputs_path / 'datasets' / f'{name_without_spaces}_transactionsbyday.csv')
 
         # Save timeseries of subscribers by day
         save_df(
-            df.groupby(['txn_type', 'day'])
-            .agg(F.countDistinct('caller_id'))
-            .withColumnRenamed('count(caller_id)', 'count'),
+            df.groupby(['txn_type', 'day'])['caller_id'].nunique().reset_index(name="count"),
             outputs_path / 'datasets' / f'{name_without_spaces}_subscribersbyday.csv'
         )
 
