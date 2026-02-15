@@ -25,13 +25,14 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from functools import reduce
-from pyspark.sql import DataFrame as SparkDataFrame
-from pyspark.sql.functions import lit
+import dask.dataframe as dd
 from typing import List
 
+# Type alias
+DaskDataFrame = dd.DataFrame
 
-def generate_user_consent_list(data: List[SparkDataFrame], user_id_col: str, opt_in: bool) -> SparkDataFrame:
+
+def generate_user_consent_list(data: List[DaskDataFrame], user_id_col: str, opt_in: bool) -> DaskDataFrame:
     """
     Generate table of user IDs and column specifying whether they have given their consent and should be included in
     the analysis
@@ -41,20 +42,19 @@ def generate_user_consent_list(data: List[SparkDataFrame], user_id_col: str, opt
         user_id_col: column containing user ID
         opt_in: whether the user's consent is set to true as default
 
-    Returns: spark df with user consent
-
+    Returns: 
+        Dask df with user consent
     """
     # Obtain all existing user IDs in the datasets
     user_dfs = []
     for df in data:
-        user_dfs.append(df.select(user_id_col).distinct())
-    users = reduce(SparkDataFrame.union, user_dfs)
-    users = users.select(user_id_col).distinct()
+        user_dfs.append(df[[user_id_col]].drop_duplicates())
+    
+    # Concatenate and get unique users
+    users = dd.concat(user_dfs, axis=0)
+    users = users.drop_duplicates()
 
     # Add default consent value
-    if opt_in:
-        users = users.withColumn('include', lit(True))
-    else:
-        users = users.withColumn('include', lit(False))
+    users['include'] = opt_in
 
     return users
