@@ -48,6 +48,7 @@ from sklearn.impute import SimpleImputer  # type: ignore[import]
 from sklearn.linear_model import Lasso  # type: ignore[import]
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.model_selection import GridSearchCV  # type: ignore[import]
+from sklearn.model_selection import RandomizedSearchCV  # type: ignore[import]
 from sklearn.model_selection import (KFold, cross_val_predict, cross_val_score,
                                      cross_validate)
 from sklearn.pipeline import Pipeline  # type: ignore[import]
@@ -270,22 +271,23 @@ class Learner:
         including the ensembles, are saved to disk.
 
         Args:
-            model_name: The name of the AutoML library to use - currently it only supports 'autogluon' (AutoGluon).
+            model_name: The name of the AutoML backend to use.
+                - 'autogluon': Optional AutoGluon TabularPredictor (requires extra install)
+                - 'sklearn': In-repo AutoML using scikit-learn RandomizedSearchCV across the project's existing
+                  pipelines/hyperparameter grids.
         """
-
         # Make sure model_name is correct, get relevant cfg
-        assert model_name in ['autogluon']
-        try:
-            from autogluon.tabular import TabularPredictor  # type: ignore[import]
-        except ModuleNotFoundError:
-            raise ImportError(
-                "Optional dependency autogluon is required for automl. Please install it (e.g. using pip). "
-                "Note that autogluon does not support python 3.9, so you must be using python 3.8 for this "
-                "to work."
-            )
+        assert model_name in ['autogluon', 'sklearn']
         make_dir(self.outputs/ 'automl_models' / model_name)
 
         if model_name == 'autogluon':
+            try:
+                from autogluon.tabular import TabularPredictor  # type: ignore[import]
+            except ModuleNotFoundError:
+                raise ImportError(
+                    "Optional dependency autogluon is required for automl. Please install it (e.g. using pip). "
+                    "Note: autogluon support depends on your Python version."
+                )
             cfg = self.cfg.params.automl.autogluon
             train_data = pd.concat([self.ds.x, self.ds.y, self.ds.weights], axis=1)
             model = TabularPredictor(label=cfg.label,
@@ -303,6 +305,90 @@ class Learner:
                 print(
                     "WARNING: The R2 score of the best model is below 0.1, which is a strong sign of poor predictive "
                     "performance; it is recommended to investigate any data issues before proceeding further.")
+
+        if model_name == 'sklearn':
+            try:
+                cfg = self.cfg.params.automl.sklearn
+            except Exception as e:
+                raise ValueError(
+                    "Missing config section params.automl.sklearn. "
+                    "Please update your YAML config (configs/*.yml) to include it."
+                ) from e
+
+            # We reuse the project's tuned pipelines + hyperparam grids, and pick the best across model families.
+            models_to_try = list(getattr(cfg, "models", list(self.tuned_models.keys())))
+            n_iter = int(getattr(cfg, "n_iter", 25))
+            scoring = str(getattr(cfg, "scoring", "r2"))
+            random_state = int(getattr(cfg, "random_state", 1))
+
+            if n_iter <= 0:
+                raise ValueError("params.automl.sklearn.n_iter must be a positive integer.")
+
+            results_rows = []
+            best_score = -np.inf
+            best_name = None
+            best_estimator = None
+
+            for m in models_to_try:
+                if m not in self.tuned_models:
+                    raise ValueError(
+                        f"Unknown sklearn automl model '{m}'. Expected one of: {sorted(self.tuned_models.keys())}"
+                    )
+                if m not in self.grids:
+                    raise ValueError(
+                        f"Missing hyperparams grid for model '{m}'. Expected cfg.hyperparams['{m}'] to exist."
+                    )
+
+                search = RandomizedSearchCV(
+                    estimator=self.tuned_models[m],
+                    param_distributions=self.grids[m],
+                    n_iter=n_iter,
+                    cv=self.kfold_tune,
+                    verbose=0,
+                    scoring=scoring,
+                    n_jobs=-1,
+                    random_state=random_state,
+                    refit=True,
+                    return_train_score=True,
+                )
+                search.fit(self.ds.x, self.ds.y, model__sample_weight=self.ds.weights)
+
+                # Record and persist per-family tuning results
+                tuning_results = pd.DataFrame(search.cv_results_)
+                tuning_results.to_csv(
+                    self.outputs / "automl_models" / model_name / f"{m}_tuning.csv", index=False
+                )
+
+                results_rows.append(
+                    {
+                        "model_family": m,
+                        "best_score": float(search.best_score_),
+                        "best_params": json.dumps(search.best_params_),
+                    }
+                )
+
+                if float(search.best_score_) > best_score:
+                    best_score = float(search.best_score_)
+                    best_name = m
+                    best_estimator = search.best_estimator_
+
+            if best_estimator is None or best_name is None:
+                raise RuntimeError("sklearn automl produced no candidate models. Check params.automl.sklearn.models.")
+
+            # Save selection summary and model
+            pd.DataFrame(results_rows).sort_values("best_score", ascending=False).to_csv(
+                self.outputs / "automl_models" / model_name / "leaderboard.csv", index=False
+            )
+
+            if scoring == "r2" and best_score < 0.1:
+                print(
+                    "WARNING: The best sklearn AutoML R2 score is below 0.1, which is a strong sign of poor predictive "
+                    "performance; it is recommended to investigate any data issues before proceeding further."
+                )
+
+            dump(best_estimator, self.outputs / "automl_models" / model_name / "model")
+            with open(self.outputs / "automl_models" / model_name / "best_model.json", "w") as f:
+                json.dump({"best_model_family": best_name, "best_score": best_score}, f)
 
         print('Finished automl training!')
 

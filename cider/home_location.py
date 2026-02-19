@@ -118,7 +118,7 @@ class HomeLocator:
                 antennas.crs = {"init": "epsg:4326"}
                 antennas = gpd.sjoin(antennas, self.ds.shapefiles[geo], predicate='within', how='left')[
                     ['antenna_id', 'region']].rename({'region': geo}, axis=1)
-                antennas_dd = dd.from_pandas(antennas.dropna()[["antenna_id", geo]], npartitions=4)
+                antennas_dd = dd.from_pandas(antennas.dropna()[["antenna_id", geo]])
                 length_before = len(self.ds.cdr)
                 self.ds.cdr = self.ds.cdr.merge(antennas_dd, on='antenna_id', how='inner')
                 length_after = len(self.ds.cdr)

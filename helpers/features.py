@@ -27,6 +27,7 @@
 
 from typing import Optional, List
 import numpy as np
+import pandas as pd
 import dask.dataframe as dd
 
 from box import Box
@@ -57,7 +58,13 @@ def all_dask(
     """
     features = []
     df_input = df.copy()
-    
+    # Partitioning column for Dask shuffle (merge and sort_values) is caller_id: set_partitions_pre
+    # in shuffle.py uses it for divisions.searchsorted(); int/str mix across partitions raises TypeError.
+    df = df.assign(
+        caller_id=df['caller_id'].astype(str),
+        recipient_id=df['recipient_id'].astype(str),
+    )
+
     # Add weekday and daytime columns for subsequent groupby(s)
     df['weekday'] = df['day'].dt.dayofweek.apply(
         lambda x: 'weekend' if x in cfg.weekend else 'weekday',
@@ -84,14 +91,22 @@ def all_dask(
     df_in['recipient_antenna'] = df_in['caller_antenna_temp']
     df_in = df_in.drop(columns=['caller_id_temp', 'caller_antenna_temp'])
     
-    # Combine
-    df = dd.concat([df_out, df_in], axis=0)
+    # Combine (ignore_index=True to avoid duplicate labels; downstream assigns/compute require unique index)
+    df = dd.concat([df_out, df_in], axis=0, ignore_index=True)
 
     # 'caller_id' contains the subscriber in question for featurization purposes
     df = filter_by_phone_numbers_to_featurize(phone_numbers_to_featurize, df, 'caller_id')
+    df = df.assign(
+        caller_id=df['caller_id'].astype(str),
+        recipient_id=df['recipient_id'].astype(str),
+    )
 
     # Assign interactions to conversations if relevant
     df = tag_conversations(df)
+    df = df.assign(
+        caller_id=df['caller_id'].astype(str),
+        recipient_id=df['recipient_id'].astype(str),
+    )
     
     # Compute features and append them to list
     features.append(active_days(df))
@@ -128,7 +143,7 @@ def active_days(df: DaskDataFrame) -> DaskDataFrame:
     """
     df = add_all_cat(df, cols='week_day')
 
-    out = df.groupby(['caller_id', 'weekday', 'daytime'])['day'].nunique().reset_index(name='active_days')
+    out = df.groupby(['caller_id', 'weekday', 'daytime'])['day'].nunique().rename('active_days').reset_index()
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['active_days'],
                    indicator_name='active_days')
@@ -142,7 +157,7 @@ def number_of_contacts(df: DaskDataFrame) -> DaskDataFrame:
     """
     df = add_all_cat(df, cols='week_day')
 
-    out = df.groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['recipient_id'].nunique().reset_index(name='number_of_contacts')
+    out = df.groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['recipient_id'].nunique().rename('number_of_contacts').reset_index()
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['number_of_contacts'],
                    indicator_name='number_of_contacts')
@@ -157,11 +172,11 @@ def call_duration(df: DaskDataFrame) -> DaskDataFrame:
     df = df[df['txn_type'] == 'call']
     df = add_all_cat(df, cols='week_day')
 
-    stats_dict = summary_stats('duration')
-    out = df.groupby(['caller_id', 'weekday', 'daytime', 'txn_type']).agg(stats_dict).reset_index()
-    
-    # Flatten column names
-    out.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in out.columns.values]
+    out = groupby_agg_summary_stats_dask(
+        df, ['caller_id', 'weekday', 'daytime', 'txn_type'], 'duration'
+    )
+    if hasattr(out.columns, 'levels'):  # MultiIndex
+        out.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in out.columns.values]
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
@@ -177,7 +192,7 @@ def percent_nocturnal(df: DaskDataFrame) -> DaskDataFrame:
     df = add_all_cat(df, cols='week')
 
     df['nocturnal'] = (df['daytime'] == 'night').astype(int)
-    out = df.groupby(['caller_id', 'weekday', 'txn_type'])['nocturnal'].mean().reset_index(name='percent_nocturnal')
+    out = df.groupby(['caller_id', 'weekday', 'txn_type'])['nocturnal'].mean().rename('percent_nocturnal').reset_index()
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'txn_type'], values=['percent_nocturnal'],
                    indicator_name='percent_nocturnal')
@@ -195,7 +210,7 @@ def percent_initiated_conversations(df: DaskDataFrame) -> DaskDataFrame:
     df_conv_start = df[df['conversation'] == df['timestamp'].astype('int64') // 10**9]
     df_conv_start['initiated'] = (df_conv_start['direction'] == 'out').astype(int)
     
-    out = df_conv_start.groupby(['caller_id', 'weekday', 'daytime'])['initiated'].mean().reset_index(name='percent_initiated_conversations')
+    out = df_conv_start.groupby(['caller_id', 'weekday', 'daytime'])['initiated'].mean().rename('percent_initiated_conversations').reset_index()
     
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['percent_initiated_conversations'],
                    indicator_name='percent_initiated_conversations')
@@ -211,7 +226,7 @@ def percent_initiated_interactions(df: DaskDataFrame) -> DaskDataFrame:
     df = add_all_cat(df, cols='week_day')
 
     df['initiated'] = (df['direction'] == 'out').astype(int)
-    out = df.groupby(['caller_id', 'weekday', 'daytime'])['initiated'].mean().reset_index(name='percent_initiated_interactions')
+    out = df.groupby(['caller_id', 'weekday', 'daytime'])['initiated'].mean().rename('percent_initiated_interactions').reset_index()
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['percent_initiated_interactions'],
                    indicator_name='percent_initiated_interactions')
@@ -221,55 +236,56 @@ def percent_initiated_interactions(df: DaskDataFrame) -> DaskDataFrame:
 
 def response_delay_text(df: DaskDataFrame) -> DaskDataFrame:
     """
-    Returns summary stats of users' delays in responding to texts, disaggregated by type and time of day
+    Returns summary stats of users' delays in responding to texts, disaggregated by type and time of day.
+    Computes to pandas before adding response_delay to avoid Dask assign/reindex on duplicate labels.
     """
     df = df[df['txn_type'] == 'text']
     df = add_all_cat(df, cols='week_day')
-
-    # Sort for lag operation
-    df = df.sort_values(['caller_id', 'recipient_id', 'conversation', 'timestamp'])
-    
-    # Calculate previous direction and response delay
-    df['prev_dir'] = df.groupby(['caller_id', 'recipient_id', 'conversation'])['direction'].shift(1)
-    df['response_delay'] = np.where(
-        (df['direction'] == 'out') & (df['prev_dir'] == 'in'),
-        df['wait'],
-        np.nan
-    )
-    
-    stats_dict = summary_stats('response_delay')
-    out = df.groupby(['caller_id', 'weekday', 'daytime']).agg(stats_dict).reset_index()
-    out.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in out.columns.values]
-
+    # Compute only needed columns (no response_delay/prev_dir) so no assign in graph → no duplicate-label reindex
+    cols_to_load = ['caller_id', 'recipient_id', 'conversation', 'timestamp', 'direction', 'wait', 'weekday', 'daytime']
+    subset = df[cols_to_load].compute()
+    subset['caller_id'] = subset['caller_id'].astype(str)
+    subset['recipient_id'] = subset['recipient_id'].astype(str)
+    # Rest in pandas
+    subset = subset.sort_values(['caller_id', 'recipient_id', 'conversation', 'timestamp'])
+    subset['prev_dir'] = subset.groupby(['caller_id', 'recipient_id', 'conversation'])['direction'].shift(1)
+    cond = (subset['direction'] == 'out') & (subset['prev_dir'] == 'in')
+    subset['response_delay'] = subset['wait'].where(cond)
+    out = subset.groupby(['caller_id', 'weekday', 'daytime']).agg(
+        mean=('response_delay', 'mean'),
+        min=('response_delay', 'min'),
+        max=('response_delay', 'max'),
+        std=('response_delay', 'std'),
+        median=('response_delay', lambda x: x.quantile(0.5)),
+        skewness=('response_delay', lambda x: x.skew()),
+        kurtosis=('response_delay', lambda x: x.kurtosis()),
+    ).reset_index()
+    out = dd.from_pandas(out)
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
                    indicator_name='response_delay_text')
-
     return out
 
 
 def response_rate_text(df: DaskDataFrame) -> DaskDataFrame:
     """
-    Returns the percentage of texts to which the users responded, disaggregated by type and time of day
+    Returns the percentage of texts to which the users responded, disaggregated by type and time of day.
+    Computes to pandas before adding dir_out/responded to avoid Dask assign/reindex on duplicate labels.
     """
     df = df[df['txn_type'] == 'text']
     df = add_all_cat(df, cols='week_day')
-
-    # Check if user responded in each conversation
-    df['dir_out'] = (df['direction'] == 'out').astype(int)
-    df['responded'] = df.groupby(['caller_id', 'recipient_id', 'conversation'])['dir_out'].transform('max')
-    
-    # Filter to conversation starts incoming
-    df_conv = df[
-        (df['conversation'] == df['timestamp'].astype('int64') // 10**9) &
-        (df['direction'] == 'in')
-    ]
-    
-    out = df_conv.groupby(['caller_id', 'weekday', 'daytime'])['responded'].mean().reset_index(name='response_rate_text')
-
+    # Compute only needed columns (no dir_out/responded) so no assign in graph
+    cols_to_load = ['caller_id', 'recipient_id', 'conversation', 'timestamp', 'direction', 'weekday', 'daytime']
+    subset = df[cols_to_load].compute()
+    # Rest in pandas
+    subset['dir_out'] = (subset['direction'] == 'out').astype(int)
+    subset['responded'] = subset.groupby(['caller_id', 'recipient_id', 'conversation'])['dir_out'].transform('max')
+    conv_start = (subset['conversation'] == subset['timestamp'].astype('int64') // 10**9) & (subset['direction'] == 'in')
+    df_conv = subset[conv_start]
+    out = df_conv.groupby(['caller_id', 'weekday', 'daytime'])['responded'].mean().rename('response_rate_text').reset_index()
+    out = dd.from_pandas(out)
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['response_rate_text'],
                    indicator_name='response_rate_text')
-
     return out
 
 
@@ -281,10 +297,10 @@ def entropy_of_contacts(df: DaskDataFrame) -> DaskDataFrame:
     df = add_all_cat(df, cols='week_day')
 
     # Count interactions per contact
-    counts = df.groupby(['caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type']).size().reset_index(name='n')
+    counts = df.groupby(['caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type']).size().rename('n').reset_index()
     
     # Calculate total per user group
-    totals = counts.groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['n'].sum().reset_index(name='n_total')
+    totals = counts.groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['n'].sum().rename('n_total').reset_index()
     counts = counts.merge(totals, on=['caller_id', 'weekday', 'daytime', 'txn_type'])
     
     # Calculate proportions and entropy
@@ -304,34 +320,38 @@ def entropy_of_contacts(df: DaskDataFrame) -> DaskDataFrame:
 def balance_of_contacts(df: DaskDataFrame) -> DaskDataFrame:
     """
     Returns summary stats for the balance of interactions (out/(in+out)) the users had with their contacts,
-    disaggregated by type and time of day, and transaction type
+    disaggregated by type and time of day, and transaction type.
+    Pivot is done in pandas because Dask pivot_table only accepts a single index column.
     """
     df = add_all_cat(df, cols='week_day')
-    
+
     # Count by direction
-    counts = df.groupby(['caller_id', 'recipient_id', 'direction', 'weekday', 'daytime', 'txn_type']).size().reset_index(name='n')
-    
-    # Pivot directions
-    counts_pivot = counts.pivot_table(
+    counts = df.groupby(['caller_id', 'recipient_id', 'direction', 'weekday', 'daytime', 'txn_type']).size().rename('n').reset_index()
+
+    # Pivot in pandas (Dask pivot_table requires single column for index)
+    counts_pd = counts.compute()
+    counts_pivot = counts_pd.pivot_table(
         index=['caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type'],
         columns='direction',
         values='n',
         fill_value=0
     ).reset_index()
-    
+
     # Ensure both in and out columns exist
     for direction in ['in', 'out']:
         if direction not in counts_pivot.columns:
             counts_pivot[direction] = 0
-    
+
     # Calculate balance
     counts_pivot['n_total'] = counts_pivot['in'] + counts_pivot['out']
     counts_pivot['n'] = counts_pivot['out'] / counts_pivot['n_total']
-    
-    # Calculate summary stats
-    stats_dict = summary_stats('n')
-    out = counts_pivot.groupby(['caller_id', 'weekday', 'daytime', 'txn_type']).agg(stats_dict).reset_index()
-    out.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in out.columns.values]
+
+    # Summary stats (counts_pivot is pandas; use pandas agg then wrap)
+    out = groupby_agg_summary_stats_dask(
+        dd.from_pandas(counts_pivot), ['caller_id', 'weekday', 'daytime', 'txn_type'], 'n'
+    )
+    if hasattr(out.columns, 'levels'):  # MultiIndex
+        out.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in out.columns.values]
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
@@ -347,11 +367,13 @@ def interactions_per_contact(df: DaskDataFrame) -> DaskDataFrame:
     """
     df = add_all_cat(df, cols='week_day')
 
-    counts = df.groupby(['caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type']).size().reset_index(name='n')
-    
-    stats_dict = summary_stats('n')
-    out = counts.groupby(['caller_id', 'weekday', 'daytime', 'txn_type']).agg(stats_dict).reset_index()
-    out.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in out.columns.values]
+    counts = df.groupby(['caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type']).size().rename('n').reset_index()
+
+    out = groupby_agg_summary_stats_dask(
+        counts, ['caller_id', 'weekday', 'daytime', 'txn_type'], 'n'
+    )
+    if hasattr(out.columns, 'levels'):  # MultiIndex
+        out.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in out.columns.values]
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
@@ -363,24 +385,31 @@ def interactions_per_contact(df: DaskDataFrame) -> DaskDataFrame:
 def interevent_time(df: DaskDataFrame) -> DaskDataFrame:
     """
     Returns summary stats for the time between users' interactions, disaggregated by type and time of day, and
-    transaction type
+    transaction type. Computes to pandas before adding ts/prev_ts/wait to avoid Dask assign/reindex on duplicate labels.
     """
     df = add_all_cat(df, cols='week_day')
-
-    # Sort and calculate wait times
-    df = df.sort_values(['caller_id', 'weekday', 'daytime', 'txn_type', 'timestamp'])
-    df['ts'] = df['timestamp'].astype('int64') // 10**9
-    df['prev_ts'] = df.groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['ts'].shift(1)
-    df['wait'] = df['ts'] - df['prev_ts']
-    
-    stats_dict = summary_stats('wait')
-    out = df.groupby(['caller_id', 'weekday', 'daytime', 'txn_type']).agg(stats_dict).reset_index()
-    out.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in out.columns.values]
-
+    # Compute only needed columns (no ts, prev_ts, wait) so no assign in graph
+    cols_to_load = ['caller_id', 'weekday', 'daytime', 'txn_type', 'timestamp']
+    subset = df[cols_to_load].compute()
+    subset['caller_id'] = subset['caller_id'].astype(str)
+    # Rest in pandas
+    subset = subset.sort_values(['caller_id', 'weekday', 'daytime', 'txn_type', 'timestamp'])
+    subset['ts'] = subset['timestamp'].astype('int64') // 10**9
+    subset['prev_ts'] = subset.groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['ts'].shift(1)
+    subset['wait'] = subset['ts'] - subset['prev_ts']
+    out = subset.groupby(['caller_id', 'weekday', 'daytime', 'txn_type']).agg(
+        mean=('wait', 'mean'),
+        min=('wait', 'min'),
+        max=('wait', 'max'),
+        std=('wait', 'std'),
+        median=('wait', lambda x: x.quantile(0.5)),
+        skewness=('wait', lambda x: x.skew()),
+        kurtosis=('wait', lambda x: x.kurtosis()),
+    ).reset_index()
+    out = dd.from_pandas(out)
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'],
                    values=['mean', 'std', 'median', 'skewness', 'kurtosis', 'min', 'max'],
                    indicator_name='interevent_time')
-
     return out
 
 
@@ -394,7 +423,7 @@ def percent_pareto_interactions(df: DaskDataFrame, percentage: float = 0.8) -> D
     df = add_all_cat(df, cols='week_day')
 
     # Count interactions per contact
-    counts = df.groupby(['caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type']).size().reset_index(name='n')
+    counts = df.groupby(['caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type']).size().rename('n').reset_index()
     
     # Compute to pandas for complex operations
     counts_pd = counts.compute()
@@ -407,14 +436,14 @@ def percent_pareto_interactions(df: DaskDataFrame, percentage: float = 0.8) -> D
     counts_pd['row_number'] = counts_pd.groupby(['caller_id', 'weekday', 'daytime', 'txn_type']).cumcount() + 1
     
     # Find pareto threshold
-    pareto_users = counts_pd[counts_pd['fraction'] >= percentage].groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['row_number'].min().reset_index(name='pareto_users')
-    n_users = counts_pd.groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['recipient_id'].nunique().reset_index(name='n_users')
+    pareto_users = counts_pd[counts_pd['fraction'] >= percentage].groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['row_number'].min().rename('pareto_users').reset_index()
+    n_users = counts_pd.groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['recipient_id'].nunique().rename('n_users').reset_index()
     
     out = pareto_users.merge(n_users, on=['caller_id', 'weekday', 'daytime', 'txn_type'])
     out['pareto'] = out['pareto_users'] / out['n_users']
     
     # Convert back to Dask
-    out = dd.from_pandas(out, npartitions=4)
+    out = dd.from_pandas(out)
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime', 'txn_type'], values=['pareto'],
                    indicator_name='percent_pareto_interactions')
@@ -446,14 +475,14 @@ def percent_pareto_durations(df: DaskDataFrame, percentage: float = 0.8) -> Dask
     durations_pd['row_number'] = durations_pd.groupby(['caller_id', 'weekday', 'daytime']).cumcount() + 1
     
     # Find pareto threshold
-    pareto_users = durations_pd[durations_pd['fraction'] >= percentage].groupby(['caller_id', 'weekday', 'daytime'])['row_number'].min().reset_index(name='pareto_users')
-    n_users = durations_pd.groupby(['caller_id', 'weekday', 'daytime'])['recipient_id'].nunique().reset_index(name='n_users')
+    pareto_users = durations_pd[durations_pd['fraction'] >= percentage].groupby(['caller_id', 'weekday', 'daytime'])['row_number'].min().rename('pareto_users').reset_index()
+    n_users = durations_pd.groupby(['caller_id', 'weekday', 'daytime'])['recipient_id'].nunique().rename('n_users').reset_index()
     
     out = pareto_users.merge(n_users, on=['caller_id', 'weekday', 'daytime'])
     out['pareto'] = out['pareto_users'] / out['n_users']
     
     # Convert back to Dask
-    out = dd.from_pandas(out, npartitions=4)
+    out = dd.from_pandas(out)
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['pareto'],
                    indicator_name='percent_pareto_durations')
@@ -467,7 +496,7 @@ def number_of_interactions(df: DaskDataFrame) -> DaskDataFrame:
     """
     df = add_all_cat(df, cols='week_day_dir')
 
-    out = df.groupby(['caller_id', 'weekday', 'daytime', 'txn_type', 'direction']).size().reset_index(name='n')
+    out = df.groupby(['caller_id', 'weekday', 'daytime', 'txn_type', 'direction']).size().rename('n').reset_index()
 
     out = pivot_df(out, index=['caller_id'], columns=['direction', 'weekday', 'daytime', 'txn_type'], values=['n'],
                    indicator_name='number_of_interactions')
@@ -481,7 +510,7 @@ def number_of_antennas(df: DaskDataFrame) -> DaskDataFrame:
     """
     df = add_all_cat(df, cols='week_day')
 
-    out = df.groupby(['caller_id', 'weekday', 'daytime'])['caller_antenna'].nunique().reset_index(name='n_antennas')
+    out = df.groupby(['caller_id', 'weekday', 'daytime'])['caller_antenna'].nunique().rename('n_antennas').reset_index()
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['n_antennas'],
                    indicator_name='number_of_antennas')
@@ -496,10 +525,10 @@ def entropy_of_antennas(df: DaskDataFrame) -> DaskDataFrame:
     df = add_all_cat(df, cols='week_day')
 
     # Count interactions per antenna
-    counts = df.groupby(['caller_id', 'caller_antenna', 'weekday', 'daytime']).size().reset_index(name='n')
+    counts = df.groupby(['caller_id', 'caller_antenna', 'weekday', 'daytime']).size().rename('n').reset_index()
     
     # Calculate totals
-    totals = counts.groupby(['caller_id', 'weekday', 'daytime'])['n'].sum().reset_index(name='n_total')
+    totals = counts.groupby(['caller_id', 'weekday', 'daytime'])['n'].sum().rename('n_total').reset_index()
     counts = counts.merge(totals, on=['caller_id', 'weekday', 'daytime'])
     
     # Calculate entropy
@@ -524,17 +553,41 @@ def percent_at_home(df: DaskDataFrame) -> DaskDataFrame:
 
     df = df.dropna(subset=['caller_antenna'])
 
-    # Compute home antennas for all users (most frequent night antenna)
-    night_counts = df[df['daytime'] == 'night'].groupby(['caller_id', 'caller_antenna']).size().reset_index(name='n')
-    night_counts = night_counts.sort_values(['caller_id', 'n'], ascending=[True, False])
-    home_antenna = night_counts.groupby('caller_id').first().reset_index()[['caller_id', 'caller_antenna']]
-    home_antenna = home_antenna.rename(columns={'caller_antenna': 'home_antenna'})
+    # Compute home antennas for all users (most frequent night antenna).
+    # Do ranking in pandas after explicit key normalization to avoid mixed-type
+    # set_partitions_pre shuffle failures in Dask sort_values.
+    night_counts = (
+        df[df['daytime'] == 'night']
+        .groupby(['caller_id', 'caller_antenna'])
+        .size()
+        .rename('n')
+        .reset_index()
+        .assign(
+            caller_id=lambda x: x['caller_id'].astype(str),
+            caller_antenna=lambda x: x['caller_antenna'].astype(str),
+        )
+    )
+    night_counts_pd = night_counts.compute()
+    if night_counts_pd.empty:
+        return dd.from_pandas(pd.DataFrame({'caller_id': pd.Series(dtype='str')}), npartitions=1)
+
+    night_counts_pd = night_counts_pd.sort_values(['caller_id', 'n'], ascending=[True, False])
+    home_antenna_pd = (
+        night_counts_pd
+        .drop_duplicates(subset=['caller_id'], keep='first')[['caller_id', 'caller_antenna']]
+        .rename(columns={'caller_antenna': 'home_antenna'})
+    )
+    home_antenna = dd.from_pandas(home_antenna_pd)
 
     # Join with main dataframe
+    df = df.assign(
+        caller_id=df['caller_id'].astype(str),
+        caller_antenna=df['caller_antenna'].astype(str),
+    )
     df = df.merge(home_antenna, on='caller_id', how='inner')
     df['home_interaction'] = (df['caller_antenna'] == df['home_antenna']).astype(int)
     
-    out = df.groupby(['caller_id', 'weekday', 'daytime'])['home_interaction'].mean().reset_index(name='mean')
+    out = df.groupby(['caller_id', 'weekday', 'daytime'])['home_interaction'].mean().rename('mean').reset_index()
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['mean'],
                    indicator_name='percent_at_home')
@@ -554,8 +607,10 @@ def radius_of_gyration(df: DaskDataFrame, antennas: DaskDataFrame) -> DaskDataFr
     """
     df = add_all_cat(df, cols='week_day')
 
-    # Join with antennas
-    df = df.merge(antennas, left_on='caller_antenna', right_on='antenna_id', how='inner')
+    # Cast merge keys to same type (CDR may have float, antennas may have string)
+    df = df.assign(caller_antenna=df['caller_antenna'].astype(str))
+    antennas_str = antennas.assign(antenna_id=antennas['antenna_id'].astype(str))
+    df = df.merge(antennas_str, left_on='caller_antenna', right_on='antenna_id', how='inner')
     df = df.dropna(subset=['latitude', 'longitude'])
 
     # Calculate barycenter (weighted center)
@@ -563,7 +618,7 @@ def radius_of_gyration(df: DaskDataFrame, antennas: DaskDataFrame) -> DaskDataFr
         'latitude': 'sum',
         'longitude': 'sum'
     }).reset_index()
-    bar['n'] = df.groupby(['caller_id', 'weekday', 'daytime']).size().reset_index(name='n')['n']
+    bar['n'] = df.groupby(['caller_id', 'weekday', 'daytime']).size().rename('n').reset_index()['n']
     bar['bar_lat'] = bar['latitude'] / bar['n']
     bar['bar_lon'] = bar['longitude'] / bar['n']
     bar = bar.drop(columns=['latitude', 'longitude'])
@@ -573,17 +628,19 @@ def radius_of_gyration(df: DaskDataFrame, antennas: DaskDataFrame) -> DaskDataFr
     
     # Calculate great circle distance
     df = great_circle_distance(df)
-    
-    # Calculate radius of gyration
-    out = df.groupby(['caller_id', 'weekday', 'daytime']).apply(
-        lambda x: np.sqrt(np.sum(x['r']**2 / x['n'].iloc[0])),
-        meta=('r', 'float64')
-    ).reset_index()
-    out.columns = ['caller_id', 'weekday', 'daytime', 'r']
 
+    # Radius of gyration: do groupby/apply in pandas so result has [caller_id, weekday, daytime, r] for pivot_df
+    cols_for_rog = ['caller_id', 'weekday', 'daytime', 'r', 'n']
+    subset = df[cols_for_rog].compute()
+    out = subset.groupby(['caller_id', 'weekday', 'daytime']).apply(
+        lambda x: np.sqrt(np.sum(x['r']**2 / x['n'].iloc[0]))
+    ).reset_index()
+    # pandas may produce 4 or 5 columns from apply+reset_index; keep first 3 as keys and last as 'r'
+    out = out.iloc[:, [0, 1, 2, -1]].copy()
+    out.columns = ['caller_id', 'weekday', 'daytime', 'r']
+    out = dd.from_pandas(out)
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['r'],
                    indicator_name='radius_of_gyration')
-
     return out
 
 
@@ -596,7 +653,7 @@ def frequent_antennas(df: DaskDataFrame, percentage: float = 0.8) -> DaskDataFra
     df = add_all_cat(df, cols='week_day')
 
     # Count interactions per antenna
-    counts = df.groupby(['caller_id', 'caller_antenna', 'weekday', 'daytime']).size().reset_index(name='n')
+    counts = df.groupby(['caller_id', 'caller_antenna', 'weekday', 'daytime']).size().rename('n').reset_index()
     
     # Compute to pandas for complex operations
     counts_pd = counts.compute()
@@ -609,10 +666,10 @@ def frequent_antennas(df: DaskDataFrame, percentage: float = 0.8) -> DaskDataFra
     counts_pd['row_number'] = counts_pd.groupby(['caller_id', 'weekday', 'daytime']).cumcount() + 1
     
     # Find pareto threshold
-    out = counts_pd[counts_pd['fraction'] >= percentage].groupby(['caller_id', 'weekday', 'daytime'])['row_number'].min().reset_index(name='pareto_antennas')
+    out = counts_pd[counts_pd['fraction'] >= percentage].groupby(['caller_id', 'weekday', 'daytime'])['row_number'].min().rename('pareto_antennas').reset_index()
     
     # Convert back to Dask
-    out = dd.from_pandas(out, npartitions=4)
+    out = dd.from_pandas(out)
 
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['pareto_antennas'],
                    indicator_name='frequent_antennas')

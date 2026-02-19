@@ -35,9 +35,9 @@ from matplotlib.pyplot import axis
 import matplotlib.ticker as mtick   # type: ignore[import]
 from matplotlib.collections import PatchCollection    # type: ignore[import]
 from pandas import DataFrame as PandasDataFrame
-from pyspark.sql import DataFrame as SparkDataFrame
+import dask.dataframe as dd
 import seaborn as sns  # type: ignore[import]
-from typing import List
+from typing import List, Union
 
 sns.set(font_scale=2, style='white')
 
@@ -85,19 +85,36 @@ def dates_xaxis(ax: axis, frequency: str) -> None:
     ax.xaxis.set_major_formatter(format)
 
 
-def distributions_plot(df: SparkDataFrame, features: List[str], names: List[str], color: str = 'indianred') -> None:
+def distributions_plot(
+    df: Union[dd.DataFrame, PandasDataFrame],
+    features: List[str],
+    names: List[str],
+    color: str = 'indianred',
+) -> None:
     """
     Plot distribution of computed features, using Kernel Density Estimation
 
     Args:
-        df: spark df with features
+        df: dask or pandas df with features
         features: list of feature names to plot
         names: plot titles
         color: color palette to use
     """
+    if not isinstance(df, (dd.DataFrame, PandasDataFrame)):
+        raise TypeError("distributions_plot expects a dask.dataframe.DataFrame or pandas.DataFrame")
+
     fig, ax = plt.subplots(1, len(features), figsize=(20, 5))
     for a in range(len(features)):
-        sns.kdeplot(df.select(features[a]).rdd.map(lambda r: r[0]).collect(), ax=ax[a], shade=True, color=color)
+        if isinstance(df, dd.DataFrame):
+            values = df[features[a]].dropna().compute().to_numpy()
+        else:
+            values = df[features[a]].dropna().to_numpy()
+
+        # seaborn kdeplot errors on empty input; make this failure explicit
+        if len(values) == 0:
+            raise ValueError(f"Cannot plot KDE: feature '{features[a]}' has no non-null values.")
+
+        sns.kdeplot(values, ax=ax[a], fill=True, color=color)
         if a == 0:
             ax[a].set_ylabel('Density')
         ax[a].set_title(names[a])

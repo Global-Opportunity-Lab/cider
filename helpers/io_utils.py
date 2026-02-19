@@ -26,21 +26,42 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import re
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Union
-import re
 
 import dask.dataframe as dd
 import geopandas as gpd  # type: ignore[import]
 import pandas as pd
+import pyarrow.parquet as pq
 from box import Box
 from geopandas import GeoDataFrame
 from pandas import DataFrame as PandasDataFrame
 
-from helpers.utils import get_dask_client
+from helpers.utils import filter_dates_dataframe, get_dask_client
 
 # Type alias for Dask DataFrame
 DaskDataFrame = dd.DataFrame
+
+
+def _validate_parquet_dir(parquet_dir: Path) -> None:
+    """
+    Check that every .parquet file in the directory can be opened as Parquet.
+    Raises with the path and cause if any file is invalid (so you know which file to fix).
+    """
+    files = sorted(parquet_dir.glob("*.parquet"))
+    if not files:
+        return
+    for p in files:
+        try:
+            pq.ParquetFile(p)
+        except Exception as e:
+            raise ValueError(
+                f"Invalid or corrupted Parquet file: {p}\n"
+                f"Reason: {e}\n"
+                f"Check that the file was written completely (e.g. no truncated write) and is not empty."
+            ) from e
 
 
 class IOUtils:
@@ -54,39 +75,76 @@ class IOUtils:
         self.data_format = data_format
         self.client = get_dask_client(cfg)
 
+    def _get_date_filter_for_dataset(self, dataset_name: str) -> Optional[tuple]:
+        """If config has params.featurization.start_date and end_date, return (start, end, file_timestamp_col)."""
+        featurization = getattr(self.cfg.get('params', Box()), 'featurization', Box())
+        start = getattr(featurization, 'start_date', None)
+        end = getattr(featurization, 'end_date', None)
+        if start is None or end is None:
+            return None
+        col_names = getattr(self.cfg.col_names, dataset_name, Box())
+        timestamp_col_file = getattr(col_names, 'timestamp', 'timestamp')
+        return (str(start), str(end), str(timestamp_col_file))
+
     
     def load_generic(
         self,
         fpath: Optional[Path] = None,
-        df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None
+        df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None,
+        filter_start_date: Optional[str] = None,
+        filter_end_date: Optional[str] = None,
+        filter_timestamp_column: Optional[str] = None,
     ) -> DaskDataFrame:
         """
-        Load data from file or dataframe
-        
-        Args:
-            fpath: Path to data file or directory
-            df: Existing dataframe (Dask or Pandas)
-            
-        Returns:
-            Dask DataFrame
+        Load data from file or dataframe.
+
+        When filter_start_date, filter_end_date, and filter_timestamp_column are set and the
+        source is Parquet, only rows with timestamp in [start, end) are read (filter-on-read).
+        CSV is not filtered on read; date filter is applied later in load_cdr / load_recharges / etc.
         """
         # Prefer provided dataframe over reading from disk
         if df is not None:
             if isinstance(df, PandasDataFrame):
-                return dd.from_pandas(df, npartitions=4)
+                return dd.from_pandas(df)
             if isinstance(df, dd.DataFrame):
                 return df
             raise TypeError("df must be a pandas or dask dataframe")
 
+        use_date_filter = (
+            filter_start_date is not None
+            and filter_end_date is not None
+            and filter_timestamp_column is not None
+        )
+        # Do not pass filters= to read_parquet: Dask serializes the filter expression to
+        # workers and the scalar type is lost (timestamp becomes string), causing
+        # "Function 'equal' has no kernel matching input types (timestamp[us], string)".
+        # We filter immediately after read instead (see below).
+
         # Load from file
         if fpath is not None:
+            fpath = Path(fpath) if not isinstance(fpath, Path) else fpath
             # Load data if in a single file
             if fpath.is_file():
 
                 if fpath.suffix == '.csv':
-                    df = dd.read_csv(str(fpath), dtype={'caller_id': 'str', 'recipient_id': 'str', 'name': 'str'})
+                    df = dd.read_csv(
+                        str(fpath),
+                        dtype={
+                            'caller_id': 'str', 'recipient_id': 'str', 'name': 'str', 'duration': 'float64',
+                            'cell_id': 'str', 'lac_id': 'str', 'antenna_id': 'str', 'tower_id': 'str',
+                        },
+                        assume_missing=True,
+                    )
 
                 elif fpath.suffix == '.parquet':
+                    try:
+                        pq.ParquetFile(fpath)
+                    except Exception as e:
+                        raise ValueError(
+                            f"Invalid or corrupted Parquet file: {fpath}\n"
+                            f"Reason: {e}\n"
+                            f"Check that the file was written completely and is not empty."
+                        ) from e
                     df = dd.read_parquet(str(fpath))
 
                 else:
@@ -104,13 +162,26 @@ class IOUtils:
                     raise ValueError(f"Could not locate or read data for '{fpath}'")
 
                 if example_file.suffix == '.csv':
-                    df = dd.read_csv(str(fpath / '*.csv'), dtype={'caller_id': 'str', 'recipient_id': 'str', 'name': 'str'})
+                    df = dd.read_csv(
+                        str(fpath / '*.csv'),
+                        dtype={
+                            'caller_id': 'str', 'recipient_id': 'str', 'name': 'str', 'duration': 'float64',
+                            'cell_id': 'str', 'lac_id': 'str', 'antenna_id': 'str', 'tower_id': 'str',
+                        },
+                        assume_missing=True,
+                    )
 
                 elif example_file.suffix == '.parquet':
+                    _validate_parquet_dir(fpath)
                     df = dd.read_parquet(str(fpath / '*.parquet'))
 
                 else:
                     raise ValueError(f'Found file with unknown extension {example_file}.')
+
+            if use_date_filter and filter_timestamp_column in df.columns:
+                df = filter_dates_dataframe(
+                    df, filter_start_date, filter_end_date, colname=filter_timestamp_column
+                )
 
             return df
 
@@ -186,26 +257,31 @@ class IOUtils:
         self,
         dataset_name: str,
         fpath: Optional[Path] = None,
-        provided_df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None
+        provided_df: Optional[Union[DaskDataFrame, PandasDataFrame]] = None,
+        filter_start_date: Optional[str] = None,
+        filter_end_date: Optional[str] = None,
+        filter_timestamp_col_file: Optional[str] = None,
     ) -> DaskDataFrame:
         """
-        Load a dataset with standardized column names and validation
-        
-        Args:
-            dataset_name: Name of the dataset (for validation)
-            fpath: Path to data file
-            provided_df: Existing dataframe
-            
-        Returns:
-            Dask DataFrame
+        Load a dataset with standardized column names and validation.
+
+        When filter_* are set, Parquet is read with row subset on read; CSV is filtered after load.
         """
-        dataset = self.load_generic(fpath, provided_df)
+        dataset = self.load_generic(
+            fpath,
+            provided_df,
+            filter_start_date=filter_start_date,
+            filter_end_date=filter_end_date,
+            filter_timestamp_column=filter_timestamp_col_file,
+        )
 
         if dataset_name in self.cfg.col_names:
             dataset = self.standardize_col_names(dataset, self.cfg.col_names[dataset_name])
 
         self.check_cols(dataset, dataset_name)
 
+        # Date filter is applied in load_cdr / load_recharges / etc. after timestamp is cleaned,
+        # so we don't filter here on raw timestamp (which can yield 0 rows if format differs).
         return dataset    
 
 
@@ -220,18 +296,45 @@ class IOUtils:
         Returns: 
             Dask df
         """
+        date_filter = self._get_date_filter_for_dataset('cdr')
         cdr = self.load_dataset(
             dataset_name='cdr',
             fpath=fpath,
-            provided_df=df
+            provided_df=df,
+            filter_start_date=date_filter[0] if date_filter else None,
+            filter_end_date=date_filter[1] if date_filter else None,
+            filter_timestamp_col_file=date_filter[2] if date_filter else None,
         )
 
         # Check txn_type column
         error_msg = 'CDR format incorrect. Column txn_type can only include call and text.'
         self.check_colvalues(cdr, 'txn_type', ['call', 'text'], error_msg)
 
-        # Clean international column
-        error_msg = 'CDR format incorrect. Column international can only include domestic, international, and other.'
+        # Normalize international column to CIDER's expected values (domestic, international, other)
+        # so that 0/1, intl/national, or other encodings are accepted.
+        default_international_map = {
+            '0': 'domestic', 0: 'domestic', '0.0': 'domestic',
+            '1': 'international', 1: 'international', '1.0': 'international',
+            'domestic': 'domestic', 'international': 'international', 'other': 'other',
+            'national': 'domestic', 'intl': 'international',
+        }
+        international_map = getattr(
+            getattr(self.cfg.get('params', Box()), 'cdr', Box()),
+            'international_map',
+            None,
+        )
+        if isinstance(international_map, dict):
+            default_international_map = {**default_international_map, **international_map}
+        cdr['international'] = cdr['international'].astype(str).str.strip().str.lower().replace(default_international_map)
+        # Map any remaining unknown values to 'other' so downstream code does not break
+        allowed = {'domestic', 'international', 'other'}
+        cdr['international'] = cdr['international'].where(
+            cdr['international'].isin(allowed),
+            'other',
+        )
+
+        # Check international column has only allowed values (after normalization)
+        error_msg = 'CDR format incorrect. Column international can only include domestic, international, and other (or values mappable via params.cdr.international_map).'
         self.check_colvalues(cdr, 'international', ['domestic', 'international', 'other'], error_msg)
 
         # if no recipient antennas are present, add a null column to enable the featurizer to work
@@ -241,6 +344,10 @@ class IOUtils:
 
         # Clean timestamp column
         cdr = self.clean_timestamp_and_add_day_column(cdr, 'timestamp')
+
+        # Subset by config date range (after timestamp is datetime so comparison is correct)
+        if date_filter is not None:
+            cdr = filter_dates_dataframe(cdr, date_filter[0], date_filter[1], colname='timestamp')
 
         # Clean duration column
         cdr['duration'] = cdr['duration'].astype('float')
@@ -300,10 +407,21 @@ class IOUtils:
         Returns: 
             Dask df
         """
-        recharges = self.load_dataset('recharges', fpath=fpath, provided_df=df)
+        date_filter = self._get_date_filter_for_dataset('recharges')
+        recharges = self.load_dataset(
+            'recharges',
+            fpath=fpath,
+            provided_df=df,
+            filter_start_date=date_filter[0] if date_filter else None,
+            filter_end_date=date_filter[1] if date_filter else None,
+            filter_timestamp_col_file=date_filter[2] if date_filter else None,
+        )
 
         # Clean timestamp column
         recharges = self.clean_timestamp_and_add_day_column(recharges, 'timestamp')
+
+        if date_filter is not None:
+            recharges = filter_dates_dataframe(recharges, date_filter[0], date_filter[1], colname='timestamp')
 
         # Clean amount column
         recharges['amount'] = recharges['amount'].astype('float')
@@ -319,10 +437,21 @@ class IOUtils:
         """
         Load mobile data dataset
         """
-        mobiledata = self.load_dataset('mobiledata', fpath=fpath, provided_df=df)
+        date_filter = self._get_date_filter_for_dataset('mobiledata')
+        mobiledata = self.load_dataset(
+            'mobiledata',
+            fpath=fpath,
+            provided_df=df,
+            filter_start_date=date_filter[0] if date_filter else None,
+            filter_end_date=date_filter[1] if date_filter else None,
+            filter_timestamp_col_file=date_filter[2] if date_filter else None,
+        )
 
         # Clean timestamp column
         mobiledata = self.clean_timestamp_and_add_day_column(mobiledata, 'timestamp')
+
+        if date_filter is not None:
+            mobiledata = filter_dates_dataframe(mobiledata, date_filter[0], date_filter[1], colname='timestamp')
 
         # Clean volume column
         mobiledata['volume'] = mobiledata['volume'].astype('float')
@@ -342,16 +471,45 @@ class IOUtils:
         Returns: 
             Dask df
         """
-        # load data as generic df and standardize column_names
-        mobilemoney = self.load_dataset('mobilemoney', fpath=fpath, provided_df=df)
+        date_filter = self._get_date_filter_for_dataset('mobilemoney')
+        mobilemoney = self.load_dataset(
+            'mobilemoney',
+            fpath=fpath,
+            provided_df=df,
+            filter_start_date=date_filter[0] if date_filter else None,
+            filter_end_date=date_filter[1] if date_filter else None,
+            filter_timestamp_col_file=date_filter[2] if date_filter else None,
+        )
 
-        # Check txn_type column
+        # Normalize txn_type to CIDER's expected values so different encodings are accepted
         txn_types = ['cashin', 'cashout', 'p2p', 'billpay', 'other']
-        error_msg = 'Mobile money format incorrect. Column txn_type can only include ' + ', '.join(txn_types)
+        default_txn_type_map = {
+            'cashin': 'cashin', 'cash out': 'cashout', 'cashout': 'cashout',
+            'cash in': 'cashin', 'deposit': 'cashin', 'withdrawal': 'cashout',
+            'send': 'p2p', 'receive': 'p2p', 'p2p': 'p2p', 'transfer': 'p2p',
+            'billpay': 'billpay', 'bill pay': 'billpay', 'bill': 'billpay',
+            'other': 'other',
+        }
+        txn_type_map = getattr(
+            getattr(self.cfg.get('params', Box()), 'mobilemoney', Box()),
+            'txn_type_map',
+            None,
+        )
+        if isinstance(txn_type_map, dict):
+            default_txn_type_map = {**default_txn_type_map, **{str(k).strip().lower(): v for k, v in txn_type_map.items()}}
+        mobilemoney['txn_type'] = mobilemoney['txn_type'].astype(str).str.strip().str.lower().replace(default_txn_type_map)
+        mobilemoney['txn_type'] = mobilemoney['txn_type'].where(
+            mobilemoney['txn_type'].isin(txn_types),
+            'other',
+        )
+        error_msg = 'Mobile money format incorrect. Column txn_type can only include ' + ', '.join(txn_types) + ' (or values mappable via params.mobilemoney.txn_type_map).'
         self.check_colvalues(mobilemoney, 'txn_type', txn_types, error_msg)
 
         # Clean timestamp column
         mobilemoney = self.clean_timestamp_and_add_day_column(mobilemoney, 'timestamp')
+
+        if date_filter is not None:
+            mobilemoney = filter_dates_dataframe(mobilemoney, date_filter[0], date_filter[1], colname='timestamp')
 
         # Clean amount column
         mobilemoney['amount'] = mobilemoney['amount'].astype('float')
@@ -402,8 +560,23 @@ class IOUtils:
         Returns:
             Dask DataFrame with cleaned timestamp and day columns
         """
-        # Check the first row for time info, and assume the format is consistent
-        existing_timestamp_sample = df[existing_timestamp_column_name].head(1).iloc[0]
+        # Avoid head(1) on empty dataframe (prevents Dask "Insufficient elements for head" warning)
+        nrows = df.shape[0].compute()
+        if nrows == 0:
+            raise ValueError(
+                'Cannot clean timestamp: dataframe has no rows. '
+                'If you set params.featurization.start_date and end_date, the date filter may have excluded all data. '
+                'Check that your data has timestamps in that range, or remove the date range from config.'
+            )
+        # Sample one row for timestamp format (use npartitions=-1 so we get a row even if
+        # the first partition is empty after date filter).
+        sample = df[existing_timestamp_column_name].head(1, npartitions=-1)
+        if len(sample) == 0:
+            raise ValueError(
+                'Cannot clean timestamp: no sample row (date filter may have left only empty partitions). '
+                'Check params.featurization.start_date and end_date.'
+            )
+        existing_timestamp_sample = sample.iloc[0]
         timestamp_with_time_regex = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
 
         has_time_info = bool(re.match(timestamp_with_time_regex, str(existing_timestamp_sample)))
@@ -439,14 +612,20 @@ class IOUtils:
         phone_numbers_to_featurize = self.load_dataset(
             'phone_numbers_to_featurize', fpath=fpath, provided_df=df
         )
-        
+        phone_numbers_to_featurize = phone_numbers_to_featurize[['phone_number']]
+
         distinct_count = phone_numbers_to_featurize['phone_number'].nunique().compute()
         length = len(phone_numbers_to_featurize)
 
         if distinct_count != length:
-            raise ValueError(
-                f'Duplicates found in list of phone numbers to featurize: there are {distinct_count} distinct values '
-                f'in a list of length {length}.'
+            n_duplicates = int(length) - int(distinct_count)
+            phone_numbers_to_featurize = phone_numbers_to_featurize.drop_duplicates(subset=['phone_number'])
+            warnings.warn(
+                f'Dropped {n_duplicates} duplicate phone number(s) from the list to featurize: '
+                f'list had {length} rows and {distinct_count} distinct values. '
+                f'Featurization will run on {distinct_count} unique numbers.',
+                UserWarning,
+                stacklevel=2,
             )
 
-        return phone_numbers_to_featurize[['phone_number']]
+        return phone_numbers_to_featurize

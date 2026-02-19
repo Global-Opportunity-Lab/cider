@@ -29,10 +29,8 @@ from enum import Enum
 import json
 import os
 from collections import defaultdict
-from multiprocessing import Pool
 from typing import Any, Dict, Optional, Union
 
-import bandicoot as bc  # type: ignore[import]
 import dask.dataframe as dd
 import geopandas as gpd  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
@@ -43,9 +41,8 @@ import seaborn as sns  # type: ignore[import]
 from helpers.features import all_dask
 from helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
 from helpers.utils import (cdr_bandicoot_format, filter_by_phone_numbers_to_featurize,
-                           flatten_folder, flatten_lst, get_dask_client,
-                           long_join_pandas, long_join_dask, make_dir,
-                           read_csv, read_parquet, save_parquet, save_df)
+                           get_dask_client, long_join_pandas, long_join_dask, make_dir,
+                           read_parquet, save_parquet, save_df)
 from numpy import nan
 from pandas import DataFrame as PandasDataFrame
 
@@ -76,6 +73,7 @@ class Featurizer:
         make_dir(outputs_path / 'outputs')
         make_dir(outputs_path / 'plots')
         make_dir(outputs_path / 'tables')
+        make_dir(outputs_path / 'datasets')
 
         self.features: Dict[str, Optional[DaskDataFrame]] = {'cdr': None, 'international': None, 'recharges': None,
                                                               'location': None, 'mobiledata': None, 'mobilemoney': None}
@@ -83,7 +81,14 @@ class Featurizer:
         # Dask setup
         client = get_dask_client(self.cfg)
         self.client = client
-
+        dask_cfg = self.cfg.get('dask', {})
+        n_workers = dask_cfg.get('n_workers', 4)
+        n_threads = dask_cfg.get('threads_per_worker', 1)
+        dask_cfg['num_partitions'] = dask_cfg.get('num_partitions', 16)
+        self.dask_cfg = dask_cfg
+        print(f'Dask: {n_workers} worker(s), {n_threads} thread(s) per worker, {dask_cfg["num_partitions"]} partitions (total parallelism: {n_workers * n_threads})')
+        if hasattr(client, 'dashboard_link') and client.dashboard_link:
+            print('Dask dashboard:', client.dashboard_link)
         # Create default dicts to avoid key errors
         dataframes = dataframes if dataframes else defaultdict(lambda: None)
         data_type_map = {
@@ -226,113 +231,10 @@ class Featurizer:
 
     def cdr_features(self, bc_chunksize: int = 500000, bc_processes: int = 55) -> None:
         """
-        Compute CDR features using bandicoot library and save to disk
-
-        Args:
-            bc_chunksize: number of users per chunk
-            bc_processes: number of processes to run in parallel
+        Compute CDR features and save to disk. Delegates to the Dask-based implementation.
+        The bc_chunksize and bc_processes arguments are ignored (kept for API compatibility).
         """
-        # Check that CDR is present to calculate international features
-        if self.ds.cdr is None:
-            raise ValueError('CDR file must be loaded to calculate CDR features.')
-        print('Calculating CDR features...')
-
-        # Convert CDR into bandicoot format
-        self.ds.cdr_bandicoot = cdr_bandicoot_format(self.ds.cdr, self.ds.antennas, self.cfg.col_names.cdr)
-
-        # Get list of unique subscribers, write to file
-        unique_subscribers = self.ds.cdr_bandicoot[['name']].drop_duplicates()
-        save_df(unique_subscribers, self.outputs_path / 'datasets' / 'subscribers.csv')
-        subscribers = unique_subscribers['name'].compute().tolist()
-
-        subscribers = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, subscribers, 'name')
-
-        # Make adjustments to chunk size and parallelization if necessary
-        if bc_chunksize > len(subscribers):
-            bc_chunksize = len(subscribers)
-        if bc_processes > int(len(subscribers) / bc_chunksize):
-            bc_processes = int(len(subscribers) / bc_chunksize)
-
-        # Make output folders
-        make_dir(self.outputs_path / 'datasets' / 'bandicoot_records')
-        make_dir(self.outputs_path / 'datasets' / 'bandicoot_features')
-
-        # Get bandicoot features in chunks
-        start = 0
-        end = 0
-        while end < len(subscribers):
-
-            # Get start and end point of chunk
-            end = start + bc_chunksize
-            chunk = subscribers[start:end]
-
-            # Name outfolders
-            recs_folder = self.outputs_path / 'datasets' / 'bandicoot_records' / f'{start}to{end}'
-            bc_folder = self.outputs_path / 'datasets' / 'bandicoot_features' / f'{start}to{end}'
-
-            make_dir(bc_folder)
-
-            # Get records for this chunk and write out to csv files per person
-            chunk_df = pd.DataFrame({'name': chunk})
-            chunk_dask = dd.from_pandas(chunk_df, npartitions=4)
-            matched_chunk = self.ds.cdr_bandicoot.merge(chunk_dask, on='name', how='inner')
-            
-            # Write partitioned by name for bandicoot
-            matched_chunk_pd = matched_chunk.compute()
-            for name_val in matched_chunk_pd['name'].unique():
-                person_data = matched_chunk_pd[matched_chunk_pd['name'] == name_val]
-                person_folder = recs_folder / f'name={name_val}'
-                person_folder.mkdir(parents=True, exist_ok=True)
-                person_data.to_csv(person_folder / 'data.csv', index=False, header=True)
-
-            # Move csv files around on disk to get into position for bandicoot
-            n = int(len(chunk) / bc_processes) if bc_processes > 0 else len(chunk)
-            subchunks = [chunk[i:i + n] for i in range(0, len(chunk), n)]
-            pool = Pool(bc_processes)
-            unmatched = pool.map(flatten_folder, [(subchunk, recs_folder) for subchunk in subchunks])
-            unmatched = flatten_lst(unmatched)
-            pool.close()
-            if len(unmatched) > 0:
-                print('Warning: lost %i subscribers in file shuffling' % len(unmatched))
-
-            # Calculate bandicoot features
-            def get_bc(sub: Any) -> Any:
-                return bc.utils.all(bc.read_csv(str(sub), recs_folder, describe=True), summary='extended',
-                                    split_week=True,
-                                    split_day=True, groupby=None)
-
-            # Write out bandicoot feature files
-            def write_bc_chunk(chunk_subscribers):
-                results = []
-                for sub in chunk_subscribers:
-                    if os.path.isfile(recs_folder / f'{sub}.csv'):
-                        results.append(get_bc(sub))
-                return results
-
-            # Process in chunks
-            all_features = []
-            for subchunk in subchunks:
-                features = write_bc_chunk(subchunk)
-                all_features.extend(features)
-            
-            # Write bandicoot features
-            for idx, feature_chunk in enumerate(np.array_split(all_features, bc_processes)):
-                bc.to_csv(list(feature_chunk), bc_folder / f'{idx}.csv')
-            
-            start = start + bc_chunksize
-
-        # Combine all bandicoot features into a single file, fix column names, and write to disk
-        cdr_features = read_csv(self.client, self.outputs_path / 'datasets' / 'bandicoot_features' / '*' / '*', header=True)
-        cdr_features = cdr_features[[col for col in cdr_features.columns if
-                                            ('reporting' not in col) or (col == 'reporting__number_of_records')]]
-        cdr_features = cdr_features.rename(columns={c: c if c == 'name' else 'cdr_' + c for c in cdr_features.columns})
-        
-        if self.output_format == _OutputFormat.CSV:
-            save_df(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all', single_file=False)
-        else:
-            save_parquet(cdr_features, self.outputs_path / 'datasets' / 'bandicoot_features' / 'all')
-        self.features['cdr'] = cdr_features
-
+        self.cdr_features_dask()
 
     def cdr_features_dask(self) -> None:
         """
@@ -386,7 +288,8 @@ class Featurizer:
         for c, agg in lst:
             for subset, name in [(inter, 'all'), (inter_voice, 'call'), (inter_sms, 'text')]:
                 grouped = subset[['caller_id', c]].groupby('caller_id', as_index=False).agg(agg)
-                grouped.columns = [name + '__' + c + '__' + ag for ag in agg]
+                # grouped has caller_id plus one column per agg; name them explicitly
+                grouped.columns = ['caller_id'] + [name + '__' + c + '__' + ag for ag in agg]
                 feats.append(grouped)
 
         # Combine all aggregations together, write to file
@@ -399,11 +302,10 @@ class Featurizer:
 
         if self.output_format == _OutputFormat.CSV:
             save_df(feats_df, self.outputs_path / 'datasets' / 'international_feats', single_file=False)
-            self.features['international'] = dd.from_pandas(feats_df, npartitions=4)
+            self.features['international'] = dd.from_pandas(feats_df, npartitions=self.dask_cfg['num_partitions'])
         else:
             save_parquet(feats_df, self.outputs_path / 'datasets' / 'international_feats')
             self.features['international'] = read_parquet(self.client, self.outputs_path / 'datasets' / 'international_feats')
-        
 
     def location_features(self) -> None:
 
@@ -424,31 +326,50 @@ class Featurizer:
         antennas.crs = {"init": "epsg:4326"}
         antennas = antennas[antennas.is_valid]
         for shapefile_name in self.ds.shapefiles.keys():
-            shapefile = self.ds.shapefiles[shapefile_name].rename({'region': shapefile_name}, axis=1)
+            # Keep only geometry and region to avoid duplicate columns from sjoin (e.g. DISTRICT_left)
+            shapefile = self.ds.shapefiles[shapefile_name][['geometry', 'region']].rename(
+                columns={'region': shapefile_name}
+            )
             antennas = gpd.sjoin(antennas, shapefile, predicate='within', how='left').drop('index_right', axis=1)
             antennas[shapefile_name] = antennas[shapefile_name].fillna('Unknown')
-        antennas = dd.from_pandas(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''), npartitions=4)
+        antennas = dd.from_pandas(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''), npartitions=self.dask_cfg['num_partitions'])
 
         cdr_bandicoot_filtered = filter_by_phone_numbers_to_featurize(
             self.phone_numbers_to_featurize, self.ds.cdr_bandicoot, 'name'
         )
 
+        # Cast antenna_id to same type on both sides to avoid merge dtype mismatch (str vs string)
+        cdr_bandicoot_filtered = cdr_bandicoot_filtered.assign(
+            antenna_id=cdr_bandicoot_filtered['antenna_id'].astype(str)
+        )
+        antennas = antennas.assign(antenna_id=antennas['antenna_id'].astype(str))
+
         # Merge CDR to antennas
         cdr = cdr_bandicoot_filtered.merge(antennas, on='antenna_id', how='left')
-        cdr = cdr.fillna({shapefile_name: 'Unknown' for shapefile_name in self.ds.shapefiles.keys()})
+        cdr = cdr.fillna({sn: 'Unknown' for sn in self.ds.shapefiles.keys()})
 
         # Get counts by region
         for shapefile_name in self.ds.shapefiles.keys():
-            countbyregion = cdr.groupby(['name', shapefile_name]).size().reset_index(name='count')
+            if shapefile_name not in cdr.columns:
+                raise ValueError(
+                    f"Shapefile column '{shapefile_name}' not in CDR after merge. "
+                    f"Ensure shapefile GeoDataFrame has a column renamed to '{shapefile_name}' (e.g. 'region'). "
+                    f"Available columns: {list(cdr.columns)}"
+                )
+            countbyregion = cdr.groupby(['name', shapefile_name]).size().rename('count').reset_index()
             save_df(countbyregion, self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv')
 
         # Get unique regions (and unique towers)
         unique_regions = cdr[['name']].drop_duplicates()
         for shapefile_name in self.ds.shapefiles.keys():
-            region_counts = cdr.groupby('name')[shapefile_name].nunique().reset_index(name=f'count(DISTINCT {shapefile_name})')
+            region_counts = cdr.groupby('name')[shapefile_name].nunique().rename(
+                f'count(DISTINCT {shapefile_name})'
+            ).reset_index()
             unique_regions = unique_regions.merge(region_counts, on='name', how='left')
         if 'tower_id' in cdr.columns:
-            tower_counts = cdr.groupby('name')['tower_id'].nunique().reset_index(name='count(DISTINCT tower_id)')
+            tower_counts = cdr.groupby('name')['tower_id'].nunique().rename(
+                'count(DISTINCT tower_id)'
+            ).reset_index()
             unique_regions = unique_regions.merge(tower_counts, on='name', how='left')
         save_df(unique_regions, self.outputs_path / 'datasets' / 'uniqueregions.csv')
         feats = pd.read_csv(self.outputs_path / 'datasets' / 'uniqueregions.csv', dtype={'name': 'str'})
@@ -490,11 +411,10 @@ class Featurizer:
         feats.columns = [c if c == 'name' else 'location_' + c for c in feats.columns]
         if self.output_format == _OutputFormat.CSV:
             save_df(feats, self.outputs_path / 'datasets' / 'location_features', single_file=False)
-            self.features['location'] = dd.from_pandas(feats, npartitions=4)
+            self.features['location'] = dd.from_pandas(feats, npartitions=self.dask_cfg['num_partitions'])
         else:
             save_parquet(feats, self.outputs_path / 'datasets' / 'location_features')
             self.features['location'] = read_parquet(self.client, self.outputs_path / 'datasets' / 'location_features')
-
 
     def mobiledata_features(self) -> None:
 
@@ -510,23 +430,21 @@ class Featurizer:
             self.phone_numbers_to_featurize, mobiledata_aggregated_by_day, 'caller_id'
         )
 
-        # Aggregate to obtain features
-        feats = mobiledata_aggregated_by_day.groupby('caller_id').agg({
-            'volume': ['sum', 'mean', 'min', 'max', 'std'],
-            'day': 'nunique'
-        }).reset_index()
-        
-        # Flatten column names
-        feats.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in feats.columns.values]
-        feats = feats.rename(columns={
-            'volume_sum': 'total_volume',
-            'volume_mean': 'mean_daily_volume',
-            'volume_min': 'min_daily_volume',
-            'volume_max': 'max_daily_volume',
-            'volume_std': 'std_daily_volume',
-            'day_nunique': 'num_days',
-            'caller_id': 'name'
+        volume_aggs = mobiledata_aggregated_by_day.groupby('caller_id')['volume'].agg(
+            ['sum', 'mean', 'min', 'max', 'std']
+        ).reset_index()
+        volume_aggs = volume_aggs.rename(columns={
+            'sum': 'total_volume',
+            'mean': 'mean_daily_volume',
+            'min': 'min_daily_volume',
+            'max': 'max_daily_volume',
+            'std': 'std_daily_volume'
         })
+        day_nunique = mobiledata_aggregated_by_day.groupby('caller_id')['day'].nunique().rename(
+            'num_days'
+        ).reset_index()
+        feats = volume_aggs.merge(day_nunique, on='caller_id', how='left')
+        feats = feats.rename(columns={'caller_id': 'name'})
 
         feats = feats.rename(columns={c: c if c == 'name' else 'mobiledata_' + c for c in feats.columns})
 
@@ -610,9 +528,7 @@ class Featurizer:
                     # Parse column name and add df name prefix
                     rename_dict[col] = dfname + '_' + col
             aggs_pd = aggs_pd.rename(columns=rename_dict)
-            
-            # Convert back to Dask
-            aggs = dd.from_pandas(aggs_pd, npartitions=4)
+            aggs = dd.from_pandas(aggs_pd, npartitions=self.dask_cfg['num_partitions'])
             features.append(aggs)
 
         # Combine all mobile money features together and save them
@@ -632,23 +548,23 @@ class Featurizer:
             raise ValueError('Recharges file must be loaded to calculate recharges features.')
         print('Calculating recharges features...')
 
-        feats = self.ds.recharges.groupby('caller_id').agg({
-            'amount': ['sum', 'mean', 'min', 'max', 'count'],
-            'day': 'nunique'
-        }).reset_index()
-        
-        # Flatten column names
-        feats.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in feats.columns.values]
-        feats = feats.rename(columns={
-            'amount_sum': 'sum',
-            'amount_mean': 'mean',
-            'amount_min': 'min',
-            'amount_max': 'max',
-            'amount_count': 'count',
-            'day_nunique': 'days',
-            'caller_id': 'name'
-        })
-
+        # Dask groupby.agg does not support 'nunique'; compute amount aggs and day nunique separately then merge.
+        # Rename to 'name' before merge so the expression graph uses 'name' consistently (avoids KeyError on
+        # caller_id when to_parquet inspects divisions).
+        amount_aggs = (
+            self.ds.recharges.groupby('caller_id')['amount']
+            .agg(['sum', 'mean', 'min', 'max', 'count'])
+            .reset_index()
+            .rename(columns={'caller_id': 'name'})
+        )
+        day_nunique = (
+            self.ds.recharges.groupby('caller_id')['day']
+            .nunique()
+            .rename('days')
+            .reset_index()
+            .rename(columns={'caller_id': 'name'})
+        )
+        feats = amount_aggs.merge(day_nunique, on='name', how='left')
         feats = feats.rename(columns={c: c if c == 'name' else 'recharges_' + c for c in feats.columns})
 
         feats = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats, 'name')
@@ -664,13 +580,13 @@ class Featurizer:
         """
         data_path = self.outputs_path / 'datasets'
 
-        features = ['cdr', 'cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
-        paths_to_datasets = ['bandicoot_features/all', 'cdr_features_dask/all', 'international_feats', 'location_features',
+        features = ['cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']
+        paths_to_datasets = ['cdr_features_dask/all', 'international_feats', 'location_features',
                     'mobiledata_features', 'mobilemoney_feats', 'recharges_feats']
 
         # Read data from disk if requested
         for feature, path_to_dataset in zip(features, paths_to_datasets):
-            if not self.features[feature]:
+            if self.features[feature] is None:
                 full_path = data_path / path_to_dataset
                 try:
                     example_file = next(full_path.iterdir())
@@ -700,6 +616,10 @@ class Featurizer:
             read_from_disk: whether to load features from disk
         """
         if read_from_disk:
+            # Force reload from disk to avoid mixing persisted features with in-memory
+            # Dask expression graphs created earlier in this run.
+            for key in ['cdr', 'international', 'location', 'mobiledata', 'mobilemoney', 'recharges']:
+                self.features[key] = None
             self.load_features()
 
         # Recompute set of all features if it was already computed

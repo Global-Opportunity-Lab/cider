@@ -432,11 +432,15 @@ class DataStore(InitializerInterface):
             raise ValueError('CDR must be loaded to identify and remove spammers.')
 
         # Get average number of calls and SMS per day
-        n_transactions = self.cdr.groupby(["caller_id", "txn_type"]).size().reset_index()
-        n_transactions = n_transactions.rename(columns={0: "n_transactions"})
-
-        active_days = self.cdr.groupby(["caller_id", "txn_type"])["day"].nunique().reset_index()
-        active_days = active_days.rename(columns={"day": "active_days"})
+        n_transactions = (
+            self.cdr.groupby(["caller_id", "txn_type"]).size().to_frame("n_transactions").reset_index()
+        )
+        active_days = (
+            self.cdr.groupby(["caller_id", "txn_type"])["day"]
+            .nunique()
+            .to_frame("active_days")
+            .reset_index()
+        )
         grouped = n_transactions.merge(active_days, on=["caller_id", "txn_type"], how="inner")
         grouped["count"] = grouped["n_transactions"] / grouped["active_days"]
 

@@ -25,6 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import logging
 import os
 import shutil
 import sys
@@ -35,6 +36,7 @@ import warnings
 from importlib_resources import files as importlib_resources_files
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import dask.dataframe as dd
 from dask.distributed import Client, LocalCluster
 from box import Box
@@ -73,13 +75,19 @@ def get_dask_client(cfg: Box) -> Client:
     n_workers = dask_cfg.get('n_workers', 4)
     threads_per_worker = dask_cfg.get('threads_per_worker', 1)
     memory_limit = dask_cfg.get('memory_limit', 'auto')
+    silence_logs = dask_cfg.get('silence_logs', True)
+    
+    if silence_logs:
+        # Reduce log noise from distributed/Dask so featurizer progress prints are visible
+        for name in ('distributed', 'dask', 'dask.distributed'):
+            logging.getLogger(name).setLevel(logging.ERROR)
     
     # Create local cluster
     cluster = LocalCluster(
         n_workers=n_workers,
         threads_per_worker=threads_per_worker,
         memory_limit=memory_limit,
-        silence_logs=dask_cfg.get('silence_logs', True)
+        silence_logs=silence_logs,
     )
     
     # Create and connect client
@@ -99,6 +107,7 @@ def save_df(df: Union[DaskDataFrame, PandasDataFrame], out_file_path: Path, sep:
         single_file: If True, write to a single file. If False, write partitioned files.
     """
     if single_file:
+        out_file_path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(df, PandasDataFrame):  # Pandas case
             df.to_csv(str(out_file_path), header=True, sep=sep, index=False)
         elif isinstance(df, dd.DataFrame):  # Dask case
@@ -167,20 +176,63 @@ def read_parquet(client: Optional[Client], file_path: Path, **kwargs) -> DaskDat
     return dd.read_parquet(str(file_path), **kwargs)
 
 
+def _pandas_dtype_to_arrow(dtype) -> pa.DataType:
+    """Map pandas dtype to PyArrow type for consistent parquet schema across partitions."""
+    name = str(dtype).lower()
+    if name in ('object', 'string', 'str'):
+        return pa.string()
+    if name in ('int8', 'int16', 'int32', 'int64', 'int', 'int_'):
+        return pa.int64()
+    if name in ('uint8', 'uint16', 'uint32', 'uint64'):
+        return pa.uint64()
+    if 'int64' in name or 'int32' in name or 'int16' in name or 'int8' in name:
+        return pa.int64()
+    if name in ('float16', 'float32', 'float64', 'float', 'float_'):
+        return pa.float64()
+    if 'float' in name:
+        return pa.float64()
+    if name in ('bool', 'boolean'):
+        return pa.bool_()
+    if name.startswith('datetime64') or 'datetime' in name:
+        return pa.timestamp('us')
+    if name.startswith('timedelta64') or 'timedelta' in name:
+        return pa.duration('us')
+    # default for unknown (e.g. categorical, period): string
+    return pa.string()
+
+
 def save_parquet(df: Union[DaskDataFrame, PandasDataFrame], out_directory_path: Path) -> None:
     """
     Save dask or pandas dataframe to parquet file(s).
-    
-    Args:
-        df: Dask or Pandas DataFrame
-        out_directory_path: Path to output directory
+    Uses an explicit PyArrow schema for Dask writes so all partitions share the same
+    schema, avoiding "Repetition level histogram size mismatch" when reading.
     """
+    def _object_cols(dtypes):
+        return [c for c in dtypes.index if dtypes[c] == object or str(dtypes[c]) == 'object']
+
     if isinstance(df, dd.DataFrame):
         out_directory_path.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(str(out_directory_path), write_index=False, overwrite=True)
-    
+        obj_cols = _object_cols(df.dtypes)
+        if obj_cols:
+            df = df.assign(**{c: df[c].astype(str) for c in obj_cols})
+        # Explicit schema so every partition writes the same schema (avoids read errors)
+        schema = pa.schema([
+            (c, _pandas_dtype_to_arrow(df.dtypes[c])) for c in df.columns
+        ])
+        df.to_parquet(
+            str(out_directory_path),
+            write_index=False,
+            overwrite=True,
+            schema=schema,
+        )
+
     elif isinstance(df, PandasDataFrame):
         out_directory_path.mkdir(parents=True, exist_ok=True)
+        obj_cols = _object_cols(df.dtypes)
+        if obj_cols:
+            df = df.copy()
+            for c in obj_cols:
+                df[c] = df[c].astype(str)
         df.to_parquet(out_directory_path / '0.parquet', index=False)
 
 
@@ -201,13 +253,11 @@ def filter_dates_dataframe(df: DaskDataFrame,
     if colname not in df.columns:
         raise ValueError('Cannot filter dates because missing timestamp column')
     
-    # Ensure column is datetime type
-    if not pd.api.types.is_datetime64_any_dtype(df[colname]):
-        df[colname] = dd.to_datetime(df[colname])
-    
+    # Always convert to datetime so we never compare string to Timestamp (e.g. when
+    # Parquet has large_string or mixed partitions).
+    df = df.assign(**{colname: dd.to_datetime(df[colname], errors="coerce")})
     start_dt = pd.to_datetime(start_date)
     end_dt = pd.to_datetime(end_date) + pd.Timedelta(value=1, unit='days')
-    
     df = df[(df[colname] >= start_dt) & (df[colname] < end_dt)]
     return df
 
@@ -229,27 +279,6 @@ def make_dir(directory_path: Path, remove: bool = False) -> None:
 def flatten_lst(lst: List[List]) -> List:
     """Flatten a list of lists"""
     return [item for sublist in lst for item in sublist]
-
-
-def flatten_folder(args: Tuple) -> List[str]:
-    """
-    Helper function to flatten bandicoot folder structure
-    
-    Args:
-        args: Tuple of (ids, recs_folder)
-        
-    Returns:
-        List of unmatched IDs
-    """
-    ids, recs_folder = args
-    unmatched: List[str] = []
-    for p in ids:
-        try:
-            fname = 'name=' + p
-            os.system('mv ' + recs_folder + '/' + fname + '/*.csv ' + recs_folder + '/' + p + '.csv')
-        except:
-            unmatched = unmatched + [p]
-    return unmatched
 
 
 def cdr_bandicoot_format(cdr: DaskDataFrame, antennas: DaskDataFrame, cfg: Box) -> DaskDataFrame:
@@ -303,7 +332,11 @@ def cdr_bandicoot_format(cdr: DaskDataFrame, antennas: DaskDataFrame, cfg: Box) 
     
     # Join with antennas if available
     if antennas is not None:
-        antenna_cols = antennas[['antenna_id', 'latitude', 'longitude']]
+        # Ensure same type for merge (CDR may have float antenna ids, antennas may have str)
+        cdr_bandicoot = cdr_bandicoot.assign(antenna_id=cdr_bandicoot['antenna_id'].astype(str))
+        antenna_cols = antennas[['antenna_id', 'latitude', 'longitude']].assign(
+            antenna_id=antennas['antenna_id'].astype(str)
+        )
         cdr_bandicoot = cdr_bandicoot.merge(antenna_cols, on='antenna_id', how='left')
     
     # Fill missing values
@@ -343,14 +376,27 @@ def long_join_dask(dfs: List[DaskDataFrame], on: str, how: str) -> DaskDataFrame
         on: column on which to join
         how: type of join
 
-    Returns: 
+    Returns:
         Single joined dask df
     """
     if len(dfs) == 0:
         return None
     df = dfs[0]
+    if on not in df.columns:
+        raise KeyError(
+            f"Join key '{on}' not found in first dataframe. "
+            f"Columns: {list(df.columns)}"
+        )
     for i in range(1, len(dfs)):
-        df = df.merge(dfs[i], on=on, how=how)
+        if on not in dfs[i].columns:
+            raise KeyError(
+                f"Join key '{on}' not found in dataframe index {i}. "
+                f"Columns: {list(dfs[i].columns)}"
+            )
+        # Cast join column to same type (string) to avoid merge on string vs int64
+        df = df.assign(**{on: df[on].astype(str)})
+        other = dfs[i].assign(**{on: dfs[i][on].astype(str)})
+        df = df.merge(other, on=on, how=how)
     return df
 
 
@@ -510,7 +556,12 @@ def filter_by_phone_numbers_to_featurize(
     if phone_numbers_to_featurize is None:
         return df
 
-    elif isinstance(df, dd.DataFrame):
+    # Cast join columns to str so dtypes match (avoids str vs string merge warning and object columns)
+    if isinstance(df, dd.DataFrame):
+        df = df.assign(**{phone_number_column_name: df[phone_number_column_name].astype(str)})
+        phone_numbers_to_featurize = phone_numbers_to_featurize.assign(
+            phone_number=phone_numbers_to_featurize['phone_number'].astype(str)
+        )
         return df.merge(
             phone_numbers_to_featurize,
             left_on=phone_number_column_name,
@@ -521,7 +572,10 @@ def filter_by_phone_numbers_to_featurize(
     else:
         # Pandas case
         phone_numbers_to_featurize_pandas = phone_numbers_to_featurize.compute() if isinstance(phone_numbers_to_featurize, dd.DataFrame) else phone_numbers_to_featurize
-
+        df = df.copy()
+        df[phone_number_column_name] = df[phone_number_column_name].astype(str)
+        phone_numbers_to_featurize_pandas = phone_numbers_to_featurize_pandas.copy()
+        phone_numbers_to_featurize_pandas['phone_number'] = phone_numbers_to_featurize_pandas['phone_number'].astype(str)
         return df.merge(
             phone_numbers_to_featurize_pandas,
             left_on=phone_number_column_name,

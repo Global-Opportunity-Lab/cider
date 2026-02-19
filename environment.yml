@@ -1,0 +1,29 @@
+# Conda environment for CIDER. Use with:
+#   conda env create -f environment.yml
+#   conda env update -f environment.yml   (from env root)
+name: cider
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.9,<3.13
+  - pandas
+  - numpy
+  - dask
+  - distributed
+  - geopandas>=0.14.0
+  - pyarrow
+  - shapely
+  - rasterio
+  - lightgbm
+  - scikit-learn
+  - pyyaml
+  - pip
+  - pip:
+    - python-box
+    - geovoronoi
+    - pyquadkey2
+    - scikit-misc
+    - wpca
+    - hashids
+    - fastparquet

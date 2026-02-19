@@ -26,8 +26,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import dask.dataframe as dd
-import pandas as pd
 import numpy as np
+import pandas as pd
+
 from typing import List
 
 # Type alias for Dask DataFrame
@@ -117,7 +118,7 @@ def pivot_df(df: DaskDataFrame,
     pivot_table = pivot_table.rename(columns=rename_dict)
     
     # Convert back to Dask DataFrame
-    result = dd.from_pandas(pivot_table, npartitions=4)
+    result = dd.from_pandas(pivot_table)
     
     return result
 
@@ -138,6 +139,12 @@ def tag_conversations(df: DaskDataFrame, max_wait: int = 3600) -> DaskDataFrame:
     Returns:
         df: tagged dask dataframe
     """
+    # Normalize key dtypes before any shuffle/sort to prevent mixed int/str partition failures.
+    df = df.assign(
+        caller_id=df['caller_id'].astype(str),
+        recipient_id=df['recipient_id'].astype(str),
+    )
+
     # For window functions with complex logic, we need to work with partitions
     # Sort by the partition key columns and timestamp
     df = df.sort_values(['caller_id', 'recipient_id', 'timestamp'])
@@ -177,13 +184,14 @@ def tag_conversations(df: DaskDataFrame, max_wait: int = 3600) -> DaskDataFrame:
             np.where(partition_df['txn_type'] == 'text', partition_df['convo'], np.nan)
         )
         
-        # Clean up temporary columns
+        # Clean up temporary columns (keep 'wait' - used by interevent_time and others)
         partition_df = partition_df.drop(columns=['ts', 'prev_txn', 'prev_ts', 'convo'], errors='ignore')
         
         return partition_df
     
-    # Apply to each partition
+    # Apply to each partition; meta must include all output columns in same order as partition returns (wait then conversation)
     meta = df._meta.copy()
+    meta['wait'] = np.float64(0.0)
     meta['conversation'] = 0.0
     
     result = df.map_partitions(tag_conversations_partition, meta=meta)
@@ -217,15 +225,8 @@ def great_circle_distance(df: DaskDataFrame) -> DaskDataFrame:
 
 def summary_stats(col_name: str) -> dict:
     """
-    Standard list of aggregation functions to be applied to column after group by
-    
-    Args:
-        col_name: Name of the column to compute statistics for
-        
-    Returns:
-        Dictionary mapping statistic names to aggregation functions
+    Standard list of aggregation functions to be applied to column after group by (pandas NamedAgg format).
     """
-    # In Dask, we return a dictionary for use with .agg()
     stats_dict = {
         f'{col_name}_mean': (col_name, 'mean'),
         f'{col_name}_min': (col_name, 'min'),
@@ -235,5 +236,27 @@ def summary_stats(col_name: str) -> dict:
         f'{col_name}_skewness': (col_name, lambda x: x.skew()),
         f'{col_name}_kurtosis': (col_name, lambda x: x.kurtosis())
     }
-    
     return stats_dict
+
+
+def groupby_agg_summary_stats_dask(
+    df: DaskDataFrame, group_cols: List[str], value_col: str
+) -> DaskDataFrame:
+    """
+    Run groupby().agg(summary_stats(...)) in a Dask-compatible way.
+    Dask's groupby.agg does not support the pandas NamedAgg (tuple) format, so we compute
+    the needed columns to pandas, run the agg, then wrap back in Dask.
+    Returns DataFrame with group_cols + mean, std, min, max, median, skewness, kurtosis.
+    """
+    subset = df[group_cols + [value_col]].compute()
+    # Use NamedAgg keyword form so output columns are mean, min, max, std, median, skewness, kurtosis
+    out = subset.groupby(group_cols).agg(
+        mean=(value_col, 'mean'),
+        min=(value_col, 'min'),
+        max=(value_col, 'max'),
+        std=(value_col, 'std'),
+        median=(value_col, lambda x: x.quantile(0.5)),
+        skewness=(value_col, lambda x: x.skew()),
+        kurtosis=(value_col, lambda x: x.kurtosis()),
+    ).reset_index()
+    return dd.from_pandas(out)
