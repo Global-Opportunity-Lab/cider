@@ -556,32 +556,41 @@ def filter_by_phone_numbers_to_featurize(
     if phone_numbers_to_featurize is None:
         return df
 
-    # Cast join columns to str so dtypes match (avoids str vs string merge warning and object columns)
+    has_person_id = 'person_id' in phone_numbers_to_featurize.columns
+
+    # When person_id is present, merge phone_number+person_id so we can remap caller_id → person_id.
+    # Otherwise, use phone_number only for filtering — don't bring any extra columns into df rows.
+    if has_person_id:
+        mapping = phone_numbers_to_featurize[['phone_number', 'person_id']]
+    else:
+        mapping = phone_numbers_to_featurize[['phone_number']]
+
     if isinstance(df, dd.DataFrame):
         df = df.assign(**{phone_number_column_name: df[phone_number_column_name].astype(str)})
-        phone_numbers_to_featurize = phone_numbers_to_featurize.assign(
-            phone_number=phone_numbers_to_featurize['phone_number'].astype(str)
-        )
-        return df.merge(
-            phone_numbers_to_featurize,
-            left_on=phone_number_column_name,
-            right_on='phone_number',
-            how='inner'
-        ).drop(columns='phone_number')
+        mapping = mapping.assign(phone_number=mapping['phone_number'].astype(str))
+        df = df.merge(mapping, left_on=phone_number_column_name, right_on='phone_number', how='inner')
+        if has_person_id:
+            df = df.drop(columns=[phone_number_column_name, 'phone_number']).rename(
+                columns={'person_id': phone_number_column_name}
+            )
+        else:
+            df = df.drop(columns='phone_number')
 
     else:
         # Pandas case
-        phone_numbers_to_featurize_pandas = phone_numbers_to_featurize.compute() if isinstance(phone_numbers_to_featurize, dd.DataFrame) else phone_numbers_to_featurize
+        mapping_pandas = mapping.compute() if isinstance(mapping, dd.DataFrame) else mapping.copy()
+        mapping_pandas['phone_number'] = mapping_pandas['phone_number'].astype(str)
         df = df.copy()
         df[phone_number_column_name] = df[phone_number_column_name].astype(str)
-        phone_numbers_to_featurize_pandas = phone_numbers_to_featurize_pandas.copy()
-        phone_numbers_to_featurize_pandas['phone_number'] = phone_numbers_to_featurize_pandas['phone_number'].astype(str)
-        return df.merge(
-            phone_numbers_to_featurize_pandas,
-            left_on=phone_number_column_name,
-            right_on='phone_number',
-            how='inner'
-        ).drop(columns='phone_number')
+        df = df.merge(mapping_pandas, left_on=phone_number_column_name, right_on='phone_number', how='inner')
+        if has_person_id:
+            df = df.drop(columns=[phone_number_column_name, 'phone_number']).rename(
+                columns={'person_id': phone_number_column_name}
+            )
+        else:
+            df = df.drop(columns='phone_number')
+
+    return df
 
 
 # For testing only. Compare two dataframes that are expected to be similar or identical. Obtain info

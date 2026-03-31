@@ -612,6 +612,40 @@ class Featurizer:
                 elif example_file.suffix == '.parquet':
                     self.features[feature] = read_parquet(self.client, data_path / path_to_dataset)
 
+    def _compute_household_features(self, person_features: DaskDataFrame, phone_numbers_to_featurize: DaskDataFrame) -> None:
+        """
+        Aggregate person-level features to household level and save to disk.
+
+        Produces mean, std, and max for every numeric feature column, plus hh_n_persons.
+        The join key from person_features is 'name' (= person_id if person_id was configured,
+        otherwise phone_number).
+        """
+        id_col = 'person_id' if 'person_id' in phone_numbers_to_featurize.columns else 'phone_number'
+        hh_mapping = phone_numbers_to_featurize[[id_col, 'household_id']].drop_duplicates()
+
+        merged = person_features.merge(
+            hh_mapping.assign(**{id_col: hh_mapping[id_col].astype(str)}),
+            left_on='name',
+            right_on=id_col,
+            how='inner'
+        )
+        if id_col != 'name':
+            merged = merged.drop(columns=id_col)
+
+        feature_cols = [c for c in merged.columns if c not in ('name', 'household_id')]
+        hh_mean = merged.groupby('household_id')[feature_cols].mean().add_suffix('__hh_mean')
+        hh_std = merged.groupby('household_id')[feature_cols].std().add_suffix('__hh_std')
+        hh_max = merged.groupby('household_id')[feature_cols].max().add_suffix('__hh_max')
+        hh_n = merged.groupby('household_id')['name'].nunique().rename('hh_n_persons')
+
+        hh_features = hh_mean.join(hh_std).join(hh_max).join(hh_n).reset_index()
+
+        if self.output_format == _OutputFormat.CSV:
+            save_df(hh_features, self.outputs_path / 'datasets' / 'household_features', single_file=False)
+        else:
+            save_parquet(hh_features, self.outputs_path / 'datasets' / 'household_features')
+        self.features['household'] = hh_features
+
     def all_features(self, read_from_disk: bool = False) -> None:
         """
         Join all feature datasets together, save to disk, and assign to attribute
@@ -639,6 +673,10 @@ class Featurizer:
             else:
                 save_parquet(all_features, self.outputs_path / 'datasets' / 'features')
             self.features['all'] = all_features
+
+            phone_numbers_to_featurize = getattr(self.ds, 'phone_numbers_to_featurize', None)
+            if phone_numbers_to_featurize is not None and 'household_id' in phone_numbers_to_featurize.columns:
+                self._compute_household_features(all_features, phone_numbers_to_featurize)
         else:
             print('No features have been computed yet.')
 

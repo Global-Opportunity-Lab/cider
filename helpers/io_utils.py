@@ -617,7 +617,27 @@ class IOUtils:
         phone_numbers_to_featurize = self.load_dataset(
             'phone_numbers_to_featurize', fpath=fpath, provided_df=df
         )
-        phone_numbers_to_featurize = phone_numbers_to_featurize[['phone_number']]
+        col_names_cfg = getattr(getattr(self.cfg, 'col_names', Box()), 'phone_numbers_to_featurize', Box())
+        has_person_id = 'person_id' in col_names_cfg
+        has_household_id = 'household_id' in col_names_cfg
+
+        if not has_person_id:
+            print(
+                'No person_id column found in col_names.phone_numbers_to_featurize. '
+                'Each phone number will be featurized independently; multiple SIMs for the same person will not be combined.'
+            )
+        if not has_household_id:
+            print(
+                'No household_id column found in col_names.phone_numbers_to_featurize. '
+                'Household-level dispersion features will not be computed.'
+            )
+
+        cols_to_keep = ['phone_number']
+        if has_person_id:
+            cols_to_keep.append('person_id')
+        if has_household_id:
+            cols_to_keep.append('household_id')
+        phone_numbers_to_featurize = phone_numbers_to_featurize[cols_to_keep]
 
         distinct_count = phone_numbers_to_featurize['phone_number'].nunique().compute()
         length = len(phone_numbers_to_featurize)
