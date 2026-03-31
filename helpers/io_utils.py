@@ -585,8 +585,13 @@ class IOUtils:
             '%Y-%m-%d %H:%M:%S' if has_time_info else '%Y-%m-%d'
         )
 
-        # Convert to datetime
-        df['timestamp'] = dd.to_datetime(df[existing_timestamp_column_name], format=timestamp_format)
+        # Convert to datetime. Use format='mixed' to handle files where some rows have
+        # date-only strings and others have full datetime strings (e.g. midnight rows
+        # saved without time component by older pandas versions).
+        try:
+            df['timestamp'] = dd.to_datetime(df[existing_timestamp_column_name], format=timestamp_format)
+        except Exception:
+            df['timestamp'] = dd.to_datetime(df[existing_timestamp_column_name], format='mixed')
         
         # Add day column (truncated to day)
         df['day'] = df['timestamp'].dt.floor('D')

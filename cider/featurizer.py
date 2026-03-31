@@ -288,8 +288,12 @@ class Featurizer:
         for c, agg in lst:
             for subset, name in [(inter, 'all'), (inter_voice, 'call'), (inter_sms, 'text')]:
                 grouped = subset[['caller_id', c]].groupby('caller_id', as_index=False).agg(agg)
-                # grouped has caller_id plus one column per agg; name them explicitly
-                grouped.columns = ['caller_id'] + [name + '__' + c + '__' + ag for ag in agg]
+                # pandas 1.4 bug: as_index=False with list agg puts caller_id in the index
+                # instead of columns (both empty and non-empty). reset_index() recovers it.
+                expected_cols = ['caller_id'] + [name + '__' + c + '__' + ag for ag in agg]
+                if len(grouped.columns) < len(expected_cols):
+                    grouped = grouped.reset_index()
+                grouped.columns = expected_cols
                 feats.append(grouped)
 
         # Combine all aggregations together, write to file
