@@ -1,0 +1,13 @@
+# Minimal conda env: only Python + pip (conda solve is tiny and fast).
+# Then install CIDER and deps with pip (usually faster than conda for many packages).
+#
+#   cd /home/msmith/cider && conda env create -f environment_minimal.yml
+#   conda activate cider
+#   pip install -r requirements.txt
+name: cider
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.9,<3.13
+  - pip

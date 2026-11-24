@@ -28,6 +28,7 @@
 from typing import Optional, List
 import numpy as np
 import pandas as pd
+import dask
 import dask.dataframe as dd
 
 from box import Box
@@ -38,34 +39,22 @@ from helpers.utils import filter_by_phone_numbers_to_featurize
 DaskDataFrame = dd.DataFrame
 
 
-def all_dask(
+def prepare_cdr_base(
     df: DaskDataFrame,
-    antennas: DaskDataFrame,
     cfg: Box,
     phone_numbers_to_featurize: Optional[DaskDataFrame]
-) -> List[DaskDataFrame]:
+) -> DaskDataFrame:
     """
-    Compute cdr features starting from raw interaction data
-
-    Args:
-        df: dask dataframe with cdr interactions
-        antennas: dask dataframe with antenna ids and coordinates
-        cfg: config object
-        phone_numbers_to_featurize: optional dataframe of phone numbers to featurize
-
-    Returns:
-        features: list of features as dask dataframes
+    Apply shared CDR transforms (in/out duplication, repartition, phone filter,
+    tag_conversations, weekday/daytime labels) that all feature functions need.
+    Returns a 64-partition Dask DataFrame ready for feature computation.
+    Call this once and cache the result to avoid re-reading 1407 raw files per feature.
     """
-    features = []
-    df_input = df.copy()
-    # Partitioning column for Dask shuffle (merge and sort_values) is caller_id: set_partitions_pre
-    # in shuffle.py uses it for divisions.searchsorted(); int/str mix across partitions raises TypeError.
     df = df.assign(
         caller_id=df['caller_id'].astype(str),
         recipient_id=df['recipient_id'].astype(str),
     )
 
-    # Add weekday and daytime columns for subsequent groupby(s)
     df['weekday'] = df['day'].dt.dayofweek.apply(
         lambda x: 'weekend' if x in cfg.weekend else 'weekday',
         meta=('weekday', 'object')
@@ -74,13 +63,10 @@ def all_dask(
         lambda x: 'night' if (x < cfg.start_of_day) or (x >= cfg.end_of_day) else 'day',
         meta=('daytime', 'object')
     )
-    
-    # Duplicate rows, switching caller and recipient columns (for both directions)
-    # Create outgoing dataframe
+
     df_out = df.copy()
     df_out['direction'] = 'out'
-    
-    # Create incoming dataframe
+
     df_in = df.copy()
     df_in['direction'] = 'in'
     df_in['caller_id_temp'] = df_in['caller_id']
@@ -90,24 +76,77 @@ def all_dask(
     df_in['caller_antenna'] = df_in['recipient_antenna']
     df_in['recipient_antenna'] = df_in['caller_antenna_temp']
     df_in = df_in.drop(columns=['caller_id_temp', 'caller_antenna_temp'])
-    
-    # Combine (ignore_index=True to avoid duplicate labels; downstream assigns/compute require unique index)
+
     df = dd.concat([df_out, df_in], axis=0, ignore_index=True)
 
-    # 'caller_id' contains the subscriber in question for featurization purposes
+    # Filter to surveyed phones BEFORE repartition so repartitiontofewer operates on
+    # ~10% of the data (~200 MB) rather than the full unfiltered CDR (~2 GB).
+    # Doing this after the in/out copy is correct: caller_id now covers both
+    # outgoing and incoming perspectives.
     df = filter_by_phone_numbers_to_featurize(phone_numbers_to_featurize, df, 'caller_id')
     df = df.assign(
         caller_id=df['caller_id'].astype(str),
         recipient_id=df['recipient_id'].astype(str),
     )
 
-    # Assign interactions to conversations if relevant
+    if df.npartitions > 64:
+        df = df.repartition(npartitions=64)
+
     df = tag_conversations(df)
     df = df.assign(
         caller_id=df['caller_id'].astype(str),
         recipient_id=df['recipient_id'].astype(str),
     )
-    
+
+    # Normalize antenna columns to str. Source parquet stores antennas as binary
+    # (bytes), but text records have float NaN antennas. Mixed binary+NaN causes
+    # Arrow type conflicts when writing the temp cache parquet.
+    def _normalize_antenna_cols(partition):
+        for col in ['caller_antenna', 'recipient_antenna']:
+            if col not in partition.columns:
+                continue
+            s = partition[col]
+            notna_mask = s.notna()
+            if notna_mask.any():
+                vals = s.copy()
+                vals[notna_mask] = s[notna_mask].apply(
+                    lambda x: x.decode('utf-8') if isinstance(x, bytes) else str(x)
+                )
+                partition = partition.assign(**{col: vals})
+        return partition
+
+    df = df.map_partitions(_normalize_antenna_cols, meta=df._meta)
+
+    return df
+
+
+def all_dask(
+    df: DaskDataFrame,
+    antennas: DaskDataFrame,
+    cfg: Box,
+    phone_numbers_to_featurize: Optional[DaskDataFrame],
+    skip_base_prep: bool = False,
+) -> List[DaskDataFrame]:
+    """
+    Compute cdr features starting from raw interaction data
+
+    Args:
+        df: dask dataframe with cdr interactions (raw, or pre-processed when skip_base_prep=True)
+        antennas: dask dataframe with antenna ids and coordinates
+        cfg: config object
+        phone_numbers_to_featurize: optional dataframe of phone numbers to featurize
+        skip_base_prep: if True, df is already the output of prepare_cdr_base() (cached
+            parquet) and the shared transforms are skipped.  Used by cdr_features_dask()
+            to avoid re-reading 1407 raw files for every feature function.
+
+    Returns:
+        features: list of features as dask dataframes
+    """
+    features = []
+
+    if not skip_base_prep:
+        df = prepare_cdr_base(df, cfg, phone_numbers_to_featurize)
+
     # Compute features and append them to list
     features.append(active_days(df))
     features.append(number_of_contacts(df))
@@ -241,7 +280,9 @@ def response_delay_text(df: DaskDataFrame) -> DaskDataFrame:
     """
     df = df[df['txn_type'] == 'text']
     df = add_all_cat(df, cols='week_day')
-    # Compute only needed columns (no response_delay/prev_dir) so no assign in graph → no duplicate-label reindex
+    # Compute only needed columns (no response_delay/prev_dir) so no assign in graph → no duplicate-label reindex.
+    # Uses synchronous scheduler to avoid gathering ~3M CDR rows via distributed repartitiontofewer,
+    # which triggers OOM when workers are under memory pressure.
     cols_to_load = ['caller_id', 'recipient_id', 'conversation', 'timestamp', 'direction', 'wait', 'weekday', 'daytime']
     subset = df[cols_to_load].compute()
     subset['caller_id'] = subset['caller_id'].astype(str)
@@ -274,7 +315,8 @@ def response_rate_text(df: DaskDataFrame) -> DaskDataFrame:
     """
     df = df[df['txn_type'] == 'text']
     df = add_all_cat(df, cols='week_day')
-    # Compute only needed columns (no dir_out/responded) so no assign in graph
+    # Compute only needed columns (no dir_out/responded) so no assign in graph.
+    # Uses synchronous scheduler for the same OOM reason as response_delay_text.
     cols_to_load = ['caller_id', 'recipient_id', 'conversation', 'timestamp', 'direction', 'weekday', 'daytime']
     subset = df[cols_to_load].compute()
     # Rest in pandas
@@ -388,7 +430,8 @@ def interevent_time(df: DaskDataFrame) -> DaskDataFrame:
     transaction type. Computes to pandas before adding ts/prev_ts/wait to avoid Dask assign/reindex on duplicate labels.
     """
     df = add_all_cat(df, cols='week_day')
-    # Compute only needed columns (no ts, prev_ts, wait) so no assign in graph
+    # Compute only needed columns (no ts, prev_ts, wait) so no assign in graph.
+    # Uses synchronous scheduler for the same OOM reason as response_delay_text.
     cols_to_load = ['caller_id', 'weekday', 'daytime', 'txn_type', 'timestamp']
     subset = df[cols_to_load].compute()
     subset['caller_id'] = subset['caller_id'].astype(str)
@@ -424,10 +467,10 @@ def percent_pareto_interactions(df: DaskDataFrame, percentage: float = 0.8) -> D
 
     # Count interactions per contact
     counts = df.groupby(['caller_id', 'recipient_id', 'weekday', 'daytime', 'txn_type']).size().rename('n').reset_index()
-    
+
     # Compute to pandas for complex operations
     counts_pd = counts.compute()
-    
+
     # Sort and calculate cumulative sums
     counts_pd = counts_pd.sort_values(['caller_id', 'weekday', 'daytime', 'txn_type', 'n'], ascending=[True, True, True, True, False])
     counts_pd['total'] = counts_pd.groupby(['caller_id', 'weekday', 'daytime', 'txn_type'])['n'].transform('sum')
@@ -463,7 +506,7 @@ def percent_pareto_durations(df: DaskDataFrame, percentage: float = 0.8) -> Dask
 
     # Sum durations per contact
     durations = df.groupby(['caller_id', 'recipient_id', 'weekday', 'daytime'])['duration'].sum().reset_index()
-    
+
     # Compute to pandas for complex operations
     durations_pd = durations.compute()
     
@@ -632,12 +675,15 @@ def radius_of_gyration(df: DaskDataFrame, antennas: DaskDataFrame) -> DaskDataFr
     # Radius of gyration: do groupby/apply in pandas so result has [caller_id, weekday, daytime, r] for pivot_df
     cols_for_rog = ['caller_id', 'weekday', 'daytime', 'r', 'n']
     subset = df[cols_for_rog].compute()
-    out = subset.groupby(['caller_id', 'weekday', 'daytime']).apply(
-        lambda x: np.sqrt(np.sum(x['r']**2 / x['n'].iloc[0]))
-    ).reset_index()
-    # pandas may produce 4 or 5 columns from apply+reset_index; keep first 3 as keys and last as 'r'
-    out = out.iloc[:, [0, 1, 2, -1]].copy()
-    out.columns = ['caller_id', 'weekday', 'daytime', 'r']
+    # n is constant per group (= group size), so sum(r^2/n) = sum(r^2)/n.
+    # Avoid groupby().apply().reset_index() which fails in some pandas versions when
+    # a groupby key also appears as a column, causing "cannot insert daytime, already exists".
+    subset = subset.copy()
+    subset['_r_sq_per_n'] = subset['r'] ** 2 / subset['n']
+    out = (subset.groupby(['caller_id', 'weekday', 'daytime'])['_r_sq_per_n']
+           .sum()
+           .apply(np.sqrt)
+           .reset_index(name='r'))
     out = dd.from_pandas(out)
     out = pivot_df(out, index=['caller_id'], columns=['weekday', 'daytime'], values=['r'],
                    indicator_name='radius_of_gyration')
@@ -654,10 +700,10 @@ def frequent_antennas(df: DaskDataFrame, percentage: float = 0.8) -> DaskDataFra
 
     # Count interactions per antenna
     counts = df.groupby(['caller_id', 'caller_antenna', 'weekday', 'daytime']).size().rename('n').reset_index()
-    
+
     # Compute to pandas for complex operations
     counts_pd = counts.compute()
-    
+
     # Sort and calculate cumulative sums
     counts_pd = counts_pd.sort_values(['caller_id', 'weekday', 'daytime', 'n'], ascending=[True, True, True, False])
     counts_pd['total'] = counts_pd.groupby(['caller_id', 'weekday', 'daytime'])['n'].transform('sum')

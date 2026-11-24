@@ -224,8 +224,10 @@ class DataStore(InitializerInterface):
         # Load shapefiles
         shapefiles = self._get_input_data_file_path('shapefiles', missing_allowed=True)
         if shapefiles is not None:
+            shapefiles_col_names = getattr(self.cfg.col_names, 'shapefiles', {})
             for shapefile_name, shapefile_fpath in shapefiles.items():
-                self.shapefiles[shapefile_name] = self.io_utils.load_shapefile(shapefile_fpath)
+                col_names = dict(shapefiles_col_names.get(shapefile_name, {})) if shapefiles_col_names else None
+                self.shapefiles[shapefile_name] = self.io_utils.load_shapefile(shapefile_fpath, col_names=col_names or None)
 
     def _load_home_ground_truth(self) -> None:
         """

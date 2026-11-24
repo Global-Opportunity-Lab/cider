@@ -25,9 +25,11 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import dask
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
+from itertools import product
 
 from typing import List
 
@@ -57,20 +59,25 @@ def add_all_cat(df: DaskDataFrame, cols: str) -> DaskDataFrame:
     else:
         raise ValueError("'cols' argument should be one of {week, week_day, week_day_dir}")
 
-    # For each of the columns defined in the mapping, duplicate entries
-    # In Dask, we create separate dataframes and concatenate them
-    dfs_to_concat = [df]
-    
-    for column, value in col_mapping.items():
-        # Create a copy with the "all" value for this column
-        df_all = df.copy()
-        df_all[column] = value
-        dfs_to_concat.append(df_all)
-    
-    # Concatenate all dataframes
-    result = dd.concat(dfs_to_concat, axis=0, ignore_index=True)
-    
-    return result
+    # Duplicate rows so pivots include every combination of "all" buckets:
+    #   week_day: (allweek, allday) requires BOTH weekday=allweek AND daytime=allday
+    #   on the same rows — not just separate copies that fix one column at a time.
+    # Using itertools.product({False, True}^k) yields 2^k blocks: original, each
+    # single-"all" slice, …, full (allweek, allday[, alldir]) joint category.
+    keys = list(col_mapping.keys())
+    vals = list(col_mapping.values())
+
+    def _expand(partition, keys, vals):
+        copies = []
+        for flags in product([False, True], repeat=len(keys)):
+            copy = partition.copy()
+            for i, use_all in enumerate(flags):
+                if use_all:
+                    copy[keys[i]] = vals[i]
+            copies.append(copy)
+        return pd.concat(copies, ignore_index=True)
+
+    return df.map_partitions(_expand, keys, vals)
 
 
 def pivot_df(df: DaskDataFrame,
@@ -90,13 +97,20 @@ def pivot_df(df: DaskDataFrame,
     Returns:
         df: pivoted dask dataframe
     """
-    # Check if dataframe is empty
-    if len(df) == 0:
-        return df[['caller_id']]
+    # Compute to pandas. Use synchronous scheduler to avoid repartitiontofewer tasks
+    # in the distributed scheduler, which kill workers via OOM. With the temp CDR
+    # base parquet cache (64 partitions), sync compute here is fast (seconds, not
+    # hours as it was when reading the 1407 raw CDR files each time).
+    # DO NOT call len(df) — in dask-expr that triggers taskshuffle with split_out=1
+    # (nunique default) → all shuffled data goes to ONE worker → OOM.
+    if isinstance(df, dd.DataFrame):
+        with dask.config.set(scheduler='synchronous'):
+            df_pandas = df.compute()
+    else:
+        df_pandas = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame(df)
 
-    # For complex multi-level pivots, compute to pandas for efficiency
-    # Dask doesn't have native multi-level pivot support
-    df_pandas = df.compute()
+    if len(df_pandas) == 0:
+        return dd.from_pandas(pd.DataFrame({'caller_id': pd.Series(dtype='str')}), npartitions=1)
     
     # Build pivot table
     pivot_table = df_pandas.pivot_table(
@@ -113,8 +127,17 @@ def pivot_df(df: DaskDataFrame,
     # Reset index to make index columns regular columns
     pivot_table = pivot_table.reset_index()
     
-    # Rename columns by prefixing indicator name (except caller_id)
-    rename_dict = {col: f'{indicator_name}_{col}' for col in pivot_table.columns if col != 'caller_id'}
+    # Prefix indicator, but avoid active_days_active_days_… when the pivot value
+    # column already starts with indicator_name (pandas includes the value level).
+    rename_dict = {}
+    for col in pivot_table.columns:
+        if col == 'caller_id':
+            continue
+        c = str(col)
+        if c.startswith(f'{indicator_name}_'):
+            rename_dict[col] = c
+        else:
+            rename_dict[col] = f'{indicator_name}_{c}'
     pivot_table = pivot_table.rename(columns=rename_dict)
     
     # Convert back to Dask DataFrame
@@ -145,10 +168,23 @@ def tag_conversations(df: DaskDataFrame, max_wait: int = 3600) -> DaskDataFrame:
         recipient_id=df['recipient_id'].astype(str),
     )
 
-    # For window functions with complex logic, we need to work with partitions
-    # Sort by the partition key columns and timestamp
-    df = df.sort_values(['caller_id', 'recipient_id', 'timestamp'])
-    
+    # Avoid df.sort_values() — Dask's distributed sort creates repartitiontofewer tasks
+    # internally.  When a worker is paused at 80% memory those tasks deadlock
+    # indefinitely (the repartitiontofewer task is assigned to the paused worker but
+    # can never run because the worker is blocked waiting to spill).
+    #
+    # Fix: two-step approach.
+    # 1. shuffle() by (caller_id, recipient_id) using the tasks method (hash-partition):
+    #    all rows for the same caller/recipient pair end up in the same partition.
+    #    Tasks-based shuffle does NOT create repartitiontofewer — it hash-routes rows
+    #    without first determining global divisions.
+    # 2. map_partitions() local sort by (caller_id, recipient_id, timestamp):
+    #    each partition is already self-contained so the window logic below is correct.
+    df = df.shuffle(['caller_id', 'recipient_id'])
+    df = df.map_partitions(
+        lambda p: p.sort_values(['caller_id', 'recipient_id', 'timestamp']).reset_index(drop=True)
+    )
+
     def tag_conversations_partition(partition_df):
         """Apply conversation tagging to a partition"""
         if len(partition_df) == 0:
@@ -248,7 +284,8 @@ def groupby_agg_summary_stats_dask(
     the needed columns to pandas, run the agg, then wrap back in Dask.
     Returns DataFrame with group_cols + mean, std, min, max, median, skewness, kurtosis.
     """
-    subset = df[group_cols + [value_col]].compute()
+    with dask.config.set(scheduler='synchronous'):
+        subset = df[group_cols + [value_col]].compute()
     # Use NamedAgg keyword form so output columns are mean, min, max, std, median, skewness, kurtosis
     out = subset.groupby(group_cols).agg(
         mean=(value_col, 'mean'),

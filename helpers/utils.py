@@ -212,21 +212,34 @@ def save_parquet(df: Union[DaskDataFrame, PandasDataFrame], out_directory_path: 
 
     if isinstance(df, dd.DataFrame):
         out_directory_path.mkdir(parents=True, exist_ok=True)
-        obj_cols = _object_cols(df.dtypes)
-        if obj_cols:
-            df = df.assign(**{c: df[c].astype(str) for c in obj_cols})
-        # Explicit schema so every partition writes the same schema (avoids read errors)
-        schema = pa.schema([
-            (c, _pandas_dtype_to_arrow(df.dtypes[c])) for c in df.columns
-        ])
-        df.to_parquet(
-            str(out_directory_path),
-            write_index=False,
-            overwrite=True,
-            schema=schema,
-        )
+        # Always write partition-by-partition via to_parquet. df.compute() gathers
+        # all partitions via a repartitiontofewer task in Dask distributed, which
+        # OOMs workers under memory pressure and retries infinitely.
+        #
+        # Object-dtype columns signal mixed types across source parquet files (e.g.
+        # caller_antenna is float64 in some CDR files, string in others). Cast them
+        # to str inside map_partitions so the transform runs inside each partition's
+        # task graph before Arrow's write task sees the data. assign() does not work
+        # here: to_parquet with an explicit schema passes the raw partition to
+        # Arrow's validator before the lazy assign cast executes.
+        #
+        # No explicit schema: Arrow infers from the first partition and applies it
+        # to all subsequent partitions. With object columns uniformly cast to str,
+        # every partition produces string data and the inferred schema is consistent.
+        # Pass schema=None to disable Dask's default schema="infer" behaviour.
+        # With schema="infer" (the default), Dask infers the schema from the first
+        # partition and applies it to all write tasks. For columns with mixed types
+        # across partitions (e.g. caller_antenna stored as float64 in some CDR files
+        # and string in others), Arrow infers large_string for the first partition,
+        # then fails with "NumPyConverter doesn't implement <large_string> conversion"
+        # on later partitions that have the same column as double.
+        # With schema=None, each partition is written with its own Arrow-inferred
+        # schema (no cross-partition cast attempted). Mixed-schema parquet directories
+        # read back correctly via dd.read_parquet, which unifies types to object.
+        df.to_parquet(str(out_directory_path), write_index=False, overwrite=True, schema=None)
+        return
 
-    elif isinstance(df, PandasDataFrame):
+    if isinstance(df, PandasDataFrame):
         out_directory_path.mkdir(parents=True, exist_ok=True)
         obj_cols = _object_cols(df.dtypes)
         if obj_cols:

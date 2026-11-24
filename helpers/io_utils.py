@@ -225,7 +225,13 @@ class IOUtils:
             colvalues: required values
             error_msg: error message to print if values don't match
         """
-        unique_values = set(df[colname].unique().compute().tolist())
+        # Sample only the first partition for the uniqueness check — reading all 500+
+        # NFS parquet files synchronously takes ~30s and starves the scheduler's
+        # asyncio event loop, causing nanny-close on idle workers.  Values like
+        # txn_type are consistent across files, so one partition is representative.
+        n_sample = min(df.npartitions, 3)
+        sample_df = dd.concat([df.get_partition(i) for i in range(n_sample)])
+        unique_values = set(sample_df[colname].unique().compute(scheduler='synchronous').tolist())
         if not unique_values.issubset(set(colvalues)):
             raise ValueError(error_msg)
 
@@ -522,17 +528,23 @@ class IOUtils:
         return mobilemoney
 
 
-    def load_shapefile(self, fpath: Path) -> GeoDataFrame:
+    def load_shapefile(self, fpath: Path, col_names: Optional[Dict] = None) -> GeoDataFrame:
         """
         Load shapefile and make sure it has the right columns
 
         Args:
             fpath: path to file, which can be .shp or .geojson
+            col_names: optional mapping from standard names to file column names (e.g. {'region': 'DISTRICT'})
 
-        Returns: 
+        Returns:
             GeoDataFrame
         """
         shapefile = gpd.read_file(fpath)
+
+        if col_names:
+            rename_dict = {v: k for k, v in col_names.items() if v in shapefile.columns}
+            if rename_dict:
+                shapefile = shapefile.rename(columns=rename_dict)
 
         # Verify that columns are correct
         self.check_cols(shapefile, 'shapefile')
@@ -560,8 +572,14 @@ class IOUtils:
         Returns:
             Dask DataFrame with cleaned timestamp and day columns
         """
-        # Avoid head(1) on empty dataframe (prevents Dask "Insufficient elements for head" warning)
-        nrows = df.shape[0].compute()
+        # Check only the first partition: counting all 500+ NFS parquet files
+        # synchronously takes ~30s and starves the scheduler's asyncio event loop,
+        # causing nanny-close on idle workers.  We only need to know if any rows
+        # exist (nrows > 0), not the exact total count.
+        if df.npartitions == 0:
+            nrows = 0
+        else:
+            nrows = df.get_partition(0).shape[0].compute(scheduler='synchronous')
         if nrows == 0:
             raise ValueError(
                 'Cannot clean timestamp: dataframe has no rows. '

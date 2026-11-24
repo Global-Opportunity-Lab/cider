@@ -1,0 +1,30 @@
+# Update your existing cenv with CIDER deps (no recreate):
+#   conda activate cenv
+#   conda env update -f environment_cenv.yml
+# Conda will add/upgrade only what’s needed; Python stays as-is if already satisfied.
+name: cenv
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.9,<3.13
+  - pandas
+  - numpy
+  - dask
+  - distributed
+  - geopandas>=0.14.0
+  - pyarrow
+  - shapely
+  - rasterio
+  - lightgbm
+  - scikit-learn
+  - pyyaml
+  - pip
+  - pip:
+    - python-box
+    - geovoronoi
+    - pyquadkey2
+    - scikit-misc
+    - wpca
+    - hashids
+    - fastparquet

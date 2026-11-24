@@ -31,14 +31,17 @@ import os
 from collections import defaultdict
 from typing import Any, Dict, Optional, Union
 
+import dask
 import dask.dataframe as dd
 import geopandas as gpd  # type: ignore[import]
 import matplotlib.pyplot as plt  # type: ignore[import]
 import numpy as np
 import pandas as pd
+import polars as pl
 import seaborn as sns  # type: ignore[import]
 
-from helpers.features import all_dask
+from helpers.features import all_dask, prepare_cdr_base
+from helpers.legacy_feature_names import rename_cdr_features_to_legacy
 from helpers.plot_utils import clean_plot, dates_xaxis, distributions_plot
 from helpers.utils import (cdr_bandicoot_format, filter_by_phone_numbers_to_featurize,
                            get_dask_client, long_join_pandas, long_join_dask, make_dir,
@@ -116,7 +119,7 @@ class Featurizer:
             else:
                 raise ValueError(f'Unknown feature output format {output_format_string}.')
         else:
-            self.output_format = _OutputFormat.CSV
+            self.output_format = _OutputFormat.PARQUET
 
 
     def diagnostic_statistics(self, write: bool = True) -> Dict[str, Dict[str, int]]:
@@ -245,20 +248,73 @@ class Featurizer:
             raise ValueError('CDR file must be loaded to calculate CDR features.')
         print('Calculating CDR features...')
 
-        cdr_features = all_dask(
-            self.ds.cdr,
-            self.ds.antennas,
-            cfg=self.cfg.params.cdr,
-            phone_numbers_to_featurize=self.phone_numbers_to_featurize
-        )
-        cdr_features_df = long_join_dask(cdr_features, on='caller_id', how='outer')
-        cdr_features_df = cdr_features_df.rename(columns={'caller_id': 'name'})
+        # Restart workers to flush memory from previous feature computations.
+        # Earlier features (location, mobiledata) leave data resident in worker
+        # memory, pushing RAM near Dask's 80% pause threshold. CDR features
+        # involve large shuffles and gathers that deadlock when workers are paused.
+        try:
+            from dask.distributed import get_client
+            _client = get_client()
+            print('Restarting Dask workers to free memory before CDR features...')
+            _client.restart()
+        except Exception:
+            pass
 
-        if self.output_format == _OutputFormat.CSV:
-            save_df(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_dask' / 'all', single_file=False)
-        else:
-            save_parquet(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_dask' / 'all')
-        self.features['cdr'] = cdr_features_df
+        # Compute the shared CDR base (in/out duplication, filter, tag_conversations,
+        # weekday/daytime) once using the distributed scheduler, then write to a temp
+        # parquet directory (64 partitions). All 20 feature functions in all_dask()
+        # read from those 64 small files instead of re-reading 1407 raw CDR files
+        # each time. Without this cache, CDR features take 20+ hours because every
+        # feature's pivot_df/.compute() traverses the full CDR task graph.
+        import tempfile, shutil
+        from pathlib import Path as _Path
+        _temp_dir = _Path(tempfile.mkdtemp(prefix='cider_cdr_base_'))
+        _cdr_base_parquet = _temp_dir / 'base'
+        try:
+            print('Computing CDR base (one-time read of raw files) ...')
+            _cdr_base_df = prepare_cdr_base(
+                self.ds.cdr,
+                cfg=self.cfg.params.cdr,
+                phone_numbers_to_featurize=self.phone_numbers_to_featurize,
+            )
+            # Run the CDR base write in the main thread. Distributed mode for this
+            # 83k-task graph (read 1407 files + shuffle) creates 30+ minutes of
+            # inter-worker coordination and GC pressure that eventually kills a worker.
+            # Sync mode uses the full 83GB main-process RAM, runs all tasks
+            # sequentially (no network overhead), and completes in a few minutes.
+            # Feature functions still run distributed from the small 64-partition cache.
+            with dask.config.set(scheduler='synchronous'):
+                _cdr_base_df.to_parquet(
+                    str(_cdr_base_parquet), write_index=False, overwrite=True, schema=None
+                )
+            print('CDR base written to temp parquet; computing features from cache...')
+            _cdr_cached = dd.read_parquet(str(_cdr_base_parquet))
+
+            # Use synchronous scheduler for all feature computation. Feature functions
+            # call groupby().size().compute() and similar, which create repartitiontofewer
+            # tasks in the distributed scheduler that kill workers via OOM. With the
+            # 64-partition temp cache the sync compute is fast (seconds per feature).
+            with dask.config.set(scheduler='synchronous'):
+                cdr_features = all_dask(
+                    _cdr_cached,
+                    self.ds.antennas,
+                    cfg=self.cfg.params.cdr,
+                    phone_numbers_to_featurize=self.phone_numbers_to_featurize,
+                    skip_base_prep=True,
+                )
+                # Keep all subsequent lazy operations inside the try block so the temp
+                # parquet exists until save_parquet() triggers the actual compute.
+                cdr_features_df = long_join_dask(cdr_features, on='caller_id', how='outer')
+                cdr_features_df = cdr_features_df.rename(columns={'caller_id': 'name'})
+                cdr_features_df = rename_cdr_features_to_legacy(cdr_features_df)
+
+                if self.output_format == _OutputFormat.CSV:
+                    save_df(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_dask' / 'all', single_file=False)
+                else:
+                    save_parquet(cdr_features_df, self.outputs_path / 'datasets' / 'cdr_features_dask' / 'all')
+                self.features['cdr'] = cdr_features_df
+        finally:
+            shutil.rmtree(_temp_dir, ignore_errors=True)
 
     # Backward compatibility
     cdr_features_spark = cdr_features_dask
@@ -269,12 +325,18 @@ class Featurizer:
             raise ValueError('CDR file must be loaded to calculate international features.')
         print('Calculating international features...')
 
-        # Write international transactions to file
+        # Write international transactions to file — parquet (partition-parallel)
+        # instead of single-file CSV so we never call df.compute() on the raw CDR
+        # slice, which would trigger repartitiontofewer and OOM workers.
         international_trans = self.ds.cdr[self.ds.cdr['international'] == 'international']
-        save_df(international_trans, self.outputs_path / 'datasets' / 'international_transactions.csv')
+        save_parquet(international_trans, self.outputs_path / 'datasets' / 'international_transactions')
 
-        # Read international calls
-        inter = pd.read_csv(self.outputs_path / 'datasets' / 'international_transactions.csv', dtype={'caller_id': 'str'})
+        # Read back: the result is small (international txns are a fraction of CDR)
+        # so a single .compute() is fine here.
+        inter = read_parquet(
+            self.client, self.outputs_path / 'datasets' / 'international_transactions'
+        ).compute()
+        inter['caller_id'] = inter['caller_id'].astype(str)
 
         # Calculate list of aggregations by subscriber
         inter_voice = inter[inter['txn_type'] == 'call']
@@ -298,7 +360,6 @@ class Featurizer:
 
         # Combine all aggregations together, write to file
         feats_df = long_join_pandas(feats, on='caller_id', how='outer').rename({'caller_id': 'name'}, axis=1)
-        feats_df['name'] = feats_df.index
 
         feats_df = filter_by_phone_numbers_to_featurize(self.phone_numbers_to_featurize, feats_df, 'name')
 
@@ -336,23 +397,44 @@ class Featurizer:
             )
             antennas = gpd.sjoin(antennas, shapefile, predicate='within', how='left').drop('index_right', axis=1)
             antennas[shapefile_name] = antennas[shapefile_name].fillna('Unknown')
-        antennas = dd.from_pandas(antennas.drop(['geometry', 'latitude', 'longitude'], axis=1).fillna(''), npartitions=self.dask_cfg['num_partitions'])
+        # Keep antennas as pandas — it's a small lookup table (~thousands of rows).
+        # Using a broadcast join (map_partitions) means each CDR partition merges
+        # with the full antennas table locally on its worker.  This eliminates the
+        # distributed shuffle join that was repartitioning CDR down to num_partitions
+        # (~16) output partitions, creating one massive partition per worker and
+        # triggering repartitiontofewer OOM crashes.
+        antennas_pd = antennas.drop(columns=['geometry', 'latitude', 'longitude']).fillna('').reset_index(drop=True)
+        antennas_pd['antenna_id'] = antennas_pd['antenna_id'].astype(str)
 
         cdr_bandicoot_filtered = filter_by_phone_numbers_to_featurize(
             self.phone_numbers_to_featurize, self.ds.cdr_bandicoot, 'name'
         )
 
-        # Cast antenna_id to same type on both sides to avoid merge dtype mismatch (str vs string)
-        cdr_bandicoot_filtered = cdr_bandicoot_filtered.assign(
+        # Select only the columns needed for location features before the merge —
+        # avoids carrying CDR columns (duration, direction, lat, lon, etc.) through
+        # the shuffle, which multiplies per-worker memory use.
+        select_cols = [c for c in ['name', 'antenna_id'] if c in cdr_bandicoot_filtered.columns]
+        cdr_slim = cdr_bandicoot_filtered[select_cols].assign(
             antenna_id=cdr_bandicoot_filtered['antenna_id'].astype(str)
         )
-        antennas = antennas.assign(antenna_id=antennas['antenna_id'].astype(str))
 
-        # Merge CDR to antennas
-        cdr = cdr_bandicoot_filtered.merge(antennas, on='antenna_id', how='left')
-        cdr = cdr.fillna({sn: 'Unknown' for sn in self.ds.shapefiles.keys()})
+        # Broadcast join: each CDR partition is merged with the small antennas
+        # DataFrame on its own worker — no cross-worker shuffle, no repartitiontofewer.
+        meta_cdr = cdr_slim._meta.merge(antennas_pd.head(0), on='antenna_id', how='left')
+        cdr = cdr_slim.map_partitions(
+            lambda part, ant: part.merge(ant, on='antenna_id', how='left'),
+            antennas_pd,
+            meta=meta_cdr,
+        )
 
-        # Get counts by region
+        fillna_vals = {sn: 'Unknown' for sn in self.ds.shapefiles.keys()}
+        if fillna_vals:
+            cdr = cdr.fillna(fillna_vals)
+
+        # Get counts by region — write as partition-parallel parquet instead of
+        # single-file CSV.  save_df(..., single_file=True) calls df.compute()
+        # internally, which triggers repartitiontofewer to gather all partitions
+        # onto one worker before writing — the same OOM we're avoiding above.
         for shapefile_name in self.ds.shapefiles.keys():
             if shapefile_name not in cdr.columns:
                 raise ValueError(
@@ -360,23 +442,35 @@ class Featurizer:
                     f"Ensure shapefile GeoDataFrame has a column renamed to '{shapefile_name}' (e.g. 'region'). "
                     f"Available columns: {list(cdr.columns)}"
                 )
-            countbyregion = cdr.groupby(['name', shapefile_name]).size().rename('count').reset_index()
-            save_df(countbyregion, self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv')
+            gb = cdr.groupby(['name', shapefile_name]).size().compute()
+            gb.name = 'count'
+            out_path = self.outputs_path / 'datasets' / f'countby{shapefile_name}'
+            out_path.mkdir(parents=True, exist_ok=True)
+            pl.from_pandas(gb.reset_index()).write_parquet(str(out_path / '0.parquet'))
 
-        # Get unique regions (and unique towers)
-        unique_regions = cdr[['name']].drop_duplicates()
+        # All aggregates are small (one row per subscriber). Compute each in Dask, then
+        # join and persist in Polars — sidesteps the Dask 2025.7 optimizer reset_index bug
+        # on Series (ndim=1) that fires when to_parquet triggers _simplify_up.
+        unique_regions_pl = pl.from_pandas(
+            cdr[['name']].drop_duplicates().compute().astype({'name': str})
+        )
         for shapefile_name in self.ds.shapefiles.keys():
-            region_counts = cdr.groupby('name')[shapefile_name].nunique().rename(
-                f'count(DISTINCT {shapefile_name})'
-            ).reset_index()
-            unique_regions = unique_regions.merge(region_counts, on='name', how='left')
+            rc = cdr.groupby('name')[shapefile_name].nunique().compute()
+            rc.name = f'count(DISTINCT {shapefile_name})'
+            unique_regions_pl = unique_regions_pl.join(
+                pl.from_pandas(rc.reset_index().astype({'name': str})), on='name', how='left'
+            )
         if 'tower_id' in cdr.columns:
-            tower_counts = cdr.groupby('name')['tower_id'].nunique().rename(
-                'count(DISTINCT tower_id)'
-            ).reset_index()
-            unique_regions = unique_regions.merge(tower_counts, on='name', how='left')
-        save_df(unique_regions, self.outputs_path / 'datasets' / 'uniqueregions.csv')
-        feats = pd.read_csv(self.outputs_path / 'datasets' / 'uniqueregions.csv', dtype={'name': 'str'})
+            tc = cdr.groupby('name')['tower_id'].nunique().compute()
+            tc.name = 'count(DISTINCT tower_id)'
+            unique_regions_pl = unique_regions_pl.join(
+                pl.from_pandas(tc.reset_index().astype({'name': str})), on='name', how='left'
+            )
+        out_path = self.outputs_path / 'datasets' / 'uniqueregions'
+        out_path.mkdir(parents=True, exist_ok=True)
+        unique_regions_pl.write_parquet(str(out_path / '0.parquet'))
+        feats = unique_regions_pl.to_pandas()
+        feats = feats.astype({'name': str})
 
 
         if len(self.ds.shapefiles) > 0:
@@ -385,10 +479,12 @@ class Featurizer:
             
             # Pivot counts by region
             for shapefile_name in self.ds.shapefiles.keys():
-                count_by_region = pd.read_csv(
-                    self.outputs_path / 'datasets' / f'countby{shapefile_name}.csv',
-                    dtype={'name': 'str'}
-                ).pivot(index='name', columns=shapefile_name, values='count').fillna(0)
+                count_by_region = read_parquet(
+                    self.client,
+                    self.outputs_path / 'datasets' / f'countby{shapefile_name}'
+                ).compute().astype({'name': str}).pivot(
+                    index='name', columns=shapefile_name, values='count'
+                ).fillna(0)
 
                 count_by_region['total'] = count_by_region.sum(axis=1)
 
@@ -428,7 +524,14 @@ class Featurizer:
         print('Calculating mobile data features...')
         
         # Aggregate mobiledata use by day, to control for different definitions of "one transaction."
-        mobiledata_aggregated_by_day = self.ds.mobiledata.groupby(['caller_id', 'day'])['volume'].sum().reset_index()
+        # Dask shuffle uses int8 for partition indices, overflowing when npartitions > 127.  Many daily
+        # files (e.g. 90 days × 2 carriers) create 180+ partitions.  repartition() here is a coalesce
+        # (concatenating adjacent partitions), not a hash shuffle, so it is safe even at high partition
+        # counts.  The subsequent groupby shuffle then sees ≤64 partitions (fits in int8).
+        mobiledata = self.ds.mobiledata
+        if mobiledata.npartitions > 64:
+            mobiledata = mobiledata.repartition(npartitions=64)
+        mobiledata_aggregated_by_day = mobiledata.groupby(['caller_id', 'day'])['volume'].sum().reset_index()
         
         mobiledata_aggregated_by_day = filter_by_phone_numbers_to_featurize(
             self.phone_numbers_to_featurize, mobiledata_aggregated_by_day, 'caller_id'
@@ -510,13 +613,19 @@ class Featurizer:
             df_all['txn_type'] = 'all'
             df = dd.concat([df, df_all], axis=0)
 
-            # Compute aggregations using pandas-style syntax
-            aggs_pd = df.compute().groupby(['name', 'txn_type']).agg({
-                'amount': ['mean', 'min', 'max'],
+            # Compute aggregations via Dask groupby so each worker aggregates
+            # locally. Calling df.compute() first gathers all 886+ partitions
+            # via repartitiontofewer, which OOMs workers under memory pressure.
+            # Dask's dict-style agg does not support nunique; compute it
+            # separately via SeriesGroupBy.nunique() and attach to the result.
+            aggs_pd = df.groupby(['name', 'txn_type']).agg({
+                'amount': ['sum', 'mean', 'min', 'max'],
                 'balance_before': ['mean', 'min', 'max'],
                 'balance_after': ['mean', 'min', 'max'],
-                'correspondent_id': ['count', 'nunique']
-            })
+                'correspondent_id': ['count']
+            }).compute()
+            nunique_pd = df.groupby(['name', 'txn_type'])['correspondent_id'].nunique().compute()
+            aggs_pd[('correspondent_id', 'nunique')] = nunique_pd
             
             # Flatten and pivot
             aggs_pd.columns = ['_'.join(col).strip() for col in aggs_pd.columns.values]
@@ -555,14 +664,22 @@ class Featurizer:
         # Dask groupby.agg does not support 'nunique'; compute amount aggs and day nunique separately then merge.
         # Rename to 'name' before merge so the expression graph uses 'name' consistently (avoids KeyError on
         # caller_id when to_parquet inspects divisions).
+        #
+        # Dask shuffle uses int8 for partition indices, overflowing when npartitions > 127.  Many daily
+        # files (e.g. 90 days × 2 carriers) create 180+ partitions.  repartition() here is a coalesce
+        # (concatenating adjacent partitions), not a hash shuffle, so it is safe even at high partition
+        # counts.  The subsequent groupby shuffle then sees ≤64 partitions (fits in int8).
+        recharges = self.ds.recharges
+        if recharges.npartitions > 64:
+            recharges = recharges.repartition(npartitions=64)
         amount_aggs = (
-            self.ds.recharges.groupby('caller_id')['amount']
+            recharges.groupby('caller_id')['amount']
             .agg(['sum', 'mean', 'min', 'max', 'count'])
             .reset_index()
             .rename(columns={'caller_id': 'name'})
         )
         day_nunique = (
-            self.ds.recharges.groupby('caller_id')['day']
+            recharges.groupby('caller_id')['day']
             .nunique()
             .rename('days')
             .reset_index()
@@ -605,7 +722,7 @@ class Featurizer:
                 if example_file.suffix == '.csv':
                     # Use Dask to read with proper dtypes
                     self.features[feature] = dd.read_csv(
-                        str(data_path / f'{path_to_dataset}.csv'),
+                        str(data_path / path_to_dataset / '*.csv'),
                         dtype={'caller_id': 'str', 'name': 'str'}
                     )
 
@@ -623,22 +740,42 @@ class Featurizer:
         id_col = 'person_id' if 'person_id' in phone_numbers_to_featurize.columns else 'phone_number'
         hh_mapping = phone_numbers_to_featurize[[id_col, 'household_id']].drop_duplicates()
 
-        merged = person_features.merge(
-            hh_mapping.assign(**{id_col: hh_mapping[id_col].astype(str)}),
-            left_on='name',
-            right_on=id_col,
-            how='inner'
-        )
-        if id_col != 'name':
-            merged = merged.drop(columns=id_col)
+        # Convert to Polars for efficient groupby aggregation — avoids Dask's
+        # blockwisemerge OOM from joining 4 separate groupby results, and scales
+        # to year-long windows without memory pressure.
+        if isinstance(person_features, dd.DataFrame):
+            pf_pl = pl.from_pandas(person_features.compute())
+        elif isinstance(person_features, pd.DataFrame):
+            pf_pl = pl.from_pandas(person_features)
+        else:
+            pf_pl = person_features  # already Polars
+
+        if isinstance(hh_mapping, dd.DataFrame):
+            hh_pl = pl.from_pandas(hh_mapping.compute())
+        elif isinstance(hh_mapping, pd.DataFrame):
+            hh_pl = pl.from_pandas(hh_mapping)
+        else:
+            hh_pl = hh_mapping  # already Polars
+
+        hh_pl = hh_pl.with_columns(pl.col(id_col).cast(pl.Utf8))
+        pf_pl = pf_pl.with_columns(pl.col('name').cast(pl.Utf8))
+
+        merged = pf_pl.join(hh_pl, left_on='name', right_on=id_col, how='inner')
 
         feature_cols = [c for c in merged.columns if c not in ('name', 'household_id')]
-        hh_mean = merged.groupby('household_id')[feature_cols].mean().add_suffix('__hh_mean')
-        hh_std = merged.groupby('household_id')[feature_cols].std().add_suffix('__hh_std')
-        hh_max = merged.groupby('household_id')[feature_cols].max().add_suffix('__hh_max')
-        hh_n = merged.groupby('household_id')['name'].nunique().rename('hh_n_persons')
+        numeric_cols = [c for c in feature_cols if merged[c].dtype.is_numeric()]
 
-        hh_features = hh_mean.join(hh_std).join(hh_max).join(hh_n).reset_index()
+        agg_exprs = []
+        for c in numeric_cols:
+            agg_exprs.extend([
+                pl.col(c).mean().alias(f'{c}__hh_mean'),
+                pl.col(c).std().alias(f'{c}__hh_std'),
+                pl.col(c).max().alias(f'{c}__hh_max'),
+            ])
+        agg_exprs.append(pl.col('name').n_unique().alias('hh_n_persons'))
+
+        hh_features_pl = merged.group_by('household_id').agg(agg_exprs)
+        hh_features = hh_features_pl.to_pandas()
 
         if self.output_format == _OutputFormat.CSV:
             save_df(hh_features, self.outputs_path / 'datasets' / 'household_features', single_file=False)
@@ -666,7 +803,38 @@ class Featurizer:
 
         all_features_list = [self.features[key] for key in self.features.keys() if self.features[key] is not None]
         if all_features_list:
-            all_features = long_join_dask(all_features_list, how='outer', on='name')
+            # Compute each feature set to pandas individually, then merge in
+            # pandas.  The previous approach repartitioned every DF to 1
+            # partition before calling long_join_dask, which caused Dask to
+            # use blockwisemerge — a code path that bypasses the shuffle.method
+            # config and materialises the entire merged result into a single
+            # task on one worker.  For large CDR windows (30-90 days of Airtel
+            # data) that intermediate exceeds per-worker memory limits and also
+            # fails LZ4 spill compression (>2 GB serialised object), producing
+            # an infinite retry loop.
+            #
+            # Each individual feature set is small (one aggregated row per
+            # subscriber, typically <10 MB), so computing them to pandas and
+            # merging in-process is both fast and memory-safe.  We then wrap
+            # the result back in a Dask DataFrame for compatibility with the
+            # save/household-features code below.
+            pd_frames = [
+                df.compute() if isinstance(df, dd.DataFrame) else df
+                for df in all_features_list
+            ]
+            # Cast 'name' to str on every frame — mirrors long_join_dask which
+            # did df.assign(name=df['name'].astype(str)) before each merge to
+            # avoid "merging string and float64 columns" errors.
+            pd_frames = [df.assign(name=df['name'].astype(str)) for df in pd_frames]
+            merged_pd = pd_frames[0]
+            for other in pd_frames[1:]:
+                merged_pd = merged_pd.merge(other, on='name', how='outer')
+            # Keep as plain pandas — save_parquet and _compute_household_features
+            # both handle pd.DataFrame directly.  Wrapping in dd.from_pandas causes
+            # repartitiontofewer when _compute_household_features calls .compute(),
+            # routing a multi-partition DF through the distributed scheduler and
+            # hitting the same per-worker OOM/LZ4-spill crash we fixed above.
+            all_features = merged_pd
 
             if self.output_format == _OutputFormat.CSV:
                 save_df(all_features, self.outputs_path / 'datasets' / 'features', single_file=False)
